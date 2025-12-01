@@ -53,7 +53,7 @@ export class PrivacyController {
     const userId = req.user!.uid;
     const { consentType, value, reason } = req.body;
 
-    const consent = await PrivacyService.updateConsent(
+    await PrivacyService.updateConsent(
       userId,
       consentType,
       value,
@@ -139,7 +139,7 @@ export class PrivacyController {
    * POST /api/v1/privacy/execute-deletion (Internal/Cron job)
    * Actually delete accounts that have passed the grace period
    */
-  static async executeDeletion(req: AuthenticatedRequest, res: Response): Promise<void> {
+  static async executeDeletion(_req: AuthenticatedRequest, res: Response): Promise<void> {
     // TODO: Add admin auth check or service auth check
     // For now, this should be protected by service auth token
     

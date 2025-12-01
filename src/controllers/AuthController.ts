@@ -2,7 +2,6 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { AuthService } from '../services/AuthService';
 import { SignupRequest, LoginRequest } from '../types';
-import { ApiResponse } from '../types';
 
 export class AuthController {
   /**

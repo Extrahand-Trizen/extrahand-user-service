@@ -1,5 +1,5 @@
-import Profile, { IProfileDocument } from '../models/Profile';
-import { IProfile, ILocation } from '../types';
+import Profile, { IProfile, IProfileDocument } from '../models/Profile';
+import { ILocation } from '../types';
 import { NotFoundError, BadRequestError, InternalServerError } from '../errors/AppError';
 import logger from '../config/logger';
 import mongoose from 'mongoose';
@@ -30,7 +30,7 @@ export class ProfileService {
       throw new NotFoundError('Profile not found. Please complete the onboarding process.');
     }
 
-    return profile as IProfileDocument;
+    return profile as unknown as IProfileDocument;
   }
 
   /**
@@ -43,7 +43,7 @@ export class ProfileService {
       throw new NotFoundError('Profile not found');
     }
 
-    return profile as IProfileDocument;
+    return profile as unknown as IProfileDocument;
   }
 
   /**
@@ -71,7 +71,7 @@ export class ProfileService {
       .limit(limit)
       .lean();
 
-    return profiles as IProfileDocument[];
+    return profiles as unknown as IProfileDocument[];
   }
 
   /**
@@ -165,7 +165,7 @@ export class ProfileService {
       throw new Error('Profile was saved but could not be retrieved');
     }
 
-    return savedProfile as IProfileDocument;
+    return savedProfile as unknown as IProfileDocument;
   }
 
   /**
@@ -254,7 +254,7 @@ export class ProfileService {
       throw new Error('Profile was updated but could not be retrieved');
     }
 
-    return updatedProfile as IProfileDocument;
+    return updatedProfile as unknown as IProfileDocument;
   }
 
   /**
@@ -279,7 +279,13 @@ export class ProfileService {
       throw new NotFoundError('Profile not found');
     }
 
-    return Profile.calculateCompletionPercentage(profile as IProfileDocument);
+    // Use static method from Profile model (TypeScript doesn't recognize statics properly)
+    const ProfileModel = Profile as any;
+    if (ProfileModel.calculateCompletionPercentage) {
+      return ProfileModel.calculateCompletionPercentage(profile as unknown as IProfileDocument);
+    }
+    // Fallback if static method not available
+    throw new InternalServerError('Profile completion calculation not available');
   }
 
   /**

@@ -1,5 +1,5 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
-import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, IProfileDocument } from '../types';
+import { Location, OnboardingStatus, BusinessProfile, DataPrivacy } from '../types';
 
 export interface IProfile extends Document {
   uid: string;

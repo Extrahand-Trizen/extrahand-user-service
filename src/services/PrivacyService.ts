@@ -381,7 +381,7 @@ export class PrivacyService {
 
     logger.info('✅ Consent updated', { userId, consentType, value });
 
-    return consent;
+    return consent as unknown as IConsent;
   }
 
   /**
@@ -392,6 +392,10 @@ export class PrivacyService {
 
     if (!consent) {
       consent = await (Consent as any).createDefaultConsent(userId, ipAddress, userAgent);
+    }
+
+    if (!consent) {
+      throw new NotFoundError('Consent record not found');
     }
 
     return {
@@ -436,7 +440,7 @@ export class PrivacyService {
     if (consent) {
       consent.consentHistory.push({
         consentType: 'account.deletion',
-        action: 'requested',
+        action: 'given' as const,
         givenAt: new Date(),
         ipAddress: 'system',
         userAgent: 'system',
@@ -479,7 +483,7 @@ export class PrivacyService {
     if (consent) {
       consent.consentHistory.push({
         consentType: 'account.deletion',
-        action: 'cancelled',
+        action: 'withdrawn' as const,
         givenAt: new Date(),
         ipAddress,
         userAgent,
@@ -496,9 +500,9 @@ export class PrivacyService {
    * Actually delete accounts that have passed the grace period
    */
   static async executeScheduledDeletions(
-    taskServiceUrl: string,
-    messagingServiceUrl: string,
-    serviceAuthToken: string
+    _taskServiceUrl: string,
+    _messagingServiceUrl: string,
+    _serviceAuthToken: string
   ): Promise<any> {
     const now = new Date();
     
