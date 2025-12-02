@@ -34,3 +34,4 @@ router.delete('/me', authMiddleware, asyncHandler(ProfileController.deleteProfil
 
 export default router;
 
+
