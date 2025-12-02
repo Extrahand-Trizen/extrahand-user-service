@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Response, Request } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { ProfileService } from '../services/ProfileService';
 import { IProfile } from '../models/Profile';
@@ -204,6 +204,48 @@ export class ProfileController {
     const status = await ProfileService.getOnboardingStatus(uid);
     
     res.json(status);
+  }
+
+  /**
+   * PATCH /api/v1/profiles/:uid/verification/aadhaar
+   * Update Aadhaar verification status (service-to-service call)
+   */
+  static async updateAadhaarVerification(req: Request, res: Response): Promise<void> {
+    const { uid } = req.params;
+    const { isAadhaarVerified, aadhaarVerifiedAt, maskedAadhaar, verifiedData } = req.body;
+
+    if (!uid) {
+      res.status(400).json({
+        success: false,
+        error: 'User ID (uid) is required'
+      });
+      return;
+    }
+
+    try {
+      // Update profile with Aadhaar verification status
+      const updateData: Partial<IProfile> = {
+        isAadhaarVerified: isAadhaarVerified !== undefined ? isAadhaarVerified : true,
+        aadhaarVerifiedAt: aadhaarVerifiedAt ? new Date(aadhaarVerifiedAt) : new Date()
+      };
+
+      const updatedProfile = await ProfileService.updateProfile(uid, updateData);
+
+      res.json({
+        success: true,
+        message: 'Aadhaar verification status updated',
+        profile: {
+          uid: updatedProfile.uid,
+          isAadhaarVerified: updatedProfile.isAadhaarVerified,
+          aadhaarVerifiedAt: updatedProfile.aadhaarVerifiedAt
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to update Aadhaar verification status'
+      });
+    }
   }
 }
 

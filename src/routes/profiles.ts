@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ProfileController } from '../controllers/ProfileController';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth';
+import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
@@ -28,6 +29,9 @@ router.post('/', authMiddleware, asyncHandler(ProfileController.createProfile));
 
 // PUT /api/v1/profiles/me - Update profile (requires auth)
 router.put('/me', authMiddleware, asyncHandler(ProfileController.updateProfile));
+
+// PATCH /api/v1/profiles/:uid/verification/aadhaar - Update Aadhaar verification (service auth)
+router.patch('/:uid/verification/aadhaar', serviceAuthMiddleware, asyncHandler(ProfileController.updateAadhaarVerification));
 
 // DELETE /api/v1/profiles/me - Delete profile (requires auth)
 router.delete('/me', authMiddleware, asyncHandler(ProfileController.deleteProfile));
