@@ -212,7 +212,7 @@ export class ProfileController {
    */
   static async updateAadhaarVerification(req: Request, res: Response): Promise<void> {
     const { uid } = req.params;
-    const { isAadhaarVerified, aadhaarVerifiedAt, maskedAadhaar, verifiedData } = req.body;
+    const { isAadhaarVerified, aadhaarVerifiedAt } = req.body;
 
     if (!uid) {
       res.status(400).json({
