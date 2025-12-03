@@ -174,10 +174,23 @@ export class ProfileService {
    * Update profile
    */
   static async updateProfile(uid: string, profileData: Partial<IProfile>): Promise<IProfileDocument> {
+    console.log('🔍 [PROFILE SERVICE] Finding profile to update', { uid });
+    
     const existingProfile = await Profile.findOne({ uid }).lean();
     if (!existingProfile) {
+      console.error('❌ [PROFILE SERVICE] Profile not found', { uid });
       throw new NotFoundError('Profile not found. Please create a profile first.');
     }
+    
+    console.log('✅ [PROFILE SERVICE] Found existing profile', {
+      uid,
+      currentIsAadhaarVerified: existingProfile.isAadhaarVerified,
+      currentAadhaarVerifiedAt: existingProfile.aadhaarVerifiedAt,
+      updateData: {
+        isAadhaarVerified: profileData.isAadhaarVerified,
+        aadhaarVerifiedAt: profileData.aadhaarVerifiedAt
+      }
+    });
 
     const now = Date.now();
     const updatePayload: any = { updatedAt: now };
@@ -202,6 +215,24 @@ export class ProfileService {
     if (profileData.photoURL !== undefined) updatePayload.photoURL = profileData.photoURL;
     if (profileData.roles !== undefined) updatePayload.roles = profileData.roles;
     if (profileData.userType !== undefined) updatePayload.userType = profileData.userType;
+    
+    // ✨ LOG: Aadhaar verification fields
+    if (profileData.isAadhaarVerified !== undefined) {
+      updatePayload.isAadhaarVerified = profileData.isAadhaarVerified;
+      console.log('📝 [PROFILE SERVICE] Setting isAadhaarVerified', {
+        uid,
+        value: profileData.isAadhaarVerified,
+        previousValue: existingProfile.isAadhaarVerified
+      });
+    }
+    if (profileData.aadhaarVerifiedAt !== undefined) {
+      updatePayload.aadhaarVerifiedAt = profileData.aadhaarVerifiedAt;
+      console.log('📝 [PROFILE SERVICE] Setting aadhaarVerifiedAt', {
+        uid,
+        value: profileData.aadhaarVerifiedAt,
+        previousValue: existingProfile.aadhaarVerifiedAt
+      });
+    }
     if (profileData.skills !== undefined) {
       updatePayload.skills = {
         ...profileData.skills,
@@ -251,9 +282,37 @@ export class ProfileService {
       lastStep
     };
 
-    await Profile.updateOne({ uid }, { $set: updatePayload });
+    // ✨ LOG: Before MongoDB update
+    console.log('💾 [MONGODB] Updating profile in MongoDB', {
+      uid,
+      updatePayload: {
+        ...updatePayload,
+        // Don't log full objects, just keys
+        location: updatePayload.location ? 'present' : 'not present',
+        skills: updatePayload.skills ? 'present' : 'not present',
+        business: updatePayload.business ? 'present' : 'not present'
+      }
+    });
+
+    const updateResult = await Profile.updateOne({ uid }, { $set: updatePayload });
+    
+    // ✨ LOG: After MongoDB update
+    console.log('✅ [MONGODB] Profile updated in MongoDB', {
+      uid,
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount,
+      acknowledged: updateResult.acknowledged
+    });
 
     const updatedProfile = await Profile.findOne({ uid }).lean();
+    
+    // ✨ LOG: Retrieved profile after update
+    console.log('📖 [MONGODB] Retrieved updated profile from MongoDB', {
+      uid,
+      isAadhaarVerified: updatedProfile?.isAadhaarVerified,
+      aadhaarVerifiedAt: updatedProfile?.aadhaarVerifiedAt,
+      onboardingStatus: updatedProfile?.onboardingStatus
+    });
     if (!updatedProfile) {
       throw new Error('Profile was updated but could not be retrieved');
     }

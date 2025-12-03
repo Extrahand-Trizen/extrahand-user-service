@@ -214,7 +214,18 @@ export class ProfileController {
     const { uid } = req.params;
     const { isAadhaarVerified, aadhaarVerifiedAt } = req.body;
 
+    console.log('📥 [USER SERVICE] Received Aadhaar verification update request', {
+      uid,
+      body: req.body,
+      headers: {
+        'x-service-auth': req.headers['x-service-auth'] ? 'present' : 'missing',
+        'x-service-name': req.headers['x-service-name'],
+        'x-user-id': req.headers['x-user-id']
+      }
+    });
+
     if (!uid) {
+      console.error('❌ [USER SERVICE] Missing uid in request');
       res.status(400).json({
         success: false,
         error: 'User ID (uid) is required'
@@ -229,7 +240,18 @@ export class ProfileController {
         aadhaarVerifiedAt: aadhaarVerifiedAt ? new Date(aadhaarVerifiedAt) : new Date()
       };
 
+      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+        uid,
+        updateData
+      });
+
       const updatedProfile = await ProfileService.updateProfile(uid, updateData);
+
+      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+        uid,
+        isAadhaarVerified: updatedProfile.isAadhaarVerified,
+        aadhaarVerifiedAt: updatedProfile.aadhaarVerifiedAt
+      });
 
       res.json({
         success: true,
