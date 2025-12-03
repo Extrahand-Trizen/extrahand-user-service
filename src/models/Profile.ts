@@ -103,7 +103,10 @@ const ProfileSchema = new Schema<IProfile>({
   },
   phone: {
     type: String,
-    trim: true
+    trim: true,
+    unique: true,
+    sparse: true, // Allows null/undefined values but enforces uniqueness for non-null values
+    index: true
   },
   roles: {
     type: [String],

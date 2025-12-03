@@ -78,6 +78,20 @@ export class ProfileService {
    * Create or update profile
    */
   static async upsertProfile(uid: string, profileData: Partial<IProfile>): Promise<IProfileDocument> {
+    this.checkConnection();
+    
+    console.log('💾 [PROFILE SERVICE] upsertProfile called', {
+      uid,
+      profileData: {
+        name: profileData.name,
+        email: profileData.email,
+        phone: profileData.phone ? 'present' : 'not present',
+        roles: profileData.roles,
+        hasLocation: !!profileData.location,
+        hasSkills: !!profileData.skills
+      }
+    });
+
     const now = Date.now();
 
     // Process location data
@@ -122,8 +136,17 @@ export class ProfileService {
 
     // Check if profile exists
     const existingProfile = await Profile.findOne({ uid }).lean();
+    console.log('🔍 [PROFILE SERVICE] Checking if profile exists', {
+      uid,
+      exists: !!existingProfile,
+      existingProfileId: existingProfile?._id?.toString()
+    });
+    
     if (!existingProfile) {
       payload.createdAt = now;
+      console.log('✨ [PROFILE SERVICE] Creating new profile', { uid, payload: { ...payload, location: payload.location ? 'present' : 'not present' } });
+    } else {
+      console.log('🔄 [PROFILE SERVICE] Updating existing profile', { uid, existingProfileId: existingProfile._id?.toString() });
     }
 
     // Update onboarding status
@@ -160,12 +183,35 @@ export class ProfileService {
       lastStep
     };
 
-    await Profile.updateOne({ uid }, { $set: payload }, { upsert: true });
+    console.log('💾 [PROFILE SERVICE] Saving profile to MongoDB', {
+      uid,
+      operation: existingProfile ? 'update' : 'create',
+      payloadKeys: Object.keys(payload)
+    });
+    
+    const updateResult = await Profile.updateOne({ uid }, { $set: payload }, { upsert: true });
+    
+    console.log('✅ [PROFILE SERVICE] Profile saved to MongoDB', {
+      uid,
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount,
+      upsertedCount: updateResult.upsertedCount,
+      upsertedId: updateResult.upsertedId?.toString(),
+      acknowledged: updateResult.acknowledged
+    });
 
     const savedProfile = await Profile.findOne({ uid }).lean();
     if (!savedProfile) {
+      console.error('❌ [PROFILE SERVICE] Profile was saved but could not be retrieved', { uid });
       throw new Error('Profile was saved but could not be retrieved');
     }
+    
+    console.log('✅ [PROFILE SERVICE] Profile retrieved after save', {
+      uid,
+      profileId: savedProfile._id?.toString(),
+      hasRoles: !!savedProfile.roles && savedProfile.roles.length > 0,
+      onboardingStatus: savedProfile.onboardingStatus
+    });
 
     return savedProfile as unknown as IProfileDocument;
   }
