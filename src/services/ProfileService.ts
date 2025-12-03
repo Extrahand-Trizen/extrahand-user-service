@@ -144,7 +144,9 @@ export class ProfileService {
       profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
     };
 
-    const isOnboardingComplete = updatedCompletedSteps.location && updatedCompletedSteps.roles;
+    // ✨ DEMO MODE: Only require roles for onboarding completion (location moved to VerificationDashboard)
+    // Location and Aadhaar verification are now post-signup features
+    const isOnboardingComplete = updatedCompletedSteps.roles;
 
     let lastStep = currentOnboardingStatus.lastStep;
     if (hasLocation) lastStep = 'location';
@@ -233,7 +235,9 @@ export class ProfileService {
       profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
     };
 
-    const isOnboardingComplete = updatedCompletedSteps.location && updatedCompletedSteps.roles;
+    // ✨ DEMO MODE: Only require roles for onboarding completion (location moved to VerificationDashboard)
+    // Location and Aadhaar verification are now post-signup features
+    const isOnboardingComplete = updatedCompletedSteps.roles;
 
     let lastStep = currentOnboardingStatus.lastStep;
     if (updatePayload.location) lastStep = 'location';
