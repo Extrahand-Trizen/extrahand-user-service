@@ -150,29 +150,27 @@ export class ProfileService {
     }
 
     // Update onboarding status
-    const hasLocation = !!processedLocation;
+    // ✨ REMOVED: Location check - location is completely removed from onboarding
     const hasRoles = Array.isArray(profileData.roles) && profileData.roles.length > 0;
     const hasName = !!profileData.name;
     const hasEmail = !!profileData.email;
 
     const currentOnboardingStatus = existingProfile?.onboardingStatus || {
       isCompleted: false,
-      completedSteps: { location: false, roles: false, profile: false },
-      lastStep: 'location'
+      completedSteps: { roles: false, profile: false },
+      lastStep: 'roles'
     };
 
     const updatedCompletedSteps = {
-      location: hasLocation || currentOnboardingStatus.completedSteps.location,
       roles: hasRoles || currentOnboardingStatus.completedSteps.roles,
       profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
     };
 
-    // ✨ DEMO MODE: Only require roles for onboarding completion (location moved to VerificationDashboard)
-    // Location and Aadhaar verification are now post-signup features
+    // ✨ Only require roles for onboarding completion
+    // Location and Aadhaar verification completely removed from onboarding (only in VerificationDashboard)
     const isOnboardingComplete = updatedCompletedSteps.roles;
 
     let lastStep = currentOnboardingStatus.lastStep;
-    if (hasLocation) lastStep = 'location';
     if (hasRoles) lastStep = 'roles';
     if (hasName && hasEmail) lastStep = 'profile';
 
@@ -295,29 +293,27 @@ export class ProfileService {
     if (profileData.agreeTerms !== undefined) updatePayload.agreeTerms = profileData.agreeTerms;
 
     // Update onboarding status
-    const hasLocation = updatePayload.location || existingProfile.location;
+    // ✨ REMOVED: Location check - location is completely removed from onboarding
     const hasRoles = (profileData.roles && Array.isArray(profileData.roles) && profileData.roles.length > 0) || existingProfile.roles;
     const hasName = (profileData.name !== undefined && profileData.name) || existingProfile.name;
     const hasEmail = (profileData.email !== undefined && profileData.email) || existingProfile.email;
 
     const currentOnboardingStatus = existingProfile.onboardingStatus || {
       isCompleted: false,
-      completedSteps: { location: false, roles: false, profile: false },
-      lastStep: 'location'
+      completedSteps: { roles: false, profile: false },
+      lastStep: 'roles'
     };
 
     const updatedCompletedSteps = {
-      location: !!hasLocation || currentOnboardingStatus.completedSteps.location,
       roles: !!hasRoles || currentOnboardingStatus.completedSteps.roles,
       profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
     };
 
-    // ✨ DEMO MODE: Only require roles for onboarding completion (location moved to VerificationDashboard)
-    // Location and Aadhaar verification are now post-signup features
+    // ✨ Only require roles for onboarding completion
+    // Location and Aadhaar verification completely removed from onboarding (only in VerificationDashboard)
     const isOnboardingComplete = updatedCompletedSteps.roles;
 
     let lastStep = currentOnboardingStatus.lastStep;
-    if (updatePayload.location) lastStep = 'location';
     if (profileData.roles && Array.isArray(profileData.roles) && profileData.roles.length > 0) lastStep = 'roles';
     if (profileData.name && profileData.email) lastStep = 'profile';
 
