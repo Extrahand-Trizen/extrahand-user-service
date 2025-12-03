@@ -171,15 +171,31 @@ export class AuthService {
       ? `+${cleanPhone}`
       : `+91${cleanPhone}`;
 
-    // Check if profile exists with this phone number
+    // ✨ Check if profile exists with this phone number
+    // Try multiple formats to handle different storage formats
     const searchQuery = {
       $or: [
-        { phone: formattedPhone },
-        { phone: formattedPhone.replace('+91', '+91-') }
+        { phone: formattedPhone }, // +919121577021
+        { phone: formattedPhone.replace('+91', '+91-') }, // +91-9121577021
+        { phone: cleanPhone }, // 919121577021 (without +)
+        { phone: `+${cleanPhone}` }, // +919121577021 (alternative)
+        { phone: cleanPhone.startsWith('91') ? cleanPhone : `91${cleanPhone}` } // 919121577021 or 91XXXXXXXXXX
       ]
     };
 
+    logger.info('Checking phone existence', { 
+      formattedPhone, 
+      cleanPhone,
+      searchQuery: JSON.stringify(searchQuery)
+    });
+
     const profile = await Profile.findOne(searchQuery).lean();
+    
+    logger.info('Phone check result', { 
+      exists: !!profile,
+      foundPhone: profile?.phone,
+      searchedPhone: formattedPhone
+    });
 
     return {
       exists: !!profile,
