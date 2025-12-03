@@ -158,7 +158,8 @@ export class ProfileService {
     const currentOnboardingStatus = existingProfile?.onboardingStatus || {
       isCompleted: false,
       completedSteps: { roles: false, profile: false },
-      lastStep: 'roles'
+      lastStep: 'roles',
+      completedAt: null
     };
 
     const updatedCompletedSteps = {
@@ -301,7 +302,8 @@ export class ProfileService {
     const currentOnboardingStatus = existingProfile.onboardingStatus || {
       isCompleted: false,
       completedSteps: { roles: false, profile: false },
-      lastStep: 'roles'
+      lastStep: 'roles',
+      completedAt: null
     };
 
     const updatedCompletedSteps = {

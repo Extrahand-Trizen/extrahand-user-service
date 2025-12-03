@@ -31,12 +31,11 @@ export interface Location {
 export interface OnboardingStatus {
   isCompleted: boolean;
   completedSteps: {
-    location: boolean;
     roles: boolean;
     profile: boolean;
   };
   completedAt?: number | null;
-  lastStep: 'location' | 'roles' | 'profile';
+  lastStep: 'roles' | 'profile';
 }
 
 export interface BusinessProfile {
