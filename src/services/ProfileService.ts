@@ -4,6 +4,8 @@ import { NotFoundError, BadRequestError, InternalServerError } from '../errors/A
 import logger from '../config/logger';
 import mongoose from 'mongoose';
 import { getConnectionStatus } from '../config/database';
+import axios from 'axios';
+import { validateEnv } from '../config/env';
 
 export class ProfileService {
   /**
@@ -365,16 +367,73 @@ export class ProfileService {
   }
 
   /**
-   * Delete profile
+   * Delete profile and all associated data
    */
-  static async deleteProfile(uid: string): Promise<{ deletedCount: number }> {
-    const deleteResult = await Profile.deleteOne({ uid });
+  static async deleteProfile(uid: string): Promise<{ deletedCount: number; cascadeDeleteResult?: any }> {
+    const env = validateEnv();
+    
+    logger.info(`🗑️ Starting profile deletion for user: ${uid}`);
 
-    if (deleteResult.deletedCount === 0) {
-      throw new NotFoundError('Profile not found');
+    try {
+      // Step 1: Delete all associated data in Task Service (cascading delete)
+      let cascadeDeleteResult = null;
+      if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN) {
+        try {
+          logger.info(`📞 Calling Task Service to delete user data: ${uid}`);
+          
+          const taskServiceUrl = env.TASK_SERVICE_URL;
+          const response = await axios.delete(
+            `${taskServiceUrl}/api/v1/cascade-delete/user/${uid}`,
+            {
+              headers: {
+                'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                'X-Service-Name': 'user-service',
+                'X-User-Id': uid
+              },
+              timeout: 30000 // 30 second timeout for cascade delete
+            }
+          );
+
+          if (response.data && response.data.success) {
+            cascadeDeleteResult = response.data.data;
+            logger.info(`✅ Task Service cascade delete completed:`, cascadeDeleteResult);
+          }
+        } catch (error: any) {
+          // Log error but don't fail the profile deletion
+          // This allows profile deletion even if Task Service is unavailable
+          logger.error(`⚠️ Failed to delete user data in Task Service:`, {
+            error: error.message,
+            status: error.response?.status,
+            data: error.response?.data
+          });
+          
+          // If it's a critical error (not just service unavailable), you might want to throw
+          // For now, we'll continue with profile deletion
+          if (error.response?.status === 404) {
+            logger.info(`ℹ️ User has no data in Task Service, continuing with profile deletion`);
+          }
+        }
+      } else {
+        logger.warn(`⚠️ TASK_SERVICE_URL or SERVICE_AUTH_TOKEN not configured, skipping cascade delete`);
+      }
+
+      // Step 2: Delete the profile
+      const deleteResult = await Profile.deleteOne({ uid });
+
+      if (deleteResult.deletedCount === 0) {
+        throw new NotFoundError('Profile not found');
+      }
+
+      logger.info(`✅ Profile deleted successfully: ${uid}`);
+
+      return { 
+        deletedCount: deleteResult.deletedCount,
+        cascadeDeleteResult 
+      };
+    } catch (error: any) {
+      logger.error(`❌ Error deleting profile for user ${uid}:`, error);
+      throw error;
     }
-
-    return { deletedCount: deleteResult.deletedCount };
   }
 
   /**

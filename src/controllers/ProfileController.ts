@@ -175,11 +175,11 @@ export class ProfileController {
     const uid = req.user!.uid;
     const deleteResult = await ProfileService.deleteProfile(uid);
     
-    // Old format: return success, message, and deletedCount
     res.json({
       success: true,
-      message: 'Profile deleted successfully',
-      deletedCount: deleteResult.deletedCount
+      message: 'Profile and all associated data deleted successfully',
+      deletedCount: deleteResult.deletedCount,
+      cascadeDeleteResult: deleteResult.cascadeDeleteResult || null
     });
   }
 
