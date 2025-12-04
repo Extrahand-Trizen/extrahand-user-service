@@ -121,6 +121,24 @@ export class ProfileService {
     if (profileData.roles) payload.roles = profileData.roles;
     if (profileData.userType) payload.userType = profileData.userType;
     if (processedLocation) payload.location = processedLocation;
+    if (profileData.savedAddresses !== undefined) {
+      // Ensure each address has proper structure
+      payload.savedAddresses = Array.isArray(profileData.savedAddresses)
+        ? profileData.savedAddresses.map((addr: any) => ({
+            label: addr.label || 'Other',
+            address: addr.address,
+            coordinates: addr.coordinates || [0, 0],
+            city: addr.city,
+            state: addr.state,
+            country: addr.country || 'India',
+            addressDetails: addr.addressDetails || {},
+            name: addr.name,
+            phone: addr.phone,
+            isDefault: addr.isDefault || false,
+            createdAt: addr.createdAt || new Date(),
+          }))
+        : [];
+    }
     if (profileData.skills) {
       payload.skills = {
         ...profileData.skills,

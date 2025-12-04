@@ -1,5 +1,5 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
-import { Location, OnboardingStatus, BusinessProfile, DataPrivacy } from '../types';
+import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, SavedAddress } from '../types';
 
 export interface IProfile extends Document {
   uid: string;
@@ -9,6 +9,7 @@ export interface IProfile extends Document {
   roles: ('tasker' | 'requester' | 'both')[];
   userType: 'individual' | 'business';
   location?: Location | null;
+  savedAddresses?: SavedAddress[];
   skills?: {
     primaryCategory?: string;
     list?: Array<{
@@ -139,6 +140,47 @@ const ProfileSchema = new Schema<IProfile>({
     },
     isPublic: Boolean
   },
+  savedAddresses: [{
+    _id: {
+      type: Schema.Types.ObjectId,
+      default: () => new mongoose.Types.ObjectId()
+    },
+    label: {
+      type: String,
+      enum: ['Home', 'Work', 'Other'],
+      required: true
+    },
+    address: {
+      type: String,
+      required: true
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      required: true
+    },
+    city: String,
+    state: String,
+    country: {
+      type: String,
+      default: 'India'
+    },
+    addressDetails: {
+      doorNo: String,
+      landmark: String,
+      area: String,
+      pinCode: String
+    },
+    name: String,
+    phone: String,
+    isDefault: {
+      type: Boolean,
+      default: false
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   skills: {
     primaryCategory: {
       type: String,
