@@ -183,14 +183,60 @@ export class ProfileController {
     const uid = req.user.uid;
     const profileData: Partial<IProfile> = req.body;
     
-    const updatedProfile = await ProfileService.updateProfile(uid, profileData);
-    
-    res.json({
-      success: true,
-      id: uid,
-      ...updatedProfile,
-      message: 'Profile updated successfully'
+    // Log request data for debugging
+    console.log('🔍 [ProfileController.updateProfile] Request data:', {
+      uid,
+      hasSavedAddresses: !!profileData.savedAddresses,
+      savedAddressesCount: Array.isArray(profileData.savedAddresses) ? profileData.savedAddresses.length : 0,
+      savedAddressesPreview: Array.isArray(profileData.savedAddresses) && profileData.savedAddresses.length > 0
+        ? {
+            firstAddress: {
+              label: profileData.savedAddresses[0].label,
+              address: profileData.savedAddresses[0].address?.substring(0, 50),
+              hasCoordinates: Array.isArray(profileData.savedAddresses[0].coordinates),
+              coordinates: profileData.savedAddresses[0].coordinates
+            }
+          }
+        : null
     });
+    
+    try {
+      const updatedProfile = await ProfileService.updateProfile(uid, profileData);
+      
+      res.json({
+        success: true,
+        id: uid,
+        ...updatedProfile,
+        message: 'Profile updated successfully'
+      });
+    } catch (error: any) {
+      console.error('❌ [ProfileController.updateProfile] Error:', {
+        message: error.message,
+        name: error.name,
+        code: error.code,
+        errors: error.errors,
+        stack: error.stack?.substring(0, 500)
+      });
+      
+      // Check for Mongoose validation errors
+      if (error.name === 'ValidationError') {
+        const validationErrors = Object.keys(error.errors || {}).map(key => ({
+          field: key,
+          message: error.errors[key].message
+        }));
+        
+        res.status(400).json({
+          success: false,
+          error: 'Validation error',
+          message: 'Profile update failed validation',
+          validationErrors
+        });
+        return;
+      }
+      
+      // Re-throw to be handled by error handler middleware
+      throw error;
+    }
   }
 
   /**

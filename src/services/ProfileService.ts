@@ -313,28 +313,54 @@ export class ProfileService {
     if (profileData.savedAddresses !== undefined) {
       // Process savedAddresses exactly like upsertProfile for consistency
       updatePayload.savedAddresses = Array.isArray(profileData.savedAddresses)
-        ? profileData.savedAddresses.map((addr: any) => ({
-            label: addr.label || 'Other',
-            address: addr.address,
-            coordinates: addr.coordinates || [0, 0],
-            city: addr.city,
-            state: addr.state,
-            country: addr.country || 'India',
-            addressDetails: addr.addressDetails || {},
-            name: addr.name,
-            phone: addr.phone,
-            isDefault: addr.isDefault || false,
-            // Preserve _id if it exists (for existing addresses)
-            ...(addr._id && {
-              _id: typeof addr._id === 'string' && /^[0-9a-fA-F]{24}$/.test(addr._id)
-                ? new mongoose.Types.ObjectId(addr._id)
-                : addr._id instanceof mongoose.Types.ObjectId
-                ? addr._id
-                : undefined
-            }),
+        ? profileData.savedAddresses
+            .filter((addr: any) => {
+              // Filter out addresses with empty address field (required by schema)
+              return addr.address && String(addr.address).trim().length > 0;
+            })
+            .map((addr: any) => {
+            // Build base address object
+            const addressObj: any = {
+              label: addr.label || 'Other',
+              address: String(addr.address).trim(), // Ensure it's a string and trimmed
+              coordinates: Array.isArray(addr.coordinates) && addr.coordinates.length >= 2
+                ? addr.coordinates
+                : [0, 0], // Default coordinates if invalid
+              city: addr.city,
+              state: addr.state,
+              country: addr.country || 'India',
+              addressDetails: addr.addressDetails || {},
+              name: addr.name,
+              phone: addr.phone,
+              isDefault: addr.isDefault || false,
+            };
+
+            // Preserve _id if it exists and is valid (for existing addresses)
+            if (addr._id) {
+              try {
+                if (addr._id instanceof mongoose.Types.ObjectId) {
+                  addressObj._id = addr._id;
+                } else if (typeof addr._id === 'string' && /^[0-9a-fA-F]{24}$/.test(addr._id)) {
+                  addressObj._id = new mongoose.Types.ObjectId(addr._id);
+                }
+                // If invalid, Mongoose will generate a new one (don't include _id)
+              } catch (error) {
+                // Invalid _id, Mongoose will generate new one
+                logger.warn('Invalid _id in savedAddress, will generate new one', { addressId: addr._id });
+              }
+            }
+
             // Preserve createdAt if provided, otherwise Mongoose will set default
-            ...(addr.createdAt ? { createdAt: new Date(addr.createdAt) } : {})
-          }))
+            if (addr.createdAt) {
+              try {
+                addressObj.createdAt = new Date(addr.createdAt);
+              } catch (error) {
+                // Invalid date, Mongoose will set default
+              }
+            }
+
+            return addressObj;
+          })
         : [];
     }
     if (profileData.business !== undefined) updatePayload.business = profileData.business;
