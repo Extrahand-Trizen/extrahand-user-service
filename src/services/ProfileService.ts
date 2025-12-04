@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import { getConnectionStatus } from '../config/database';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
+import { auth } from '../config/firebase';
 
 export class ProfileService {
   /**
@@ -425,6 +426,25 @@ export class ProfileService {
       }
 
       logger.info(`✅ Profile deleted successfully: ${uid}`);
+
+      // Step 3: Delete Firebase account using Admin SDK (no recent auth required)
+      try {
+        logger.info(`🗑️ Deleting Firebase account for user: ${uid}`);
+        await auth.deleteUser(uid);
+        logger.info(`✅ Firebase account deleted successfully: ${uid}`);
+      } catch (firebaseError: any) {
+        // Log error but don't fail - profile is already deleted
+        // Firebase account deletion failure is not critical since profile is gone
+        logger.error(`⚠️ Failed to delete Firebase account for user ${uid}:`, {
+          error: firebaseError.message,
+          code: firebaseError.code
+        });
+        
+        // If user doesn't exist in Firebase, that's okay - continue
+        if (firebaseError.code === 'auth/user-not-found') {
+          logger.info(`ℹ️ Firebase user ${uid} not found (may have been deleted already)`);
+        }
+      }
 
       return { 
         deletedCount: deleteResult.deletedCount,
