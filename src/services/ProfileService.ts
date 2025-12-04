@@ -310,6 +310,87 @@ export class ProfileService {
           : []
       };
     }
+    if (profileData.savedAddresses !== undefined) {
+      // Ensure each address has proper structure
+      updatePayload.savedAddresses = Array.isArray(profileData.savedAddresses)
+        ? profileData.savedAddresses
+            .map((addr: any) => {
+            // Validate and normalize label (must be one of: 'Home', 'Work', 'Other')
+            let normalizedLabel = 'Other';
+            if (addr.label === 'Home' || addr.label === 'Work' || addr.label === 'Other') {
+              normalizedLabel = addr.label;
+            } else if (addr.label) {
+              // Try to normalize common variations
+              const labelLower = String(addr.label).toLowerCase();
+              if (labelLower.includes('home')) normalizedLabel = 'Home';
+              else if (labelLower.includes('work') || labelLower.includes('office')) normalizedLabel = 'Work';
+            }
+
+            // Validate coordinates - must be array of 2 numbers [lng, lat]
+            let validCoordinates = [0, 0];
+            if (Array.isArray(addr.coordinates) && addr.coordinates.length >= 2) {
+              const lng = typeof addr.coordinates[0] === 'number' ? addr.coordinates[0] : parseFloat(addr.coordinates[0]);
+              const lat = typeof addr.coordinates[1] === 'number' ? addr.coordinates[1] : parseFloat(addr.coordinates[1]);
+              if (!isNaN(lng) && !isNaN(lat)) {
+                validCoordinates = [lng, lat];
+              }
+            }
+
+            // Validate required fields
+            const addressString = String(addr.address || '').trim();
+            if (!addressString) {
+              logger.warn('Skipping address with empty address field', { label: normalizedLabel });
+              return null; // Skip invalid addresses
+            }
+
+            // If address already has _id (ObjectId), keep it; otherwise backend will generate
+            const addressObj: any = {
+              label: normalizedLabel,
+              address: addressString,
+              coordinates: validCoordinates,
+              city: addr.city ? String(addr.city).trim() : undefined,
+              state: addr.state ? String(addr.state).trim() : undefined,
+              country: addr.country ? String(addr.country).trim() : 'India',
+              addressDetails: addr.addressDetails || {},
+              name: addr.name ? String(addr.name).trim() : undefined,
+              phone: addr.phone ? String(addr.phone).trim() : undefined,
+              isDefault: Boolean(addr.isDefault),
+            };
+            // Only include _id if it's a valid ObjectId string (24 hex characters)
+            // For new addresses without _id, Mongoose will auto-generate it
+            if (addr._id) {
+              try {
+                // If it's already an ObjectId, keep it
+                if (addr._id instanceof mongoose.Types.ObjectId) {
+                  addressObj._id = addr._id;
+                } 
+                // If it's a string, try to convert it
+                else if (typeof addr._id === 'string' && /^[0-9a-fA-F]{24}$/.test(addr._id)) {
+                  addressObj._id = new mongoose.Types.ObjectId(addr._id);
+                }
+                // If conversion fails, let Mongoose generate a new one (don't include _id)
+              } catch (error) {
+                logger.warn('Invalid _id in savedAddress, will generate new one', { 
+                  error: error instanceof Error ? error.message : error,
+                  addressId: addr._id 
+                });
+                // Don't include _id - let Mongoose generate it
+              }
+            }
+            // Include createdAt if provided, otherwise backend will set default
+            if (addr.createdAt) {
+              try {
+                addressObj.createdAt = new Date(addr.createdAt);
+              } catch (error) {
+                // Invalid date, backend will set default
+                logger.warn('Invalid createdAt in savedAddress, will use default', { error });
+              }
+            }
+            return addressObj;
+          })
+            .filter((addr: any) => addr !== null) // Remove invalid addresses
+        : [];
+    }
     if (profileData.business !== undefined) updatePayload.business = profileData.business;
     if (profileData.agreeUpdates !== undefined) updatePayload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) updatePayload.agreeTerms = profileData.agreeTerms;
@@ -359,30 +440,58 @@ export class ProfileService {
       }
     });
 
-    const updateResult = await Profile.updateOne({ uid }, { $set: updatePayload });
-    
-    // ✨ LOG: After MongoDB update
-    console.log('✅ [MONGODB] Profile updated in MongoDB', {
-      uid,
-      matchedCount: updateResult.matchedCount,
-      modifiedCount: updateResult.modifiedCount,
-      acknowledged: updateResult.acknowledged
-    });
+    try {
+      const updateResult = await Profile.updateOne({ uid }, { $set: updatePayload }, { runValidators: true });
+      
+      // ✨ LOG: After MongoDB update
+      logger.info('✅ [PROFILE SERVICE] Profile updated in MongoDB', {
+        uid,
+        matchedCount: updateResult.matchedCount,
+        modifiedCount: updateResult.modifiedCount,
+        acknowledged: updateResult.acknowledged
+      });
 
-    const updatedProfile = await Profile.findOne({ uid }).lean();
-    
-    // ✨ LOG: Retrieved profile after update
-    console.log('📖 [MONGODB] Retrieved updated profile from MongoDB', {
-      uid,
-      isAadhaarVerified: updatedProfile?.isAadhaarVerified,
-      aadhaarVerifiedAt: updatedProfile?.aadhaarVerifiedAt,
-      onboardingStatus: updatedProfile?.onboardingStatus
-    });
-    if (!updatedProfile) {
-      throw new Error('Profile was updated but could not be retrieved');
+      if (updateResult.matchedCount === 0) {
+        throw new NotFoundError('Profile not found after update attempt');
+      }
+
+      const updatedProfile = await Profile.findOne({ uid }).lean();
+      
+      // ✨ LOG: Retrieved profile after update
+      logger.info('📖 [PROFILE SERVICE] Retrieved updated profile from MongoDB', {
+        uid,
+        isAadhaarVerified: updatedProfile?.isAadhaarVerified,
+        aadhaarVerifiedAt: updatedProfile?.aadhaarVerifiedAt,
+        savedAddressesCount: updatedProfile?.savedAddresses?.length || 0
+      });
+      
+      if (!updatedProfile) {
+        throw new NotFoundError('Profile was updated but could not be retrieved');
+      }
+
+      return updatedProfile as unknown as IProfileDocument;
+    } catch (error: any) {
+      logger.error('❌ [PROFILE SERVICE] Error updating profile', {
+        uid,
+        error: error.message,
+        errorName: error.name,
+        errorCode: error.code,
+        errorStack: error.stack?.substring(0, 1000),
+        fieldsBeingUpdated: Object.keys(updatePayload),
+        savedAddressesInfo: updatePayload.savedAddresses ? {
+          count: updatePayload.savedAddresses.length,
+          firstAddress: updatePayload.savedAddresses[0] ? {
+            label: updatePayload.savedAddresses[0].label,
+            addressLength: updatePayload.savedAddresses[0].address?.length || 0,
+            hasCoordinates: Array.isArray(updatePayload.savedAddresses[0].coordinates),
+            coordinatesLength: updatePayload.savedAddresses[0].coordinates?.length,
+            coordinates: updatePayload.savedAddresses[0].coordinates,
+            hasAddressDetails: !!updatePayload.savedAddresses[0].addressDetails
+          } : null
+        } : null
+      });
+      throw error;
     }
-
-    return updatedProfile as unknown as IProfileDocument;
   }
 
   /**
