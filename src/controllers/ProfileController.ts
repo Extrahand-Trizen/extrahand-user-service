@@ -8,15 +8,40 @@ export class ProfileController {
    * GET /api/v1/profiles/me
    */
   static async getMyProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
-    const uid = req.user!.uid;
-    const profile = await ProfileService.getMyProfile(uid);
-    
-    res.json({
-      id: profile.uid,
-      ...profile,
-      isAadhaarVerified: profile.isAadhaarVerified || false,
-      aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null
-    });
+    try {
+      const uid = req.user!.uid;
+      const profile = await ProfileService.getMyProfile(uid);
+      
+      // Ensure savedAddresses are properly serialized
+      const serializedProfile = {
+        id: profile.uid,
+        ...profile,
+        isAadhaarVerified: profile.isAadhaarVerified || false,
+        aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
+        savedAddresses: profile.savedAddresses ? profile.savedAddresses.map((addr: any) => ({
+          _id: addr._id?.toString() || addr._id,
+          label: addr.label,
+          address: addr.address,
+          coordinates: addr.coordinates,
+          city: addr.city,
+          state: addr.state,
+          country: addr.country,
+          addressDetails: addr.addressDetails,
+          name: addr.name,
+          phone: addr.phone,
+          isDefault: addr.isDefault,
+          createdAt: addr.createdAt,
+        })) : []
+      };
+      
+      res.json(serializedProfile);
+    } catch (error: any) {
+      console.error('❌ [ProfileController.getMyProfile] Error:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to fetch profile',
+      });
+    }
   }
 
   /**
