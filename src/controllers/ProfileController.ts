@@ -233,6 +233,18 @@ export class ProfileController {
         });
         return;
       }
+
+      // Check for CastError (invalid ObjectId, invalid type, etc.)
+      if (error.name === 'CastError') {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid data format',
+          message: error.message || 'One or more fields have invalid format',
+          field: error.path || 'unknown',
+          value: error.value
+        });
+        return;
+      }
       
       // Re-throw to be handled by error handler middleware
       throw error;

@@ -122,21 +122,48 @@ export class ProfileService {
     if (profileData.userType) payload.userType = profileData.userType;
     if (processedLocation) payload.location = processedLocation;
     if (profileData.savedAddresses !== undefined) {
-      // Ensure each address has proper structure
+      // Ensure each address has proper structure with validation
       payload.savedAddresses = Array.isArray(profileData.savedAddresses)
-        ? profileData.savedAddresses.map((addr: any) => ({
-            label: addr.label || 'Other',
-            address: addr.address,
-            coordinates: addr.coordinates || [0, 0],
-            city: addr.city,
-            state: addr.state,
-            country: addr.country || 'India',
-            addressDetails: addr.addressDetails || {},
-            name: addr.name,
-            phone: addr.phone,
-            isDefault: addr.isDefault || false,
-            createdAt: addr.createdAt || new Date(),
-          }))
+        ? profileData.savedAddresses
+            .filter((addr: any) => {
+              // Filter out addresses with empty address field (required by schema)
+              return addr.address && String(addr.address).trim().length > 0;
+            })
+            .map((addr: any) => {
+              // Validate and normalize label (must be one of: 'Home', 'Work', 'Other')
+              const validLabels = ['Home', 'Work', 'Other'];
+              const normalizedLabel = validLabels.includes(addr.label) 
+                ? addr.label 
+                : 'Other';
+
+              // Validate and normalize coordinates
+              let normalizedCoordinates: [number, number] = [0, 0];
+              if (Array.isArray(addr.coordinates) && addr.coordinates.length >= 2) {
+                const lng = typeof addr.coordinates[0] === 'number' 
+                  ? addr.coordinates[0] 
+                  : parseFloat(String(addr.coordinates[0]));
+                const lat = typeof addr.coordinates[1] === 'number' 
+                  ? addr.coordinates[1] 
+                  : parseFloat(String(addr.coordinates[1]));
+                if (!isNaN(lng) && !isNaN(lat) && isFinite(lng) && isFinite(lat)) {
+                  normalizedCoordinates = [lng, lat];
+                }
+              }
+
+              return {
+                label: normalizedLabel,
+                address: String(addr.address).trim(),
+                coordinates: normalizedCoordinates,
+                city: addr.city || undefined,
+                state: addr.state || undefined,
+                country: addr.country || 'India',
+                addressDetails: addr.addressDetails || {},
+                name: addr.name || undefined,
+                phone: addr.phone || undefined,
+                isDefault: addr.isDefault || false,
+                createdAt: addr.createdAt ? new Date(addr.createdAt) : new Date(),
+              };
+            })
         : [];
     }
     if (profileData.skills) {
@@ -171,37 +198,59 @@ export class ProfileService {
     }
 
     // Update onboarding status
-    // ✨ REMOVED: Location check - location is completely removed from onboarding
-    const hasRoles = Array.isArray(profileData.roles) && profileData.roles.length > 0;
-    const hasName = !!profileData.name;
-    const hasEmail = !!profileData.email;
+    // ✨ CRITICAL: If frontend explicitly provides onboardingStatus, use it (trust the frontend)
+    // Otherwise, calculate it based on data
+    if (profileData.onboardingStatus) {
+      // Frontend is explicitly setting onboarding status - trust it
+      payload.onboardingStatus = {
+        isCompleted: profileData.onboardingStatus.isCompleted || false,
+        completedSteps: profileData.onboardingStatus.completedSteps || {
+          roles: false,
+          profile: false
+        },
+        completedAt: profileData.onboardingStatus.completedAt 
+          ? (typeof profileData.onboardingStatus.completedAt === 'string' 
+              ? new Date(profileData.onboardingStatus.completedAt).getTime() 
+              : profileData.onboardingStatus.completedAt)
+          : (profileData.onboardingStatus.isCompleted ? now : null),
+        lastStep: profileData.onboardingStatus.lastStep || 'roles'
+      };
+      console.log('✅ [PROFILE SERVICE] Using onboardingStatus from frontend:', payload.onboardingStatus);
+    } else {
+      // No onboardingStatus provided - calculate it based on data
+      // ✨ REMOVED: Location check - location is completely removed from onboarding
+      const hasRoles = Array.isArray(profileData.roles) && profileData.roles.length > 0;
+      const hasName = !!profileData.name;
+      const hasEmail = !!profileData.email;
 
-    const currentOnboardingStatus = existingProfile?.onboardingStatus || {
-      isCompleted: false,
-      completedSteps: { roles: false, profile: false },
-      lastStep: 'roles',
-      completedAt: null
-    };
+      const currentOnboardingStatus = existingProfile?.onboardingStatus || {
+        isCompleted: false,
+        completedSteps: { roles: false, profile: false },
+        lastStep: 'roles',
+        completedAt: null
+      };
 
-    const updatedCompletedSteps = {
-      roles: hasRoles || currentOnboardingStatus.completedSteps.roles,
-      profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
-    };
+      const updatedCompletedSteps = {
+        roles: hasRoles || currentOnboardingStatus.completedSteps.roles,
+        profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
+      };
 
-    // ✨ Only require roles for onboarding completion
-    // Location and Aadhaar verification completely removed from onboarding (only in VerificationDashboard)
-    const isOnboardingComplete = updatedCompletedSteps.roles;
+      // ✨ Only require roles for onboarding completion
+      // Location and Aadhaar verification completely removed from onboarding (only in VerificationDashboard)
+      const isOnboardingComplete = updatedCompletedSteps.roles;
 
-    let lastStep = currentOnboardingStatus.lastStep;
-    if (hasRoles) lastStep = 'roles';
-    if (hasName && hasEmail) lastStep = 'profile';
+      let lastStep = currentOnboardingStatus.lastStep;
+      if (hasRoles) lastStep = 'roles';
+      if (hasName && hasEmail) lastStep = 'profile';
 
-    payload.onboardingStatus = {
-      isCompleted: isOnboardingComplete,
-      completedSteps: updatedCompletedSteps,
-      completedAt: isOnboardingComplete ? now : null,
-      lastStep
-    };
+      payload.onboardingStatus = {
+        isCompleted: isOnboardingComplete,
+        completedSteps: updatedCompletedSteps,
+        completedAt: isOnboardingComplete ? now : null,
+        lastStep
+      };
+      console.log('🔄 [PROFILE SERVICE] Calculated onboardingStatus from data:', payload.onboardingStatus);
+    }
 
     console.log('💾 [PROFILE SERVICE] Saving profile to MongoDB', {
       uid,
@@ -319,48 +368,66 @@ export class ProfileService {
               return addr.address && String(addr.address).trim().length > 0;
             })
             .map((addr: any) => {
-            // Build base address object
-            const addressObj: any = {
-              label: addr.label || 'Other',
-              address: String(addr.address).trim(), // Ensure it's a string and trimmed
-              coordinates: Array.isArray(addr.coordinates) && addr.coordinates.length >= 2
-                ? addr.coordinates
-                : [0, 0], // Default coordinates if invalid
-              city: addr.city,
-              state: addr.state,
-              country: addr.country || 'India',
-              addressDetails: addr.addressDetails || {},
-              name: addr.name,
-              phone: addr.phone,
-              isDefault: addr.isDefault || false,
-            };
+              // Validate and normalize label (must be one of: 'Home', 'Work', 'Other')
+              const validLabels = ['Home', 'Work', 'Other'];
+              const normalizedLabel = validLabels.includes(addr.label) 
+                ? addr.label 
+                : 'Other';
 
-            // Preserve _id if it exists and is valid (for existing addresses)
-            if (addr._id) {
-              try {
-                if (addr._id instanceof mongoose.Types.ObjectId) {
-                  addressObj._id = addr._id;
-                } else if (typeof addr._id === 'string' && /^[0-9a-fA-F]{24}$/.test(addr._id)) {
-                  addressObj._id = new mongoose.Types.ObjectId(addr._id);
+              // Validate and normalize coordinates
+              let normalizedCoordinates: [number, number] = [0, 0];
+              if (Array.isArray(addr.coordinates) && addr.coordinates.length >= 2) {
+                const lng = typeof addr.coordinates[0] === 'number' 
+                  ? addr.coordinates[0] 
+                  : parseFloat(String(addr.coordinates[0]));
+                const lat = typeof addr.coordinates[1] === 'number' 
+                  ? addr.coordinates[1] 
+                  : parseFloat(String(addr.coordinates[1]));
+                if (!isNaN(lng) && !isNaN(lat) && isFinite(lng) && isFinite(lat)) {
+                  normalizedCoordinates = [lng, lat];
                 }
-                // If invalid, Mongoose will generate a new one (don't include _id)
-              } catch (error) {
-                // Invalid _id, Mongoose will generate new one
-                logger.warn('Invalid _id in savedAddress, will generate new one', { addressId: addr._id });
               }
-            }
 
-            // Preserve createdAt if provided, otherwise Mongoose will set default
-            if (addr.createdAt) {
-              try {
-                addressObj.createdAt = new Date(addr.createdAt);
-              } catch (error) {
-                // Invalid date, Mongoose will set default
+              // Build base address object
+              const addressObj: any = {
+                label: normalizedLabel,
+                address: String(addr.address).trim(), // Ensure it's a string and trimmed
+                coordinates: normalizedCoordinates,
+                city: addr.city || undefined,
+                state: addr.state || undefined,
+                country: addr.country || 'India',
+                addressDetails: addr.addressDetails || {},
+                name: addr.name || undefined,
+                phone: addr.phone || undefined,
+                isDefault: addr.isDefault || false,
+              };
+
+              // Preserve _id if it exists and is valid (for existing addresses)
+              if (addr._id) {
+                try {
+                  if (addr._id instanceof mongoose.Types.ObjectId) {
+                    addressObj._id = addr._id;
+                  } else if (typeof addr._id === 'string' && /^[0-9a-fA-F]{24}$/.test(addr._id)) {
+                    addressObj._id = new mongoose.Types.ObjectId(addr._id);
+                  }
+                  // If invalid, Mongoose will generate a new one (don't include _id)
+                } catch (error) {
+                  // Invalid _id, Mongoose will generate new one
+                  logger.warn('Invalid _id in savedAddress, will generate new one', { addressId: addr._id });
+                }
               }
-            }
 
-            return addressObj;
-          })
+              // Preserve createdAt if provided, otherwise Mongoose will set default
+              if (addr.createdAt) {
+                try {
+                  addressObj.createdAt = new Date(addr.createdAt);
+                } catch (error) {
+                  // Invalid date, Mongoose will set default
+                }
+              }
+
+              return addressObj;
+            })
         : [];
     }
     if (profileData.business !== undefined) updatePayload.business = profileData.business;
