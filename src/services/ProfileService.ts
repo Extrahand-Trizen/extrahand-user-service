@@ -437,8 +437,8 @@ export class ProfileService {
     // Update onboarding status
     // ✨ REMOVED: Location check - location is completely removed from onboarding
     const hasRoles = (profileData.roles && Array.isArray(profileData.roles) && profileData.roles.length > 0) || existingProfile.roles;
-    const hasName = (profileData.name !== undefined && profileData.name) || existingProfile.name;
-    const hasEmail = (profileData.email !== undefined && profileData.email) || existingProfile.email;
+    const hasName = !!((profileData.name !== undefined && profileData.name) || existingProfile.name);
+    const hasEmail = !!((profileData.email !== undefined && profileData.email) || existingProfile.email);
 
     const currentOnboardingStatus = existingProfile.onboardingStatus || {
       isCompleted: false,
