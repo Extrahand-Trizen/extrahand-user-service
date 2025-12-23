@@ -106,8 +106,7 @@ export class AuthController {
             accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
             sessionId: tokens.sessionId,
             refreshToken: tokens.refreshToken,
-            refreshTokenExpiresAt:
-               tokens.refreshTokenExpiresAt.toISOString(),
+            refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
          };
 
          res.json({
