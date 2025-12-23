@@ -1,5 +1,6 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
 import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, SavedAddress } from '../types';
+import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 
 export interface IProfile extends Document {
   uid: string;
@@ -15,7 +16,6 @@ export interface IProfile extends Document {
     list?: Array<{
       name: string;
       category?: string;
-      level?: 'beginner' | 'intermediate' | 'expert';
       yearsOfExperience?: number;
       certified?: boolean;
       certificates?: Array<{
@@ -42,6 +42,9 @@ export interface IProfile extends Document {
   isFaceVerified?: boolean;
   isActive: boolean;
   photoURL?: string | null;
+  isAdminVerified?: boolean;
+  phoneVerified?: boolean;
+  adminCreatedAt?: Date;
   onboardingStatus?: OnboardingStatus;
   business?: BusinessProfile;
   agreeUpdates?: boolean;
@@ -184,16 +187,11 @@ const ProfileSchema = new Schema<IProfile>({
   skills: {
     primaryCategory: {
       type: String,
-      enum: ['home_services', 'cleaning', 'delivery', 'beauty', 'tech', 'tutoring', 'other']
+      enum: ALL_PRIMARY_CATEGORIES
     },
     list: [{
       name: { type: String, required: true },
       category: String,
-      level: {
-        type: String,
-        enum: ['beginner', 'intermediate', 'expert'],
-        default: 'intermediate'
-      },
       yearsOfExperience: Number,
       certified: { type: Boolean, default: false },
       certificates: [{
@@ -263,6 +261,17 @@ const ProfileSchema = new Schema<IProfile>({
     type: String,
     default: null
   },
+  isAdminVerified: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  phoneVerified: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  adminCreatedAt: Date,
   onboardingStatus: {
     isCompleted: {
       type: Boolean,

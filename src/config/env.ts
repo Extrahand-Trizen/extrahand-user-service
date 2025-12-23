@@ -47,6 +47,8 @@ const envSchema = z.object({
   
   // MinIO Configuration
   MINIO_ENDPOINT: z.string().optional(),
+  MINIO_PORT: z.string().optional(),
+  MINIO_USE_SSL: z.string().optional(),
   MINIO_ACCESS_KEY: z.string().optional(),
   MINIO_SECRET_KEY: z.string().optional(),
   MINIO_ROOT_USER: z.string().optional(),

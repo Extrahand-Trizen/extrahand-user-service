@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { UploadController } from '../controllers/UploadController';
-import { authMiddleware } from '../middleware/auth';
+import { combinedAuthMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
@@ -24,13 +24,32 @@ const upload = multer({
 });
 
 // All upload routes require authentication
-router.use(authMiddleware);
+router.use(combinedAuthMiddleware);
 
 // POST /api/v1/uploads/profile-picture
 router.post('/profile-picture', upload.single('image'), asyncHandler(UploadController.uploadProfilePicture));
 
 // DELETE /api/v1/uploads/profile-picture
 router.delete('/profile-picture', asyncHandler(UploadController.deleteProfilePicture));
+
+// POST /api/v1/uploads/document
+// Accept images/PDF up to 10MB
+const uploadDocument = multer({
+  storage: multerMemoryStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only jpg/png/pdf files are allowed'));
+    }
+  }
+});
+
+router.post('/document', uploadDocument.single('file'), asyncHandler(UploadController.uploadDocument));
 
 // GET /api/v1/uploads/health
 // Health check for storage service (public, no auth required)

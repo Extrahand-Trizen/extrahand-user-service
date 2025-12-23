@@ -54,6 +54,49 @@ export class UploadService {
   }
 
   /**
+   * Upload generic document (image/pdf) and return URL/key.
+   * Caller is responsible for persisting the URL to the appropriate model.
+   */
+  static async uploadDocument(
+    uid: string,
+    fileBuffer: Buffer,
+    filename: string,
+    mimetype: string,
+    docType: string = 'document',
+    leadId?: string
+  ): Promise<{ url: string; key: string }> {
+    if (!fileBuffer || !filename) {
+      throw new BadRequestError('No file provided');
+    }
+
+    const result = await uploadFile(
+      fileBuffer,
+      filename,
+      mimetype,
+      'documents',
+      {
+        userId: uid,
+        type: docType,
+        leadId,
+      }
+    );
+
+    logger.info('Document uploaded', {
+      uid,
+      leadId,
+      docType,
+      url: result.url,
+      key: result.key,
+      provider: getStorageType()
+    });
+
+    return {
+      url: result.url,
+      key: result.key
+    };
+  }
+
+  /**
    * Delete profile picture
    */
   static async deleteProfilePicture(uid: string): Promise<void> {

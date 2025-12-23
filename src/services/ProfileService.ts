@@ -528,6 +528,35 @@ export class ProfileService {
   }
 
   /**
+   * Bulk delete profiles from MongoDB (optimized with deleteMany)
+   * Note: This does NOT handle cascade deletion or Firebase deletion
+   * Those should be handled separately before calling this method
+   */
+  static async bulkDeleteProfiles(uids: string[]): Promise<{ deletedCount: number }> {
+    if (!uids || uids.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    if (uids.length > 1000) {
+      throw new Error('Maximum 1000 UIDs per bulk delete operation');
+    }
+
+    try {
+      const deleteResult = await Profile.deleteMany({ uid: { $in: uids } });
+      
+      logger.info(`✅ Bulk deleted ${deleteResult.deletedCount} profiles from MongoDB`, {
+        requested: uids.length,
+        deleted: deleteResult.deletedCount
+      });
+
+      return { deletedCount: deleteResult.deletedCount };
+    } catch (error: any) {
+      logger.error('❌ Bulk profile delete failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Delete profile and all associated data
    */
   static async deleteProfile(uid: string): Promise<{ deletedCount: number; cascadeDeleteResult?: any }> {

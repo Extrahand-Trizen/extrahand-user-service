@@ -2,9 +2,10 @@ import { Response, Request } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { ProfileService } from '../services/ProfileService';
 import { IProfile } from '../models/Profile';
+import logger from '../config/logger';
 
 export class ProfileController {
-  /**
+  /** 
    * GET /api/v1/profiles/me
    */
   static async getMyProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -267,6 +268,77 @@ export class ProfileController {
   }
 
   /**
+   * DELETE /api/v1/profiles/bulk - Bulk delete profiles by UIDs (service auth for admin operations)
+   */
+  static async bulkDeleteProfiles(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const { uids } = req.body;
+    
+    if (!uids || !Array.isArray(uids) || uids.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'UIDs array is required'
+      });
+      return;
+    }
+
+    if (uids.length > 1000) {
+      res.status(400).json({
+        success: false,
+        error: 'Maximum 1000 UIDs per bulk delete operation'
+      });
+      return;
+    }
+
+    try {
+      // Use MongoDB bulk delete (optimized)
+      // Note: Cascade deletion and Firebase deletion should be handled by the caller
+      const deleteResult = await ProfileService.bulkDeleteProfiles(uids);
+      
+      res.json({
+        success: true,
+        message: 'Profiles deleted successfully',
+        deletedCount: deleteResult.deletedCount,
+        requestedCount: uids.length
+      });
+    } catch (error: any) {
+      logger.error('Bulk profile delete failed:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Bulk delete failed',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * DELETE /api/v1/profiles/:uid - Delete profile by UID (service auth for admin operations)
+   */
+  static async deleteProfileByUid(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const uid = req.params.uid;
+    
+    // For service auth, uid comes from params (route parameter)
+    // For Firebase auth, uid comes from req.user.uid
+    const targetUid = uid || req.user?.uid;
+    
+    if (!targetUid) {
+      res.status(400).json({
+        success: false,
+        error: 'UID is required'
+      });
+      return;
+    }
+    
+    const deleteResult = await ProfileService.deleteProfile(targetUid);
+    
+    res.json({
+      success: true,
+      message: 'Profile and all associated data deleted successfully',
+      deletedCount: deleteResult.deletedCount,
+      cascadeDeleteResult: deleteResult.cascadeDeleteResult || null
+    });
+  }
+
+  /**
    * GET /api/v1/profiles/completion
    */
   static async getProfileCompletion(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -349,6 +421,70 @@ export class ProfileController {
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to update Aadhaar verification status'
+      });
+    }
+  }
+
+  /**
+   * PATCH /api/v1/profiles/:uid/verification/pan
+   * Update PAN verification status (service-to-service call)
+   */
+  static async updatePANVerification(req: Request, res: Response): Promise<void> {
+    const { uid } = req.params;
+    const { isPANVerified, panVerifiedAt } = req.body;
+
+    console.log('📥 [USER SERVICE] Received PAN verification update request', {
+      uid,
+      body: req.body,
+      headers: {
+        'x-service-auth': req.headers['x-service-auth'] ? 'present' : 'missing',
+        'x-service-name': req.headers['x-service-name'],
+        'x-user-id': req.headers['x-user-id']
+      }
+    });
+
+    if (!uid) {
+      console.error('❌ [USER SERVICE] Missing uid in request');
+      res.status(400).json({
+        success: false,
+        error: 'User ID (uid) is required'
+      });
+      return;
+    }
+
+    try {
+      // Update profile with PAN verification status
+      const updateData: Partial<IProfile> = {
+        isPANVerified: isPANVerified !== undefined ? isPANVerified : true,
+        panVerifiedAt: panVerifiedAt ? new Date(panVerifiedAt) : new Date()
+      };
+
+      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+        uid,
+        updateData
+      });
+
+      const updatedProfile = await ProfileService.updateProfile(uid, updateData);
+
+      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+        uid,
+        isPANVerified: updatedProfile.isPANVerified,
+        panVerifiedAt: updatedProfile.panVerifiedAt
+      });
+
+      res.json({
+        success: true,
+        message: 'PAN verification status updated',
+        profile: {
+          uid: updatedProfile.uid,
+          isPANVerified: updatedProfile.isPANVerified,
+          panVerifiedAt: updatedProfile.panVerifiedAt
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to update PAN verification status'
       });
     }
   }
