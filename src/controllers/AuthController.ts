@@ -1,6 +1,9 @@
 import { Response } from "express";
 import { AuthenticatedRequest } from "../types";
 import { AuthService } from "../services/AuthService";
+import { SessionService } from "../services/SessionService";
+import { setRefreshTokenCookie } from "../utils/sessionCookies";
+import type { ClientType } from "../models/SessionToken";
 
 export class AuthController {
    static async checkPhone(
@@ -46,7 +49,7 @@ export class AuthController {
       res: Response
    ): Promise<void> {
       try {
-         const { idToken, mode, phone, name } = req.body;
+         const { idToken, mode, phone, name, clientType, deviceId } = req.body;
 
          if (!idToken || !mode || !phone) {
             res.status(400).json({
@@ -71,7 +74,46 @@ export class AuthController {
             name
          );
 
-         res.json(result);
+         const uid = result.user?.uid;
+         if (!uid) {
+            res.status(500).json({
+               success: false,
+               error: "Missing uid after authentication",
+            });
+            return;
+         }
+
+         const normalizedClient: ClientType =
+            clientType === "mobile" ? "mobile" : "web";
+         const tokens = await SessionService.createSession({
+            uid,
+            clientType: normalizedClient,
+            deviceId,
+            userAgent: req.get("user-agent") ?? undefined,
+            ipAddress: req.ip,
+         });
+
+         if (normalizedClient === "web") {
+            setRefreshTokenCookie(
+               res,
+               tokens.refreshToken,
+               tokens.refreshTokenExpiresAt
+            );
+         }
+
+         const tokenPayload: Record<string, any> = {
+            accessToken: tokens.accessToken,
+            accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
+            sessionId: tokens.sessionId,
+            refreshToken: tokens.refreshToken,
+            refreshTokenExpiresAt:
+               tokens.refreshTokenExpiresAt.toISOString(),
+         };
+
+         res.json({
+            ...result,
+            tokens: tokenPayload,
+         });
       } catch (error: any) {
          res.status(error.statusCode || 500).json({
             success: false,

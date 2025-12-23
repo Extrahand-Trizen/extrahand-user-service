@@ -5,6 +5,7 @@ import compression from 'compression';
 import morgan from 'morgan';
 import mongoSanitize from 'express-mongo-sanitize';
 import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
 import { validateEnv, getCorsConfig } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
 import routes from './routes';
@@ -22,6 +23,7 @@ export function createApp(): Application {
   // Body parsing middleware
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(cookieParser());
 
   // Compression
   app.use(compression());

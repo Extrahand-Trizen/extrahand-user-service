@@ -1,5 +1,5 @@
 import { auth } from "../config/firebase";
-import Profile, { IProfile } from "../models/Profile";
+import Profile from "../models/Profile";
 import { BadRequestError, InternalServerError } from "../errors/AppError";
 import logger from "../config/logger";
 
