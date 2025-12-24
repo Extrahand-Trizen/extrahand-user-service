@@ -14,6 +14,7 @@ const TOKEN_ISSUER = "extrahand-user-service";
 const TOKEN_AUDIENCE = "extrahand-clients";
 
 export interface TokenIssueMetadata {
+   // uid is the canonical MongoDB user _id (not the Firebase UID)
    uid: string;
    sessionId?: string;
    clientType: ClientType;
@@ -35,6 +36,7 @@ export interface TokenPair {
 interface AccessTokenClaims extends JwtPayload {
    sub: string;
    sid: string;
+   tid?: string;
 }
 
 interface RefreshTokenClaims extends JwtPayload {
@@ -96,6 +98,23 @@ export class SessionService {
          throw new UnauthorizedError("Refresh token not recognized");
       }
 
+      if (
+         stored.tokenId !== claims.jti ||
+         stored.sessionId !== claims.sid ||
+         stored.userId !== claims.sub
+      ) {
+         // Force strict binding between token claims and stored session record
+         logger.warn("Refresh token claim mismatch", {
+            tokenId: claims.jti,
+            storedTokenId: stored.tokenId,
+            sessionId: claims.sid,
+            storedSessionId: stored.sessionId,
+            claimedUser: claims.sub,
+            storedUser: stored.userId,
+         });
+         throw new UnauthorizedError("Refresh token not recognized");
+      }
+
       if (stored.revokedAt) {
          throw new UnauthorizedError("Refresh token already revoked");
       }
@@ -150,6 +169,7 @@ export class SessionService {
    static verifyAccessToken(token: string): {
       uid: string;
       sessionId: string;
+      tokenId?: string;
       expiresAt: Date;
    } {
       if (!token) {
@@ -169,6 +189,7 @@ export class SessionService {
          return {
             uid: payload.sub,
             sessionId: payload.sid,
+            tokenId: payload.tid,
             expiresAt: new Date((payload.exp ?? 0) * 1000),
          };
       } catch (error) {
@@ -180,11 +201,17 @@ export class SessionService {
    private static async issueTokens(
       metadata: TokenIssueMetadata & { sessionId: string }
    ): Promise<TokenPair> {
+      // Use a single tokenId across the pair so access tokens can be traced
+      const tokenId = randomUUID();
+      const refreshTokenPayload = await this.signAndStoreRefreshToken(
+         metadata,
+         tokenId
+      );
       const accessToken = this.signAccessToken(
          metadata.uid,
-         metadata.sessionId
+         metadata.sessionId,
+         tokenId
       );
-      const refreshTokenPayload = await this.signAndStoreRefreshToken(metadata);
 
       logger.info("Session tokens issued", {
          userId: metadata.uid,
@@ -205,11 +232,16 @@ export class SessionService {
       };
    }
 
-   private static signAccessToken(uid: string, sessionId: string): string {
+   private static signAccessToken(
+      uid: string,
+      sessionId: string,
+      tokenId: string
+   ): string {
       return jwt.sign(
          {
             sub: uid,
             sid: sessionId,
+            tid: tokenId,
          },
          ACCESS_TOKEN_SECRET,
          {
@@ -222,9 +254,9 @@ export class SessionService {
    }
 
    private static async signAndStoreRefreshToken(
-      metadata: TokenIssueMetadata & { sessionId: string }
+      metadata: TokenIssueMetadata & { sessionId: string },
+      tokenId: string
    ): Promise<{ token: string; tokenId: string; expiresAt: Date }> {
-      const tokenId = randomUUID();
       const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000);
       const token = jwt.sign(
          {

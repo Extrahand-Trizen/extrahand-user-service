@@ -3,7 +3,7 @@ import { Request } from "express";
 // Extended Express Request with user
 export interface AuthenticatedRequest extends Request {
    user?: {
-      uid: string;
+      uid: string; // MongoDB user _id carried in JWT sub
       token?: string;
       sessionId?: string;
    };

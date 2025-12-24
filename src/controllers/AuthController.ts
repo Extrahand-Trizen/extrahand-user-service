@@ -77,11 +77,11 @@ export class AuthController {
             name
          );
 
-         const uid = result.user?.uid;
-         if (!uid) {
+         const profileId = result.profile?._id?.toString();
+         if (!profileId) {
             res.status(500).json({
                success: false,
-               error: "Missing uid after authentication",
+               error: "Missing profile after authentication",
             });
             return;
          }
@@ -89,7 +89,7 @@ export class AuthController {
          const normalizedClient: ClientType =
             clientType === "mobile" ? "mobile" : "web";
          const tokens = await SessionService.createSession({
-            uid,
+            uid: profileId,
             clientType: normalizedClient,
             deviceId,
             userAgent: req.get("user-agent") ?? undefined,
@@ -120,7 +120,8 @@ export class AuthController {
                accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
                sessionId: tokens.sessionId,
                refreshToken: tokens.refreshToken,
-               refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
+               refreshTokenExpiresAt:
+                  tokens.refreshTokenExpiresAt.toISOString(),
             };
 
             res.json({

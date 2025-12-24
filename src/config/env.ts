@@ -34,6 +34,7 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().min(1).max(60).default(15),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().min(1).max(90).default(30),
   REFRESH_TOKEN_COOKIE_NAME: z.string().default('eh_refresh_token'),
+  ACCESS_TOKEN_COOKIE_NAME: z.string().default('accessToken'),
   SESSION_COOKIE_DOMAIN: z.string().optional(),
   
   // CORS
