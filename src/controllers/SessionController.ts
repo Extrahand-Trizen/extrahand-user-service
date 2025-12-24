@@ -4,7 +4,8 @@ import { SessionService } from "../services/SessionService";
 import {
    extractRefreshToken,
    setRefreshTokenCookie,
-   clearRefreshTokenCookie,
+   setAccessTokenCookie,
+   clearAuthCookies,
 } from "../utils/sessionCookies";
 import type { ClientType } from "../models/SessionToken";
 import { UnauthorizedError } from "../errors/AppError";
@@ -35,20 +36,31 @@ export class SessionController {
             tokens.refreshToken,
             tokens.refreshTokenExpiresAt
          );
+         setAccessTokenCookie(
+            res,
+            tokens.accessToken,
+            tokens.accessTokenExpiresAt
+         );
+
+         res.json({
+            success: true,
+            sessionId: tokens.sessionId,
+            accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
+         });
+      } else {
+         const payload: Record<string, any> = {
+            accessToken: tokens.accessToken,
+            accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
+            sessionId: tokens.sessionId,
+            refreshToken: tokens.refreshToken,
+            refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
+         };
+
+         res.json({
+            success: true,
+            tokens: payload,
+         });
       }
-
-      const payload: Record<string, any> = {
-         accessToken: tokens.accessToken,
-         accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
-         sessionId: tokens.sessionId,
-         refreshToken: tokens.refreshToken,
-         refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
-      };
-
-      res.json({
-         success: true,
-         tokens: payload,
-      });
    }
 
    static async logout(
@@ -60,7 +72,7 @@ export class SessionController {
          await SessionService.revokeRefreshToken(refreshToken, "logout");
       }
 
-      clearRefreshTokenCookie(res);
+      clearAuthCookies(res);
 
       res.json({
          success: true,

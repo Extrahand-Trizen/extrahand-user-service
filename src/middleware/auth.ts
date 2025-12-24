@@ -2,6 +2,7 @@ import { Response, NextFunction } from "express";
 import { AuthenticatedRequest } from "../types";
 import { validateEnv } from "../config/env";
 import { SessionService } from "../services/SessionService";
+import { extractAccessToken } from "../utils/sessionCookies";
 import logger from "../config/logger";
 
 const env = validateEnv();
@@ -21,17 +22,19 @@ export async function authMiddleware(
 ): Promise<void> {
    try {
       const headerToken = extractBearerToken(req.headers.authorization);
+      const cookieToken = extractAccessToken(req);
+      const token = headerToken || cookieToken;
 
-      if (!headerToken) {
-         res.status(401).json({ error: "Missing Authorization header" });
+      if (!token) {
+         res.status(401).json({ error: "Missing access token" });
          return;
       }
 
-      const session = SessionService.verifyAccessToken(headerToken);
+      const session = SessionService.verifyAccessToken(token);
       req.user = {
          uid: session.uid,
          sessionId: session.sessionId,
-         token: headerToken,
+         token,
       };
       next();
    } catch (e) {
@@ -48,14 +51,16 @@ export async function optionalAuthMiddleware(
    next: NextFunction
 ): Promise<void> {
    const headerToken = extractBearerToken(req.headers.authorization);
+   const cookieToken = extractAccessToken(req);
+   const token = headerToken || cookieToken;
 
-   if (headerToken) {
+   if (token) {
       try {
-         const session = SessionService.verifyAccessToken(headerToken);
+         const session = SessionService.verifyAccessToken(token);
          req.user = {
             uid: session.uid,
             sessionId: session.sessionId,
-            token: headerToken,
+            token,
          };
       } catch {
          req.user = undefined;
@@ -107,16 +112,19 @@ export async function combinedAuthMiddleware(
    // Fall back to Firebase token auth
    try {
       const headerToken = extractBearerToken(req.headers.authorization);
-      if (!headerToken) {
-         res.status(401).json({ error: "Missing Authorization header" });
+      const cookieToken = extractAccessToken(req);
+      const token = headerToken || cookieToken;
+
+      if (!token) {
+         res.status(401).json({ error: "Missing access token" });
          return;
       }
 
-      const session = SessionService.verifyAccessToken(headerToken);
+      const session = SessionService.verifyAccessToken(token);
       req.user = {
          uid: session.uid,
          sessionId: session.sessionId,
-         token: headerToken,
+         token,
       };
       next();
    } catch (e) {

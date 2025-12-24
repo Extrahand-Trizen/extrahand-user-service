@@ -2,7 +2,10 @@ import { Response } from "express";
 import { AuthenticatedRequest } from "../types";
 import { AuthService } from "../services/AuthService";
 import { SessionService } from "../services/SessionService";
-import { setRefreshTokenCookie } from "../utils/sessionCookies";
+import {
+   setRefreshTokenCookie,
+   setAccessTokenCookie,
+} from "../utils/sessionCookies";
 import type { ClientType } from "../models/SessionToken";
 
 export class AuthController {
@@ -99,20 +102,32 @@ export class AuthController {
                tokens.refreshToken,
                tokens.refreshTokenExpiresAt
             );
+            setAccessTokenCookie(
+               res,
+               tokens.accessToken,
+               tokens.accessTokenExpiresAt
+            );
+
+            res.json({
+               ...result,
+               success: true,
+               sessionId: tokens.sessionId,
+               accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
+            });
+         } else {
+            const tokenPayload: Record<string, any> = {
+               accessToken: tokens.accessToken,
+               accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
+               sessionId: tokens.sessionId,
+               refreshToken: tokens.refreshToken,
+               refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
+            };
+
+            res.json({
+               ...result,
+               tokens: tokenPayload,
+            });
          }
-
-         const tokenPayload: Record<string, any> = {
-            accessToken: tokens.accessToken,
-            accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
-            sessionId: tokens.sessionId,
-            refreshToken: tokens.refreshToken,
-            refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
-         };
-
-         res.json({
-            ...result,
-            tokens: tokenPayload,
-         });
       } catch (error: any) {
          res.status(error.statusCode || 500).json({
             success: false,
