@@ -14,7 +14,7 @@ const TOKEN_ISSUER = "extrahand-user-service";
 const TOKEN_AUDIENCE = "extrahand-clients";
 
 export interface TokenIssueMetadata {
-   // uid is the canonical MongoDB user _id (not the Firebase UID)
+   // uid is the Firebase UID (stored in Profile.uid field)
    uid: string;
    sessionId?: string;
    clientType: ClientType;

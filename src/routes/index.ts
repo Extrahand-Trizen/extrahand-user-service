@@ -5,6 +5,7 @@ import businessRoutes from "./business";
 import privacyRoutes from "./privacy";
 import uploadRoutes from "./uploads";
 import sessionRoutes from "./sessions";
+import { gatewayAuthMiddleware } from "../middleware/gatewayAuth";
 
 const router = Router();
 
@@ -17,6 +18,9 @@ router.get("/health", (_req, res) => {
       timestamp: new Date().toISOString(),
    });
 });
+
+// Gateway auth middleware (requires all requests to come through gateway)
+router.use(gatewayAuthMiddleware);
 
 // API routes
 router.use("/auth", authRoutes);

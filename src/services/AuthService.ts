@@ -5,7 +5,7 @@ import logger from "../config/logger";
 
 export class AuthService {
    /**
-    * Sync profile data based on Firebase UID (Atomic Signup/Login)
+    * Sync profile data based on Firebase UID (from session token)
     */
    static async syncProfile(
       uid: string,
@@ -18,7 +18,7 @@ export class AuthService {
       const { name, phone } = data;
 
       try {
-         // Find existing profile
+         // Find existing profile by Firebase UID
          let profile = await Profile.findOne({ uid });
 
          if (profile) {
@@ -38,23 +38,10 @@ export class AuthService {
                );
             }
          } else {
-            logger.info("📝 Creating new profile during sync", { uid });
-
-            // Create new minimal profile
-            const now = Date.now();
-            profile = await Profile.create({
-               uid,
-               name: name || "User",
-               phone: phone || null,
-               email: null,
-               emailVerified: false,
-               roles: [], // New users have no roles
-               userType: "individual",
-               rating: 0,
-               totalReviews: 0,
-               createdAt: now,
-               updatedAt: now,
-            });
+            // Profile not found - this shouldn't happen in sync flow
+            // since the session was created from an existing profile
+            logger.warn("📝 Profile not found during sync", { uid });
+            throw new BadRequestError("Profile not found");
          }
 
          return profile;

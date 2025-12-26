@@ -38,6 +38,7 @@ export interface IProfile extends Document {
   isAadhaarVerified: boolean;
   aadhaarVerifiedAt?: Date | null;
   isPANVerified?: boolean;
+  panVerifiedAt?: Date | null;
   isBankVerified?: boolean;
   isFaceVerified?: boolean;
   isActive: boolean;
@@ -244,6 +245,9 @@ const ProfileSchema = new Schema<IProfile>({
   isPANVerified: {
     type: Boolean,
     default: false
+  },
+  panVerifiedAt: {
+    type: Date
   },
   isBankVerified: {
     type: Boolean,

@@ -77,11 +77,13 @@ export class AuthController {
             name
          );
 
-         const profileId = result.profile?._id?.toString();
-         if (!profileId) {
+         // Use Firebase UID (profile.uid) for session, NOT MongoDB _id
+         // This ensures all services that search by `uid` field continue to work
+         const firebaseUid = result.profile?.uid;
+         if (!firebaseUid) {
             res.status(500).json({
                success: false,
-               error: "Missing profile after authentication",
+               error: "Missing profile UID after authentication",
             });
             return;
          }
@@ -89,7 +91,7 @@ export class AuthController {
          const normalizedClient: ClientType =
             clientType === "mobile" ? "mobile" : "web";
          const tokens = await SessionService.createSession({
-            uid: profileId,
+            uid: firebaseUid,  // Use Firebase UID, not MongoDB _id
             clientType: normalizedClient,
             deviceId,
             userAgent: req.get("user-agent") ?? undefined,
