@@ -5,7 +5,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 
-// All privacy routes require authentication
+// All privacy routes require authentication (accepts service auth from API Gateway OR Firebase token)
 router.use(authMiddleware);
 
 // GET /api/v1/privacy/data-export

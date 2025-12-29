@@ -78,6 +78,84 @@ export class ProfileController {
   }
 
   /**
+   * POST /api/v1/profiles/internal/match-users
+   * Service-to-service endpoint for finding matching users
+   * Called by task-service when a task is created
+   * 
+   * Request body:
+   * {
+   *   "type": "skill" | "keywords",
+   *   "criteria": {
+   *     "category": string (for skill matching)
+   *     OR
+   *     "keywords": string[] (for keyword matching)
+   *   }
+   * }
+   * 
+   * Response:
+   * {
+   *   "success": true,
+   *   "userIds": string[],
+   *   "count": number
+   * }
+   */
+  static async matchUsers(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { type, criteria } = req.body;
+
+      if (!type || !criteria) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing type or criteria in request body'
+        });
+      }
+
+      let userIds: string[] = [];
+
+      if (type === 'skill') {
+        if (!criteria.category) {
+          return res.status(400).json({
+            success: false,
+            error: 'Missing category in criteria for skill matching'
+          });
+        }
+        userIds = await ProfileService.findUsersBySkillCategory(criteria.category);
+      } else if (type === 'keywords') {
+        if (!criteria.keywords || !Array.isArray(criteria.keywords)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Missing or invalid keywords array in criteria for keyword matching'
+          });
+        }
+        userIds = await ProfileService.findUsersByAnyKeyword(criteria.keywords);
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid matching type: ${type}. Must be 'skill' or 'keywords'`
+        });
+      }
+
+      logger.info('ProfileController.matchUsers: Request processed', {
+        type,
+        criteriaKeys: Object.keys(criteria),
+        matchedCount: userIds.length
+      });
+
+      res.json({
+        success: true,
+        userIds,
+        count: userIds.length
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.matchUsers: Error', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Internal server error'
+      });
+    }
+  }
+
+  /**
    * GET /api/v1/profiles/public/:uid
    */
   static async getPublicProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -143,6 +221,90 @@ export class ProfileController {
       success: true,
       profile: publicProfile
     });
+  }
+
+  /**
+   * GET /api/v1/profiles/by-id/:profileId
+   * Get profile by ObjectId (for enrichment - minimal fields)
+   */
+  static async getProfileById(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { profileId } = req.params;
+      
+      if (!profileId) {
+        res.status(400).json({
+          success: false,
+          error: 'Profile ID is required',
+        });
+        return;
+      }
+
+      const profile = await ProfileService.getProfileById(profileId);
+      
+      if (!profile) {
+        res.status(404).json({
+          success: false,
+          error: 'Profile not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        profile,
+      });
+    } catch (error: any) {
+      logger.error('Error in getProfileById', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch profile',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/profiles/batch
+   * Get multiple profiles by ObjectIds (for enrichment - minimal fields)
+   * Body: { profileIds: ["ObjectId1", "ObjectId2", ...] }
+   */
+  static async getProfilesBatch(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { profileIds } = req.body;
+      
+      if (!Array.isArray(profileIds) || profileIds.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'profileIds array is required',
+        });
+        return;
+      }
+
+      // Limit batch size to prevent abuse
+      const limitedIds = profileIds.slice(0, 100);
+      
+      const profileMap = await ProfileService.getProfilesBatch(limitedIds);
+      
+      // Convert Map to array for JSON response
+      const profiles = Array.from(profileMap.values());
+
+      res.json({
+        success: true,
+        profiles,
+        count: profiles.length,
+      });
+    } catch (error: any) {
+      logger.error('Error in getProfilesBatch', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch profiles',
+      });
+    }
   }
 
   /**

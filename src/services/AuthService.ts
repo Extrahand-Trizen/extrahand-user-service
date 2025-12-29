@@ -29,20 +29,33 @@ export class AuthService {
             if (name && profile.name !== name) updates.name = name;
             if (phone && profile.phone !== phone) updates.phone = phone;
 
-            if (Object.keys(updates).length > 0) {
-               updates.updatedAt = Date.now();
-               profile = await Profile.findOneAndUpdate(
-                  { uid },
-                  { $set: updates },
-                  { new: true }
-               );
-            }
-         } else {
-            // Profile not found - this shouldn't happen in sync flow
-            // since the session was created from an existing profile
-            logger.warn("📝 Profile not found during sync", { uid });
-            throw new BadRequestError("Profile not found");
-         }
+        if (Object.keys(updates).length > 0) {
+          updates.updatedAt = Date.now();
+          profile = await Profile.findOneAndUpdate(
+            { uid },
+            { $set: updates },
+            { new: true }
+          );
+        }
+      } else {
+        logger.info("📝 Creating new profile during sync", { uid });
+
+        // Create new minimal profile
+        const now = Date.now();
+        profile = await Profile.create({
+          uid,
+          name: name || "User",
+          phone: phone || null,
+          email: "user@example.com",
+          emailVerified: false,
+          roles: [], // New users have no roles
+          userType: "individual",
+          rating: 0,
+          totalReviews: 0,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
 
          return profile;
       } catch (error: any) {

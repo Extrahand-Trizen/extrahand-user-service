@@ -1,39 +1,109 @@
-import { Response, NextFunction } from "express";
-import { AuthenticatedRequest } from "../types";
+import { Response, NextFunction } from 'express';
+import { auth } from '../config/firebase';
+import { AuthenticatedRequest } from '../types';
+import { validateEnv } from '../config/env';
 
 /**
- * Auth middleware - requires user to be authenticated via gateway
- * gatewayAuthMiddleware must run before this (sets req.user from gateway headers)
+ * Unified auth middleware - accepts service auth from API Gateway OR Firebase token
+ * Priority: Service auth (from API Gateway) > Firebase token (direct client calls)
+ * For service-to-service calls, sets req.user from X-User-Id header (no Firebase verification needed)
  */
 export async function authMiddleware(
    req: AuthenticatedRequest,
    res: Response,
    next: NextFunction
 ): Promise<void> {
-   // gatewayAuthMiddleware already validated the request and set req.user
-   if (!req.user?.uid) {
-      res.status(401).json({ error: "Authentication required" });
+  // Check for service auth first (for API Gateway calls - fast path, no Firebase verification)
+  const serviceAuthToken = req.headers['x-service-auth'] as string;
+  const userId = req.headers['x-user-id'] as string;
+  
+  if (serviceAuthToken && userId) {
+    try {
+      // Validate service auth token
+      const env = validateEnv();
+      if (serviceAuthToken === env.SERVICE_AUTH_TOKEN) {
+        // Set user from service auth - API Gateway already verified the Firebase token
+        req.user = { uid: userId, token: null as any };
+        next();
+        return;
+      } else {
+        res.status(403).json({
+          success: false,
+          error: 'Invalid service authentication token'
+        });
+        return;
+      }
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: 'Service authentication error',
+        message: error.message
+      });
       return;
-   }
-   next();
+    }
+  }
+  
+  // Fall back to Firebase token auth (for direct client calls or edge cases)
+  try {
+    const header = req.headers.authorization || '';
+    const match = /^Bearer (.+)$/.exec(header);
+    
+    if (!match) {
+      res.status(401).json({ error: 'Missing Authorization header' });
+      return;
+    }
+    
+    const idToken = match[1];
+    const token = await auth.verifyIdToken(idToken);
+    req.user = { uid: token.uid, token };
+    next();
+  } catch (e) {
+    res.status(401).json({ error: 'Invalid token' });
+    return;
+  }
 }
 
 /**
- * Optional auth middleware - allows unauthenticated requests
- * req.user will be set if authenticated, undefined otherwise
+ * Optional auth middleware - sets req.user if token is present, but doesn't require it
+ * Used for routes that work with or without authentication
  */
 export async function optionalAuthMiddleware(
-   _req: AuthenticatedRequest,
-   _res: Response,
-   next: NextFunction
+  req: AuthenticatedRequest,
+  _res: Response,
+  next: NextFunction
 ): Promise<void> {
-   // gatewayAuthMiddleware already set req.user if authenticated
-   // Just pass through - req.user may or may not be set
-   next();
+  // Check for service auth first
+  const serviceAuthToken = req.headers['x-service-auth'] as string;
+  const userId = req.headers['x-user-id'] as string;
+  
+  if (serviceAuthToken && userId) {
+    try {
+      const env = validateEnv();
+      if (serviceAuthToken === env.SERVICE_AUTH_TOKEN) {
+        req.user = { uid: userId, token: null as any };
+        next();
+        return;
+      }
+    } catch (error) {
+      // Continue to Firebase check
+    }
+  }
+  
+  // Fall back to Firebase token auth (optional)
+  const header = req.headers.authorization || '';
+  const match = /^Bearer (.+)$/.exec(header);
+  
+  if (match) {
+    try {
+      const idToken = match[1];
+      const token = await auth.verifyIdToken(idToken);
+      req.user = { uid: token.uid, token };
+    } catch (e) {
+      req.user = undefined;
+    }
+  } else {
+    req.user = undefined;
+  }
+  
+  next();
 }
-
-/**
- * Combined auth middleware - now just an alias for authMiddleware
- * Kept for backwards compatibility
- */
-export const combinedAuthMiddleware = authMiddleware;

@@ -51,6 +51,10 @@ export interface IProfile extends Document {
   agreeUpdates?: boolean;
   agreeTerms?: boolean;
   dataPrivacy?: DataPrivacy;
+  savedKeywords?: {
+    keywords?: string[];
+    updatedAt?: Date;
+  };
   verificationTier?: number;
   verificationBadge?: 'none' | 'basic' | 'verified' | 'trusted';
   lastVerifiedAt?: Date;
@@ -416,6 +420,14 @@ const ProfileSchema = new Schema<IProfile>({
   lastActive: {
     type: Date,
     default: Date.now
+  },
+  savedKeywords: {
+    keywords: {
+      type: [String],
+      default: [],
+      index: true
+    },
+    updatedAt: Date
   }
 }, {
   timestamps: true
@@ -423,6 +435,10 @@ const ProfileSchema = new Schema<IProfile>({
 
 // Index for geospatial queries
 ProfileSchema.index({ 'location.coordinates': '2dsphere' });
+
+// Compound indexes for efficient matching queries (notifications)
+ProfileSchema.index({ 'skills.primaryCategory': 1, isActive: 1 });
+ProfileSchema.index({ 'savedKeywords.keywords': 1, isActive: 1 });
 
 // Static method to calculate completion percentage
 ProfileSchema.statics.calculateCompletionPercentage = function(profile: IProfile) {

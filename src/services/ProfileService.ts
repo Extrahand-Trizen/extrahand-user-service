@@ -50,6 +50,96 @@ export class ProfileService {
   }
 
   /**
+   * Get profile by ObjectId (for enrichment - minimal fields only)
+   */
+  static async getProfileById(profileId: string): Promise<{
+    _id: mongoose.Types.ObjectId;
+    name: string;
+    photoURL?: string | null;
+    rating?: number;
+    totalReviews?: number;
+  } | null> {
+    this.checkConnection();
+
+    try {
+      const objectId = new mongoose.Types.ObjectId(profileId);
+      const profile = await Profile.findById(objectId)
+        .select('_id name photoURL rating totalReviews')
+        .lean();
+
+      if (!profile) {
+        return null;
+      }
+
+      return {
+        _id: profile._id,
+        name: profile.name || 'Anonymous',
+        photoURL: profile.photoURL || null,
+        rating: profile.rating || 0,
+        totalReviews: profile.totalReviews || 0,
+      };
+    } catch (error: any) {
+      logger.error('Error fetching profile by ObjectId', {
+        profileId,
+        error: error.message,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Get multiple profiles by ObjectIds (batch - for enrichment)
+   * Returns minimal fields: _id, name, photoURL, rating, totalReviews
+   */
+  static async getProfilesBatch(profileIds: string[]): Promise<Map<string, {
+    _id: mongoose.Types.ObjectId;
+    name: string;
+    photoURL?: string | null;
+    rating?: number;
+    totalReviews?: number;
+  }>> {
+    this.checkConnection();
+
+    const profileMap = new Map();
+
+    if (!profileIds || profileIds.length === 0) {
+      return profileMap;
+    }
+
+    try {
+      const objectIds = profileIds
+        .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+
+      if (objectIds.length === 0) {
+        return profileMap;
+      }
+
+      const profiles = await Profile.find({ _id: { $in: objectIds } })
+        .select('_id name photoURL rating totalReviews')
+        .lean();
+
+      profiles.forEach(profile => {
+        profileMap.set(profile._id.toString(), {
+          _id: profile._id,
+          name: profile.name || 'Anonymous',
+          photoURL: profile.photoURL || null,
+          rating: profile.rating || 0,
+          totalReviews: profile.totalReviews || 0,
+        });
+      });
+
+      return profileMap;
+    } catch (error: any) {
+      logger.error('Error batch fetching profiles by ObjectId', {
+        profileIdsCount: profileIds.length,
+        error: error.message,
+      });
+      return profileMap;
+    }
+  }
+
+  /**
    * Search profiles
    */
   static async searchProfiles(query: string, limit: number = 10, excludeUid?: string): Promise<IProfileDocument[]> {
@@ -75,6 +165,96 @@ export class ProfileService {
       .lean();
 
     return profiles as unknown as IProfileDocument[];
+  }
+
+  /**
+   * Find users with matching skill category
+   * For service-to-service calls from task-service
+   * Used when a task is created to find taskers with matching skills
+   * 
+   * @param category - Task category (e.g., 'cleaning', 'repair')
+   * @returns Promise<string[]> Array of user UIDs with matching skills
+   */
+  static async findUsersBySkillCategory(category: string): Promise<string[]> {
+    this.checkConnection();
+    
+    if (!category || category.trim().length === 0) {
+      logger.warn('ProfileService.findUsersBySkillCategory: Empty category provided');
+      return [];
+    }
+
+    try {
+      const users = await Profile.find({
+        roles: { $in: ['tasker', 'both'] },
+        isActive: true,
+        isVerified: true,  // Only verified taskers
+        'skills.primaryCategory': category
+      })
+        .select('uid')
+        .lean();
+
+      const userIds = users.map((u: any) => u.uid);
+      logger.info('ProfileService: Found users by skill category', {
+        category,
+        count: userIds.length
+      });
+
+      return userIds;
+    } catch (error) {
+      logger.error('ProfileService.findUsersBySkillCategory error:', {
+        category,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Find users with any of the provided keywords
+   * For service-to-service calls from task-service
+   * Used when a task is created to find users interested in the keywords
+   * 
+   * @param keywords - Array of keywords to search for
+   * @returns Promise<string[]> Array of user UIDs with matching keywords
+   */
+  static async findUsersByAnyKeyword(keywords: string[]): Promise<string[]> {
+    this.checkConnection();
+    
+    if (!keywords || keywords.length === 0) {
+      logger.warn('ProfileService.findUsersByAnyKeyword: Empty keywords provided');
+      return [];
+    }
+
+    try {
+      // Escape special regex characters and create case-insensitive patterns
+      const keywordPatterns = keywords.map(k => 
+        k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      );
+
+      const users = await Profile.find({
+        isActive: true,
+        isVerified: true,
+        'savedKeywords.keywords': {
+          $in: keywordPatterns
+        }
+      })
+        .select('uid')
+        .lean();
+
+      const userIds = users.map((u: any) => u.uid);
+      logger.info('ProfileService: Found users by keywords', {
+        keywordCount: keywords.length,
+        userCount: userIds.length
+      });
+
+      return userIds;
+    } catch (error) {
+      logger.error('ProfileService.findUsersByAnyKeyword error:', {
+        keywordCount: keywords.length,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return [];
+    }
   }
 
   /**
