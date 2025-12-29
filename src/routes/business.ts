@@ -5,7 +5,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 
-// All business routes require authentication
+// All business routes require authentication (accepts service auth from API Gateway OR Firebase token)
 router.use(authMiddleware);
 
 // POST /api/v1/business/details

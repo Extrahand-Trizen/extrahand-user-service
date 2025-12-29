@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { UploadController } from '../controllers/UploadController';
-import { combinedAuthMiddleware } from '../middleware/auth';
+import { authMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
@@ -24,7 +24,7 @@ const upload = multer({
 });
 
 // All upload routes require authentication
-router.use(combinedAuthMiddleware);
+router.use(authMiddleware);
 
 // POST /api/v1/uploads/profile-picture
 router.post('/profile-picture', upload.single('image'), asyncHandler(UploadController.uploadProfilePicture));

@@ -45,7 +45,7 @@ export class AuthService {
           uid,
           name: name || "User",
           phone: phone || null,
-          email: null,
+          email: "user@example.com",
           emailVerified: false,
           roles: [], // New users have no roles
           userType: "individual",
