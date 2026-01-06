@@ -47,6 +47,9 @@ router.patch('/:uid/verification/aadhaar', serviceAuthMiddleware, asyncHandler(P
 // PATCH /api/v1/profiles/:uid/verification/pan - Update PAN verification (service auth)
 router.patch('/:uid/verification/pan', serviceAuthMiddleware, asyncHandler(ProfileController.updatePANVerification));
 
+// PATCH /api/v1/profiles/:uid/verification/bank - Update bank verification (service auth)
+router.patch('/:uid/verification/bank', serviceAuthMiddleware, asyncHandler(ProfileController.updateBankVerification));
+
 // DELETE /api/v1/profiles/me - Delete profile (requires auth)
 router.delete('/me', authMiddleware, asyncHandler(ProfileController.deleteProfile));
 

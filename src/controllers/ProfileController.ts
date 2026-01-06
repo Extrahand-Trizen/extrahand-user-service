@@ -529,7 +529,7 @@ export class ProfileController {
    */
   static async updateAadhaarVerification(req: Request, res: Response): Promise<void> {
     const { uid } = req.params;
-    const { isAadhaarVerified, aadhaarVerifiedAt } = req.body;
+    const { isAadhaarVerified, aadhaarVerifiedAt, maskedAadhaar } = req.body;
 
     console.log('📥 [USER SERVICE] Received Aadhaar verification update request', {
       uid,
@@ -554,7 +554,8 @@ export class ProfileController {
       // Update profile with Aadhaar verification status
       const updateData: Partial<IProfile> = {
         isAadhaarVerified: isAadhaarVerified !== undefined ? isAadhaarVerified : true,
-        aadhaarVerifiedAt: aadhaarVerifiedAt ? new Date(aadhaarVerifiedAt) : new Date()
+        aadhaarVerifiedAt: aadhaarVerifiedAt ? new Date(aadhaarVerifiedAt) : new Date(),
+        ...(maskedAadhaar && { maskedAadhaar })
       };
 
       console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
@@ -576,7 +577,8 @@ export class ProfileController {
         profile: {
           uid: updatedProfile.uid,
           isAadhaarVerified: updatedProfile.isAadhaarVerified,
-          aadhaarVerifiedAt: updatedProfile.aadhaarVerifiedAt
+          aadhaarVerifiedAt: updatedProfile.aadhaarVerifiedAt,
+          maskedAadhaar: updatedProfile.maskedAadhaar
         }
       });
     } catch (error: any) {
@@ -647,6 +649,73 @@ export class ProfileController {
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to update PAN verification status'
+      });
+    }
+  }
+
+  /**
+   * PATCH /api/v1/profiles/:uid/verification/bank
+   * Update bank verification status (service-to-service call)
+   */
+  static async updateBankVerification(req: Request, res: Response): Promise<void> {
+    const { uid } = req.params;
+    const { isBankVerified, bankVerifiedAt, maskedBankAccount, bankAccount } = req.body;
+
+    console.log('📥 [USER SERVICE] Received bank verification update request', {
+      uid,
+      body: req.body,
+      headers: {
+        'x-service-auth': req.headers['x-service-auth'] ? 'present' : 'missing',
+        'x-service-name': req.headers['x-service-name'],
+        'x-user-id': req.headers['x-user-id']
+      }
+    });
+
+    if (!uid) {
+      console.error('❌ [USER SERVICE] Missing uid in request');
+      res.status(400).json({
+        success: false,
+        error: 'User ID (uid) is required'
+      });
+      return;
+    }
+
+    try {
+      // Update profile with bank verification status
+      const updateData: Partial<IProfile> = {
+        isBankVerified: isBankVerified !== undefined ? isBankVerified : true,
+        bankVerifiedAt: bankVerifiedAt ? new Date(bankVerifiedAt) : new Date(),
+        ...(maskedBankAccount && { maskedBankAccount }),
+        ...(bankAccount && { bankAccount })
+      };
+
+      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+        uid,
+        updateData
+      });
+
+      const updatedProfile = await ProfileService.updateProfile(uid, updateData);
+
+      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+        uid,
+        isBankVerified: updatedProfile.isBankVerified,
+        bankVerifiedAt: updatedProfile.bankVerifiedAt
+      });
+
+      res.json({
+        success: true,
+        message: 'Bank verification status updated',
+        profile: {
+          uid: updatedProfile.uid,
+          isBankVerified: updatedProfile.isBankVerified,
+          bankVerifiedAt: updatedProfile.bankVerifiedAt,
+          maskedBankAccount: updatedProfile.maskedBankAccount
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to update bank verification status'
       });
     }
   }
