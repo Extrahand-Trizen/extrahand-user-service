@@ -4,7 +4,6 @@ import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
 import mongoSanitize from "express-mongo-sanitize";
-import rateLimit from "express-rate-limit";
 import cookieParser from 'cookie-parser';
 import { validateEnv, getCorsConfig } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
@@ -44,14 +43,14 @@ export function createApp(): Application {
   // Sanitize data
   app.use(mongoSanitize());
 
-  // Rate limiting
-  const limiter = rateLimit({
-    windowMs: env.RATE_LIMIT_WINDOW_MS,
-    max: env.RATE_LIMIT_MAX_REQUESTS,
-    message: "Too many requests from this IP, please try again later.",
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
+  // Rate limiting (currently disabled – enable when needed)
+  // const limiter = rateLimit({
+  //   windowMs: env.RATE_LIMIT_WINDOW_MS,
+  //   max: env.RATE_LIMIT_MAX_REQUESTS,
+  //   message: "Too many requests from this IP, please try again later.",
+  //   standardHeaders: true,
+  //   legacyHeaders: false,
+  // });
   // app.use('/api/', limiter);
 
   app.use((req, _res, next) => {
