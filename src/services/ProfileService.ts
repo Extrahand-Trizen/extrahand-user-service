@@ -26,7 +26,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses')
+      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isBankVerified bankVerifiedAt maskedBankAccount bankAccount maskedPan location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses')
       .lean();
 
     if (!profile) {
@@ -523,11 +523,40 @@ export class ProfileService {
     if (profileData.aadhaarVerifiedAt !== undefined) {
       updatePayload.aadhaarVerifiedAt = profileData.aadhaarVerifiedAt;
       console.log('📝 [PROFILE SERVICE] Setting aadhaarVerifiedAt', {
-        uid,
-        value: profileData.aadhaarVerifiedAt,
-        previousValue: existingProfile.aadhaarVerifiedAt
+              previousValue: existingProfile.aadhaarVerifiedAt
       });
     }
+    if (profileData.maskedAadhaar !== undefined) {
+      updatePayload.maskedAadhaar = profileData.maskedAadhaar;
+    }
+    
+    // ✨ Bank verification fields
+    if (profileData.isBankVerified !== undefined) {
+      updatePayload.isBankVerified = profileData.isBankVerified;
+      console.log('📝 [PROFILE SERVICE] Setting isBankVerified', {
+        uid,
+        value: profileData.isBankVerified,
+        previousValue: existingProfile.isBankVerified
+      });
+    }
+    if (profileData.bankVerifiedAt !== undefined) {
+      updatePayload.bankVerifiedAt = profileData.bankVerifiedAt;
+      console.log('📝 [PROFILE SERVICE] Setting bankVerifiedAt', {
+        uid,
+        value: profileData.bankVerifiedAt,
+        previousValue: existingProfile.bankVerifiedAt
+      });
+    }
+    if (profileData.maskedBankAccount !== undefined) {
+      updatePayload.maskedBankAccount = profileData.maskedBankAccount;
+    }
+    if (profileData.bankAccount !== undefined) {
+      updatePayload.bankAccount = profileData.bankAccount;
+    }
+    if (profileData.maskedPan !== undefined) {
+      updatePayload.maskedPan = profileData.maskedPan;
+    }
+    
     if (profileData.skills !== undefined) {
       updatePayload.skills = {
         ...profileData.skills,

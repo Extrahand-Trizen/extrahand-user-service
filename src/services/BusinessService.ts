@@ -79,11 +79,14 @@ export class BusinessService {
           { uid },
           {
             $set: {
-              'business.pan.number': panNumber.toUpperCase(),
+              // ❌ SECURITY: DO NOT STORE RAW PAN NUMBER
+              // 'business.pan.number': panNumber.toUpperCase(),
+              'business.pan.maskedPAN': response.data.data?.maskedPan || `${panNumber.slice(0, 3)}XXXXXX${panNumber.slice(-1)}`,
               'business.pan.isPANVerified': true,
               'business.pan.panVerifiedAt': new Date(),
               'business.pan.panVerificationRef': response.data.data?.referenceId || response.data.data?.refId,
               'business.verificationStatus.requirements.pan': true,
+              maskedPan: response.data.data?.maskedPan || `${panNumber.slice(0, 3)}XXXXXX${panNumber.slice(-1)}`,
               updatedAt: new Date()
             }
           }

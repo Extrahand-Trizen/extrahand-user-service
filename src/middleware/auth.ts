@@ -9,9 +9,9 @@ import { validateEnv } from '../config/env';
  * For service-to-service calls, sets req.user from X-User-Id header (no Firebase verification needed)
  */
 export async function authMiddleware(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
+   req: AuthenticatedRequest,
+   res: Response,
+   next: NextFunction
 ): Promise<void> {
   // Check for service auth first (for API Gateway calls - fast path, no Firebase verification)
   const serviceAuthToken = req.headers['x-service-auth'] as string;

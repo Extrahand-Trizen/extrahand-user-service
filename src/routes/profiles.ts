@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { ProfileController } from '../controllers/ProfileController';
+import { AddressController } from '../controllers/AddressController';
 import { optionalAuthMiddleware, authMiddleware } from '../middleware/auth';
 import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -46,6 +47,25 @@ router.patch('/:uid/verification/aadhaar', serviceAuthMiddleware, asyncHandler(P
 
 // PATCH /api/v1/profiles/:uid/verification/pan - Update PAN verification (service auth)
 router.patch('/:uid/verification/pan', serviceAuthMiddleware, asyncHandler(ProfileController.updatePANVerification));
+
+// PATCH /api/v1/profiles/:uid/verification/bank - Update bank verification (service auth)
+router.patch('/:uid/verification/bank', serviceAuthMiddleware, asyncHandler(ProfileController.updateBankVerification));
+
+// Address Management Routes
+// GET /api/v1/profiles/me/addresses - Get all saved addresses (requires auth)
+router.get('/me/addresses', authMiddleware, asyncHandler(AddressController.getAddresses));
+
+// POST /api/v1/profiles/me/addresses - Add new address (requires auth)
+router.post('/me/addresses', authMiddleware, asyncHandler(AddressController.addAddress));
+
+// PUT /api/v1/profiles/me/addresses/:addressId - Update address (requires auth)
+router.put('/me/addresses/:addressId', authMiddleware, asyncHandler(AddressController.updateAddress));
+
+// PATCH /api/v1/profiles/me/addresses/:addressId/default - Set default address (requires auth)
+router.patch('/me/addresses/:addressId/default', authMiddleware, asyncHandler(AddressController.setDefaultAddress));
+
+// DELETE /api/v1/profiles/me/addresses/:addressId - Delete address (requires auth)
+router.delete('/me/addresses/:addressId', authMiddleware, asyncHandler(AddressController.deleteAddress));
 
 // DELETE /api/v1/profiles/me - Delete profile (requires auth)
 router.delete('/me', authMiddleware, asyncHandler(ProfileController.deleteProfile));

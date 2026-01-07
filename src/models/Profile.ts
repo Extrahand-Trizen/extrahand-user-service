@@ -37,8 +37,18 @@ export interface IProfile extends Document {
   isVerified: boolean;
   isAadhaarVerified: boolean;
   aadhaarVerifiedAt?: Date | null;
+  maskedAadhaar?: string;
   isPANVerified?: boolean;
+  panVerifiedAt?: Date | null;
+  maskedPan?: string;
   isBankVerified?: boolean;
+  bankVerifiedAt?: Date | null;
+  maskedBankAccount?: string;
+  bankAccount?: {
+    accountHolderName?: string;
+    bankName?: string;
+    ifsc?: string;
+  };
   isFaceVerified?: boolean;
   isActive: boolean;
   photoURL?: string | null;
@@ -245,13 +255,33 @@ const ProfileSchema = new Schema<IProfile>({
   aadhaarVerifiedAt: {
     type: Date
   },
+  maskedAadhaar: {
+    type: String
+  },
   isPANVerified: {
     type: Boolean,
     default: false
   },
+  panVerifiedAt: {
+    type: Date
+  },
+  maskedPan: {
+    type: String
+  },
   isBankVerified: {
     type: Boolean,
     default: false
+  },
+  bankVerifiedAt: {
+    type: Date
+  },
+  maskedBankAccount: {
+    type: String
+  },
+  bankAccount: {
+    accountHolderName: String,
+    bankName: String,
+    ifsc: String
   },
   isFaceVerified: {
     type: Boolean,
@@ -313,7 +343,9 @@ const ProfileSchema = new Schema<IProfile>({
       country: { type: String, default: 'India' }
     },
     pan: {
-      number: String,
+      // ❌ SECURITY: DO NOT STORE RAW PAN NUMBER
+      // number: String,
+      maskedPAN: String,
       isPANVerified: { type: Boolean, default: false },
       panVerifiedAt: Date,
       panVerificationRef: String

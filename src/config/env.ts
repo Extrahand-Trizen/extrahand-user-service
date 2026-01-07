@@ -29,6 +29,13 @@ const envSchema = z.object({
   // Security
   RATE_LIMIT_WINDOW_MS: z.string().transform(Number).default('900000'), // 15 minutes
   RATE_LIMIT_MAX_REQUESTS: z.string().transform(Number).default('1000'),
+  ACCESS_TOKEN_SECRET: z.string().min(32, 'ACCESS_TOKEN_SECRET must be at least 32 characters'),
+  REFRESH_TOKEN_SECRET: z.string().min(32, 'REFRESH_TOKEN_SECRET must be at least 32 characters'),
+  ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().min(1).max(60).default(15),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().min(1).max(90).default(30),
+  REFRESH_TOKEN_COOKIE_NAME: z.string().default('eh_refresh_token'),
+  ACCESS_TOKEN_COOKIE_NAME: z.string().default('accessToken'),
+  SESSION_COOKIE_DOMAIN: z.string().optional(),
   
   // CORS
   CORS_ORIGIN: z.string().optional(),
@@ -133,6 +140,7 @@ export function getCorsConfig(env: z.infer<typeof envSchema>) {
       'Content-Type',
       'Accept',
       'Authorization',
+        'X-Refresh-Token',
       'Cache-Control',
       'Pragma',
       'X-API-Key',
