@@ -54,8 +54,10 @@ export async function authMiddleware(
     }
     
     const idToken = match[1];
-    const token = await auth.verifyIdToken(idToken);
-    req.user = { uid: token.uid, token };
+    const decoded = await auth.verifyIdToken(idToken);
+    // Store the raw ID token string on req.user.token (type: string)
+    // and use the decoded token only to extract the uid.
+    req.user = { uid: decoded.uid, token: idToken };
     next();
   } catch (e) {
     res.status(401).json({ error: 'Invalid token' });
@@ -93,17 +95,18 @@ export async function optionalAuthMiddleware(
   const header = req.headers.authorization || '';
   const match = /^Bearer (.+)$/.exec(header);
   
-  if (match) {
-    try {
-      const idToken = match[1];
-      const token = await auth.verifyIdToken(idToken);
-      req.user = { uid: token.uid, token };
-    } catch (e) {
+    if (match) {
+      try {
+        const idToken = match[1];
+        const decoded = await auth.verifyIdToken(idToken);
+        // Same convention: keep uid from decoded token, store raw token string
+        req.user = { uid: decoded.uid, token: idToken };
+      } catch (e) {
+        req.user = undefined;
+      }
+    } else {
       req.user = undefined;
     }
-  } else {
-    req.user = undefined;
-  }
   
   next();
 }

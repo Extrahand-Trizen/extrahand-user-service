@@ -104,35 +104,39 @@ export class ProfileController {
       const { type, criteria } = req.body;
 
       if (!type || !criteria) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: 'Missing type or criteria in request body'
         });
+        return;
       }
 
       let userIds: string[] = [];
 
       if (type === 'skill') {
         if (!criteria.category) {
-          return res.status(400).json({
+          res.status(400).json({
             success: false,
             error: 'Missing category in criteria for skill matching'
           });
+          return;
         }
         userIds = await ProfileService.findUsersBySkillCategory(criteria.category);
       } else if (type === 'keywords') {
         if (!criteria.keywords || !Array.isArray(criteria.keywords)) {
-          return res.status(400).json({
+          res.status(400).json({
             success: false,
             error: 'Missing or invalid keywords array in criteria for keyword matching'
           });
+          return;
         }
         userIds = await ProfileService.findUsersByAnyKeyword(criteria.keywords);
       } else {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: `Invalid matching type: ${type}. Must be 'skill' or 'keywords'`
         });
+        return;
       }
 
       logger.info('ProfileController.matchUsers: Request processed', {
