@@ -559,6 +559,7 @@ export class ProfileController {
       const updateData: Partial<IProfile> = {
         isAadhaarVerified: isAadhaarVerified !== undefined ? isAadhaarVerified : true,
         aadhaarVerifiedAt: aadhaarVerifiedAt ? new Date(aadhaarVerifiedAt) : new Date(),
+        isVerified: true, // ✅ Set general verification flag when Aadhaar is verified
         ...(maskedAadhaar && { maskedAadhaar })
       };
 
@@ -624,7 +625,8 @@ export class ProfileController {
       // Update profile with PAN verification status
       const updateData: Partial<IProfile> = {
         isPANVerified: isPANVerified !== undefined ? isPANVerified : true,
-        panVerifiedAt: panVerifiedAt ? new Date(panVerifiedAt) : new Date()
+        panVerifiedAt: panVerifiedAt ? new Date(panVerifiedAt) : new Date(),
+        isVerified: true // ✅ Set general verification flag when PAN is verified
       };
 
       console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
