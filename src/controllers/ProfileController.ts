@@ -376,7 +376,7 @@ export class ProfileController {
         ...updatedProfile,
         message: 'Profile updated successfully'
       });
-    } catch (error: any) {
+    } catch (error:   any) {
       console.error('❌ [ProfileController.updateProfile] Error:', {
         message: error.message,
         name: error.name,
