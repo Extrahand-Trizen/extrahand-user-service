@@ -26,7 +26,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isBankVerified bankVerifiedAt maskedBankAccount bankAccount maskedPan location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses')
+      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isBankVerified bankVerifiedAt maskedBankAccount bankAccount maskedPan location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses createdAt updatedAt')
       .lean();
 
     if (!profile) {
@@ -84,6 +84,44 @@ export class ProfileService {
         error: error.message,
       });
       return null;
+    }
+  }
+
+  /**
+   * Get public profile by MongoDB ObjectId (full public profile)
+   * Returns the same fields as the user's public profile section
+   * Used when accessing profiles by MongoDB ID from the frontend
+   */
+  static async getPublicProfileById(profileId: string): Promise<IProfileDocument> {
+    this.checkConnection();
+
+    try {
+      const objectId = new mongoose.Types.ObjectId(profileId);
+      const profile = await Profile.findById(objectId)
+        .select('_id uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isBankVerified bankVerifiedAt photoURL location totalTasks completedTasks postedTasks earnedAmount business createdAt isActive')
+        .lean();
+
+      if (!profile) {
+        throw new NotFoundError('Profile not found');
+      }
+
+      if (!profile.isActive) {
+        throw new NotFoundError('Profile not found');
+      }
+
+      return profile as unknown as IProfileDocument;
+    } catch (error: any) {
+      if (error instanceof NotFoundError) {
+        throw error;
+      }
+      if (error.name === 'CastError' || error.message.includes('ObjectId')) {
+        throw new NotFoundError('Invalid profile ID');
+      }
+      logger.error('Error fetching public profile by ObjectId', {
+        profileId,
+        error: error.message,
+      });
+      throw error;
     }
   }
 
@@ -900,5 +938,26 @@ export class ProfileService {
       lastStep: 'location'
     };
   }
-}
 
+  /**
+   * Update profile statistics from task-service
+   * Called via internal service-to-service API
+   */
+  static async updateStatsFromTaskService(
+    profileId: string,
+    stats: {
+      totalTasks?: number;
+      completedTasks?: number;
+      postedTasks?: number;
+      totalReviews?: number;
+      rating?: number;
+    }
+  ): Promise<void> {
+    await Profile.findByIdAndUpdate(profileId, {
+      $set: stats,
+    });
+    
+    console.log(`✅ Updated profile ${profileId} with stats from task-service`);
+  }
+
+}

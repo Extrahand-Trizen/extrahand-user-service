@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../types';
 import { ProfileService } from '../services/ProfileService';
 import { IProfile } from '../models/Profile';
 import logger from '../config/logger';
+import { validateEnv } from '../config/env';
 
 export class ProfileController {
   /** 
@@ -12,6 +13,52 @@ export class ProfileController {
     try {
       const uid = req.user!.uid;
       const profile = await ProfileService.getMyProfile(uid);
+      
+      // Fetch work history from Task Service
+      let workHistory: any[] = [];
+      try {
+        const env = validateEnv();
+        if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN && profile._id) {
+          const axios = (await import('axios')).default;
+          const tasksResponse = await axios.get(
+            `${env.TASK_SERVICE_URL}/api/v1/tasks`,
+            {
+              params: {
+                assigneeId: profile._id.toString(),
+                status: 'completed',
+                limit: 10,
+                sort: '-completedAt'
+              },
+              headers: {
+                'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                'X-Service-Name': 'user-service'
+              },
+              timeout: 5000
+            }
+          );
+          
+          const tasks = tasksResponse.data?.tasks || tasksResponse.data?.data || [];
+          workHistory = tasks
+            .filter((task: any) => task.completedAt && task.status === 'completed')
+            .map((task: any) => ({
+              _id: task._id,
+              title: task.title,
+              category: task.category,
+              completedAt: task.completedAt,
+              budget: task.budget?.amount || 0
+            }));
+            
+          logger.info('✅ Fetched work history for my profile', {
+            uid,
+            workHistoryCount: workHistory.length
+          });
+        }
+      } catch (error: any) {
+        logger.warn('Failed to fetch work history (non-critical)', {
+          uid,
+          error: error.message
+        });
+      }
       
       // Ensure savedAddresses are properly serialized
       const serializedProfile = {
@@ -32,7 +79,8 @@ export class ProfileController {
           phone: addr.phone,
           isDefault: addr.isDefault,
           createdAt: addr.createdAt,
-        })) : []
+        })) : [],
+        workHistory: workHistory  // Include work history
       };
       
       res.json(serializedProfile);
@@ -225,6 +273,151 @@ export class ProfileController {
       success: true,
       profile: publicProfile
     });
+  }
+
+  /**
+   * GET /api/v1/profiles/public/id/:profileId
+   * Get public profile by MongoDB ObjectId
+   * Used when frontend passes MongoDB ID instead of Firebase UID
+   */
+  static async getPublicProfileById(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { profileId } = req.params;
+      const profile = await ProfileService.getPublicProfileById(profileId);
+      
+      // Fetch reviews and work history from Task Service
+      let reviews: any[] = [];
+      let workHistory: any[] = [];
+      
+      try {
+        const env = validateEnv();
+        if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN && profile.uid) {
+          const axios = (await import('axios')).default;
+          
+          // Fetch reviews and work history in parallel
+          const [reviewsResponse, tasksResponse] = await Promise.all([
+            // Fetch reviews
+            axios.get(
+              `${env.TASK_SERVICE_URL}/api/v1/reviews/user/${profile.uid}`,
+              {
+                headers: {
+                  'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                  'X-User-Id': profile.uid,
+                  'X-Service-Name': 'user-service'
+                },
+                timeout: 5000
+              }
+            ).catch(() => ({ data: [] })),
+            
+            // Fetch completed tasks where user was assignee
+            axios.get(
+              `${env.TASK_SERVICE_URL}/api/v1/tasks`,
+              {
+                params: {
+                  assigneeId: profile._id.toString(),
+                  status: 'completed',
+                  limit: 10,
+                  sort: '-completedAt'
+                },
+                headers: {
+                  'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                  'X-Service-Name': 'user-service'
+                },
+                timeout: 5000
+              }
+            ).catch(() => ({ data: { tasks: [] } }))
+          ]);
+          
+          reviews = reviewsResponse.data?.data || reviewsResponse.data?.reviews || [];
+          const tasks = tasksResponse.data?.tasks || tasksResponse.data?.data || [];
+          
+          // Map tasks to work history format
+          workHistory = tasks
+            .filter((task: any) => task.completedAt && task.status === 'completed')
+            .map((task: any) => ({
+              _id: task._id,
+              title: task.title,
+              category: task.category,
+              completedAt: task.completedAt,
+              budget: task.budget?.amount || 0
+            }));
+          
+          logger.info('✅ Fetched reviews and work history for public profile', {
+            profileId,
+            uid: profile.uid,
+            reviewsCount: reviews.length,
+            workHistoryCount: workHistory.length
+          });
+        }
+      } catch (error: any) {
+        // Don't fail the whole request if data fetch fails
+        logger.warn('Failed to fetch reviews/work history for public profile (non-critical)', {
+          profileId,
+          uid: profile.uid,
+          error: error.message
+        });
+      }
+      
+      // Return the same structure as public profile section
+      const publicProfile = {
+        _id: profile._id,
+        uid: profile.uid,
+        name: profile.name,
+        email: profile.email,
+        phone: profile.phone,
+        roles: profile.roles,
+        userType: profile.userType,
+        rating: profile.rating,
+        totalReviews: profile.totalReviews,
+        skills: profile.skills,
+        photoURL: profile.photoURL || null,
+        location: profile.location ? {
+          city: profile.location.addressDetails?.city,
+          state: profile.location.addressDetails?.state,
+          country: profile.location.addressDetails?.country
+        } : null,
+        isVerified: profile.isVerified,
+        isAadhaarVerified: profile.isAadhaarVerified || false,
+        aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
+        isBankVerified: profile.isBankVerified || false,
+        bankVerifiedAt: profile.bankVerifiedAt || null,
+        totalTasks: profile.totalTasks,
+        completedTasks: profile.completedTasks,
+        postedTasks: profile.postedTasks,
+        earnedAmount: profile.earnedAmount,
+        business: profile.business,
+        isActive: profile.isActive,
+        createdAt: profile.createdAt,
+        // Include reviews in response
+        reviews: reviews.map((review: any) => ({
+          _id: review._id,
+          taskId: review.taskId,
+          taskTitle: review.taskTitle || review.title,
+          reviewerId: review.reviewerId || review.reviewerUid,
+          reviewerName: review.reviewerName,
+          reviewerPhoto: review.reviewerPhoto,
+          rating: review.rating,
+          comment: review.comment,
+          createdAt: review.createdAt
+        })),
+        // Include work history in response
+        workHistory: workHistory
+      };
+      
+      res.json({
+        success: true,
+        profile: publicProfile
+      });
+    } catch (error: any) {
+      logger.error('Error in getPublicProfileById', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(error.statusCode || 404).json({
+        success: false,
+        error: error.message || 'Profile not found',
+      });
+    }
   }
 
   /**

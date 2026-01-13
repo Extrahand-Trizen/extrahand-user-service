@@ -1,9 +1,11 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { ProfileController } from '../controllers/ProfileController';
 import { AddressController } from '../controllers/AddressController';
 import { optionalAuthMiddleware, authMiddleware } from '../middleware/auth';
 import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 import { asyncHandler } from '../middleware/errorHandler';
+import profileStatsRoutes from './profileStats';
+import Profile from '../models/Profile';
 
 const router = Router();
 
@@ -14,6 +16,9 @@ router.get('/search', authMiddleware, asyncHandler(ProfileController.searchProfi
 // Used by task-service to find taskers when a task is created
 router.post('/internal/match-users', serviceAuthMiddleware, asyncHandler(ProfileController.matchUsers));
 
+// Profile Stats Routes - must come before /me to avoid conflicts
+router.use('/me/stats', authMiddleware, profileStatsRoutes);
+
 // GET /api/v1/profiles/me - Get current user's profile (requires auth)
 router.get('/me', authMiddleware, asyncHandler(ProfileController.getMyProfile));
 
@@ -23,8 +28,63 @@ router.get('/completion', authMiddleware, asyncHandler(ProfileController.getProf
 // GET /api/v1/profiles/onboarding-status - Get onboarding status (requires auth)
 router.get('/onboarding-status', authMiddleware, asyncHandler(ProfileController.getOnboardingStatus));
 
+// GET /api/v1/profiles/:userId/stats - Get public profile stats (no auth required)
+router.get('/:userId/stats', asyncHandler(async (req: Request, res: Response) => {
+   try {
+      const { userId } = req.params;
+      
+      // Check if userId is MongoDB ObjectId or Firebase UID
+      const isMongoId = /^[0-9a-fA-F]{24}$/.test(userId);
+      
+      let profile;
+      if (isMongoId) {
+         profile = await Profile.findById(userId);
+      } else {
+         profile = await Profile.findOne({ uid: userId });
+      }
+      
+      if (!profile) {
+         return res.status(404).json({
+            success: false,
+            error: 'Profile not found',
+         });
+      }
+
+      // Calculate real-time stats from task-service
+      const { statsService } = await import('../services/StatsService');
+      const calculatedStats = await statsService.calculateAllStats(
+         profile._id.toString(),
+         profile.uid
+      );
+
+      return res.status(200).json({
+         success: true,
+         data: {
+            totalTasks: calculatedStats.totalTasks,
+            completedTasks: calculatedStats.completedTasks,
+            postedTasks: calculatedStats.postedTasks,
+            totalReviews: calculatedStats.totalReviews,
+            rating: Math.round(calculatedStats.avgRating * 10) / 10,
+            ...(calculatedStats.ratingBreakdowns && {
+               ratingBreakdowns: calculatedStats.ratingBreakdowns,
+            }),
+         },
+      });
+   } catch (error: any) {
+      console.error('Error fetching profile stats:', error);
+      return res.status(500).json({
+         success: false,
+         error: 'Failed to fetch statistics',
+         details: error.message,
+      });
+   }
+}));
+
+// GET /api/v1/profiles/public/id/:profileId - Get public profile by MongoDB ObjectId (no auth required)
+router.get('/public/id/:profileId', optionalAuthMiddleware, asyncHandler(ProfileController.getPublicProfileById));
+
 // GET /api/v1/profiles/public/:uid - Get public profile (no auth required)
-router.get('/public/:uid', asyncHandler(ProfileController.getPublicProfile));
+router.get('/public/:uid', optionalAuthMiddleware, asyncHandler(ProfileController.getPublicProfile));
 
 // GET /api/v1/profiles/by-id/:profileId - Get profile by ObjectId (for enrichment - service auth)
 router.get('/by-id/:profileId', serviceAuthMiddleware, asyncHandler(ProfileController.getProfileById));
