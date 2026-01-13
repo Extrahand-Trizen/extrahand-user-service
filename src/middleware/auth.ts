@@ -1,5 +1,4 @@
 import { Response, NextFunction } from 'express';
-import { auth } from '../config/firebase';
 import { AuthenticatedRequest } from '../types';
 import { validateEnv } from '../config/env';
 import { extractAccessToken } from '../utils/sessionCookies';
