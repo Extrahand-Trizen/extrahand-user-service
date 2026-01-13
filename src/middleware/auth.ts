@@ -2,18 +2,20 @@ import { Response, NextFunction } from 'express';
 import { auth } from '../config/firebase';
 import { AuthenticatedRequest } from '../types';
 import { validateEnv } from '../config/env';
+import { extractAccessToken } from '../utils/sessionCookies';
+import { SessionService } from '../services/SessionService';
 
 /**
- * Unified auth middleware - accepts service auth from API Gateway OR Firebase token
- * Priority: Service auth (from API Gateway) > Firebase token (direct client calls)
- * For service-to-service calls, sets req.user from X-User-Id header (no Firebase verification needed)
+ * Unified auth middleware - accepts service auth from API Gateway OR JWT session tokens
+ * Priority: Service auth (from API Gateway) > JWT tokens (from cookies or header)
+ * For service-to-service calls, sets req.user from X-User-Id header (no verification needed)
  */
 export async function authMiddleware(
    req: AuthenticatedRequest,
    res: Response,
    next: NextFunction
 ): Promise<void> {
-  // Check for service auth first (for API Gateway calls - fast path, no Firebase verification)
+  // Check for service auth first (for API Gateway calls - fast path, no token verification)
   const serviceAuthToken = req.headers['x-service-auth'] as string;
   const userId = req.headers['x-user-id'] as string;
   
@@ -22,7 +24,7 @@ export async function authMiddleware(
       // Validate service auth token
       const env = validateEnv();
       if (serviceAuthToken === env.SERVICE_AUTH_TOKEN) {
-        // Set user from service auth - API Gateway already verified the Firebase token
+        // Set user from service auth - API Gateway already verified the token
         req.user = { uid: userId, token: null as any };
         next();
         return;
@@ -43,24 +45,41 @@ export async function authMiddleware(
     }
   }
   
-  // Fall back to Firebase token auth (for direct client calls or edge cases)
+  // Fall back to JWT token auth (extract from cookies OR Authorization header)
   try {
-    const header = req.headers.authorization || '';
-    const match = /^Bearer (.+)$/.exec(header);
+    // Try to extract JWT token from cookies first, then from Authorization header
+    let jwtToken = extractAccessToken(req);
     
-    if (!match) {
-      res.status(401).json({ error: 'Missing Authorization header' });
+    // If not in cookies, try Authorization header
+    if (!jwtToken) {
+      const header = req.headers.authorization || '';
+      const match = /^Bearer (.+)$/.exec(header);
+      if (match) {
+        jwtToken = match[1];
+      }
+    }
+    
+    if (!jwtToken) {
+      res.status(401).json({ 
+        success: false,
+        error: 'Missing access token',
+        details: 'Please ensure you are logged in and your cookies or Authorization header are sent with the request'
+      });
       return;
     }
     
-    const idToken = match[1];
-    const decoded = await auth.verifyIdToken(idToken);
-    // Store the raw ID token string on req.user.token (type: string)
-    // and use the decoded token only to extract the uid.
-    req.user = { uid: decoded.uid, token: idToken };
+    // Verify JWT token using SessionService (NOT Firebase!)
+    const verified = SessionService.verifyAccessToken(jwtToken);
+    
+    // Set user from JWT claims
+    req.user = { uid: verified.uid, token: jwtToken };
     next();
-  } catch (e) {
-    res.status(401).json({ error: 'Invalid token' });
+  } catch (e: any) {
+    res.status(401).json({ 
+      success: false,
+      error: 'Invalid or expired token',
+      details: e.message
+    });
     return;
   }
 }
@@ -87,26 +106,34 @@ export async function optionalAuthMiddleware(
         return;
       }
     } catch (error) {
-      // Continue to Firebase check
+      // Continue to JWT check
     }
   }
   
-  // Fall back to Firebase token auth (optional)
-  const header = req.headers.authorization || '';
-  const match = /^Bearer (.+)$/.exec(header);
+  // Fall back to JWT token auth (extract from cookies OR Authorization header)
+  // Try to extract token from cookies first, then from Authorization header
+  let jwtToken = extractAccessToken(req);
   
+  // If not in cookies, try Authorization header
+  if (!jwtToken) {
+    const header = req.headers.authorization || '';
+    const match = /^Bearer (.+)$/.exec(header);
     if (match) {
-      try {
-        const idToken = match[1];
-        const decoded = await auth.verifyIdToken(idToken);
-        // Same convention: keep uid from decoded token, store raw token string
-        req.user = { uid: decoded.uid, token: idToken };
-      } catch (e) {
-        req.user = undefined;
-      }
-    } else {
+      jwtToken = match[1];
+    }
+  }
+  
+  if (jwtToken) {
+    try {
+      // Verify JWT token using SessionService (NOT Firebase!)
+      const verified = SessionService.verifyAccessToken(jwtToken);
+      req.user = { uid: verified.uid, token: jwtToken };
+    } catch (e) {
       req.user = undefined;
     }
+  } else {
+    req.user = undefined;
+  }
   
   next();
 }
