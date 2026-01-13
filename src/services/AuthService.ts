@@ -238,32 +238,55 @@ export class AuthService {
                   : `+91${cleanPhone}`;
 
                const now = Date.now();
-               const created = await Profile.create({
-                  uid,
-                  name: name || "User",
-                  phone: formattedPhone,
-                  roles: [],
-                  userType: "individual",
-                  rating: 0,
-                  totalReviews: 0,
-                  totalTasks: 0,
-                  completedTasks: 0,
-                  isVerified: false,
-                  isAadhaarVerified: false,
-                  isActive: true,
-                  agreeUpdates: false,
-                  agreeTerms: false,
-                  createdAt: now,
-                  updatedAt: now,
-               });
+               
+               try {
+                  const created = await Profile.create({
+                     uid,
+                     name: name || "User",
+                     phone: formattedPhone,
+                     roles: [],
+                     userType: "individual",
+                     rating: 0,
+                     totalReviews: 0,
+                     totalTasks: 0,
+                     completedTasks: 0,
+                     isVerified: false,
+                     isAadhaarVerified: false,
+                     isActive: true,
+                     agreeUpdates: false,
+                     agreeTerms: false,
+                     createdAt: now,
+                     updatedAt: now,
+                  });
 
-               profile = created.toObject() as any;
+                  profile = created.toObject() as any;
+               } catch (error: any) {
+                  // Handle duplicate key error (race condition)
+                  if (error.code === 11000) {
+                     logger.warn("Profile created by concurrent request, fetching existing profile", { uid, phone });
+                     profile = await Profile.findOne({ uid }).lean();
+                     
+                     if (!profile) {
+                        throw new InternalServerError("Profile creation failed and unable to retrieve existing profile");
+                     }
+                  } else {
+                     throw error;
+                  }
+               }
             }
          } else {
             // Signup mode: Create new profile
             if (profile) {
                logger.warn("Profile already exists for signup", { uid });
-               // Profile exists, but continue (might be re-signup)
+               // Return existing profile instead of creating duplicate
+               return {
+                  success: true,
+                  profile,
+                  user: {
+                     uid,
+                     phone: firebasePhone || null,
+                  },
+               };
             } else {
                // Format phone number
                const formattedPhone = cleanPhone.startsWith("91")
@@ -271,26 +294,41 @@ export class AuthService {
                   : `+91${cleanPhone}`;
 
                const now = Date.now();
-               const created = await Profile.create({
-                  uid,
-                  name: name || "User",
-                  phone: formattedPhone,
-                  roles: [],
-                  userType: "individual",
-                  rating: 0,
-                  totalReviews: 0,
-                  totalTasks: 0,
-                  completedTasks: 0,
-                  isVerified: false,
-                  isAadhaarVerified: false,
-                  isActive: true,
-                  agreeUpdates: false,
-                  agreeTerms: false,
-                  createdAt: now,
-                  updatedAt: now,
-               });
+               
+               try {
+                  const created = await Profile.create({
+                     uid,
+                     name: name || "User",
+                     phone: formattedPhone,
+                     roles: [],
+                     userType: "individual",
+                     rating: 0,
+                     totalReviews: 0,
+                     totalTasks: 0,
+                     completedTasks: 0,
+                     isVerified: false,
+                     isAadhaarVerified: false,
+                     isActive: true,
+                     agreeUpdates: false,
+                     agreeTerms: false,
+                     createdAt: now,
+                     updatedAt: now,
+                  });
 
-               profile = created.toObject() as any;
+                  profile = created.toObject() as any;
+               } catch (error: any) {
+                  // Handle duplicate key error (race condition)
+                  if (error.code === 11000) {
+                     logger.warn("Profile created by concurrent request, fetching existing profile", { uid, phone });
+                     profile = await Profile.findOne({ uid }).lean();
+                     
+                     if (!profile) {
+                        throw new InternalServerError("Profile creation failed and unable to retrieve existing profile");
+                     }
+                  } else {
+                     throw error;
+                  }
+               }
             }
          }
 
