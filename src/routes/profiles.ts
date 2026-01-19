@@ -111,6 +111,9 @@ router.patch('/:uid/verification/pan', serviceAuthMiddleware, asyncHandler(Profi
 // PATCH /api/v1/profiles/:uid/verification/bank - Update bank verification (service auth)
 router.patch('/:uid/verification/bank', serviceAuthMiddleware, asyncHandler(ProfileController.updateBankVerification));
 
+// PATCH /api/v1/profiles/:uid/verification/email - Update email verification (service auth)
+router.patch('/:uid/verification/email', serviceAuthMiddleware, asyncHandler(ProfileController.updateEmailVerification));
+
 // Address Management Routes
 // GET /api/v1/profiles/me/addresses - Get all saved addresses (requires auth)
 router.get('/me/addresses', authMiddleware, asyncHandler(AddressController.getAddresses));

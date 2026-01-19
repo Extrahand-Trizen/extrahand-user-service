@@ -26,7 +26,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isBankVerified bankVerifiedAt maskedBankAccount bankAccount maskedPan location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses createdAt updatedAt')
+      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isBankVerified bankVerifiedAt maskedBankAccount bankAccount maskedPan location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses createdAt updatedAt')
       .lean();
 
     if (!profile) {
@@ -593,6 +593,24 @@ export class ProfileService {
     }
     if (profileData.maskedPan !== undefined) {
       updatePayload.maskedPan = profileData.maskedPan;
+    }
+    
+    // ✨ Email verification fields
+    if (profileData.isEmailVerified !== undefined) {
+      updatePayload.isEmailVerified = profileData.isEmailVerified;
+      console.log('📝 [PROFILE SERVICE] Setting isEmailVerified', {
+        uid,
+        value: profileData.isEmailVerified,
+        previousValue: existingProfile.isEmailVerified
+      });
+    }
+    if (profileData.emailVerifiedAt !== undefined) {
+      updatePayload.emailVerifiedAt = profileData.emailVerifiedAt;
+      console.log('📝 [PROFILE SERVICE] Setting emailVerifiedAt', {
+        uid,
+        value: profileData.emailVerifiedAt,
+        previousValue: existingProfile.emailVerifiedAt
+      });
     }
     
     if (profileData.skills !== undefined) {

@@ -954,5 +954,71 @@ export class ProfileController {
       });
     }
   }
+
+  /**
+   * PATCH /api/v1/profiles/:uid/verification/email
+   * Update email verification status (service-to-service call)
+   */
+  static async updateEmailVerification(req: Request, res: Response): Promise<void> {
+    const { uid } = req.params;
+    const { isEmailVerified, emailVerifiedAt, email } = req.body;
+
+    console.log('📥 [USER SERVICE] Received email verification update request', {
+      uid,
+      body: req.body,
+      headers: {
+        'x-service-auth': req.headers['x-service-auth'] ? 'present' : 'missing',
+        'x-service-name': req.headers['x-service-name'],
+        'x-user-id': req.headers['x-user-id']
+      }
+    });
+
+    if (!uid) {
+      console.error('❌ [USER SERVICE] Missing uid in request');
+      res.status(400).json({
+        success: false,
+        error: 'User ID (uid) is required'
+      });
+      return;
+    }
+
+    try {
+      // Update profile with email verification status
+      const updateData: Partial<IProfile> = {
+        isEmailVerified: isEmailVerified !== undefined ? isEmailVerified : true,
+        emailVerifiedAt: emailVerifiedAt ? new Date(emailVerifiedAt) : new Date(),
+        ...(email && { email })
+      };
+
+      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+        uid,
+        updateData
+      });
+
+      const updatedProfile = await ProfileService.updateProfile(uid, updateData);
+
+      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+        uid,
+        isEmailVerified: updatedProfile.isEmailVerified,
+        emailVerifiedAt: updatedProfile.emailVerifiedAt
+      });
+
+      res.json({
+        success: true,
+        message: 'Email verification status updated',
+        profile: {
+          uid: updatedProfile.uid,
+          isEmailVerified: updatedProfile.isEmailVerified,
+          emailVerifiedAt: updatedProfile.emailVerifiedAt,
+          email: updatedProfile.email
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to update email verification status'
+      });
+    }
+  }
 }
 

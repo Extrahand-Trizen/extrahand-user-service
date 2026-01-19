@@ -2,6 +2,7 @@ import { auth } from "../config/firebase";
 import Profile from "../models/Profile";
 import { BadRequestError, InternalServerError } from "../errors/AppError";
 import logger from "../config/logger";
+import { EmailServiceClient } from "../clients/EmailServiceClient";
 
 export class AuthService {
    /**
@@ -46,7 +47,7 @@ export class AuthService {
           uid,
           name: name || "User",
           phone: phone || null,
-          email: "user@example.com",
+          // Note: email is not set here - users without email won't receive email notifications
           emailVerified: false,
           roles: [], // New users have no roles
           userType: "individual",
@@ -337,6 +338,26 @@ export class AuthService {
             mode,
             profileExists: !!profile,
          });
+
+         // Send email notifications based on mode (non-blocking)
+         if (profile?.email) {
+            if (mode === "login") {
+               // Login alert for existing user
+               EmailServiceClient.sendLoginAlert(
+                  profile.email,
+                  profile.name || "User",
+                  {
+                     loginTime: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+                  }
+               ).catch(err => logger.warn("Failed to send login alert email", { error: err.message }));
+            } else if (mode === "signup") {
+               // Welcome email for new user
+               EmailServiceClient.sendWelcomeEmail(
+                  profile.email,
+                  profile.name || "User"
+               ).catch(err => logger.warn("Failed to send welcome email", { error: err.message }));
+            }
+         }
 
          return {
             success: true,
