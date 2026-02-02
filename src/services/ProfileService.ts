@@ -765,7 +765,7 @@ export class ProfileService {
     }
   }
 
-  /**
+  /** 
    * Delete profile and all associated data
    */
   static async deleteProfile(uid: string): Promise<{ deletedCount: number; cascadeDeleteResult?: any }> {
@@ -899,6 +899,334 @@ export class ProfileService {
       },
       lastStep: 'location'
     };
+  }
+
+  /**
+   * List users for admin with filters
+   */
+  static async listUsersForAdmin(params: {
+    page: number;
+    limit: number;
+    search?: string;
+    status?: string;
+    role?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }): Promise<{
+    data: any[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      pages: number;
+    };
+  }> {
+    this.checkConnection();
+
+    const { page, limit, search, status, role, sortBy = 'createdAt', sortOrder = 'desc' } = params;
+    const skip = (page - 1) * limit;
+
+    // Build query using $and to properly combine conditions
+    const query: any = {};
+    const andConditions: any[] = [];
+
+    // Search by name, email, or phone
+    if (search) {
+      andConditions.push({
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } },
+        ],
+      });
+    }
+
+    // Filter by status
+    // Handle both new status field and legacy isActive field
+    // If no status filter, show all users (don't filter by status)
+    if (status && status !== 'all') {
+      if (status === 'active') {
+        // Active users: either status='active' OR (status doesn't exist AND isActive=true)
+        andConditions.push({
+          $or: [
+            { status: 'active' },
+            { status: { $exists: false }, isActive: true },
+          ],
+        });
+      } else {
+        // For suspended/banned/inactive, check status field directly
+        andConditions.push({ status: status });
+      }
+    }
+
+    // Filter by role
+    if (role && role !== 'all') {
+      if (role === 'tasker') {
+        andConditions.push({ roles: { $in: ['tasker', 'both'] } });
+      } else if (role === 'poster' || role === 'requester') {
+        andConditions.push({ roles: { $in: ['requester', 'both'] } });
+      }
+    }
+
+    // Combine all conditions
+    if (andConditions.length > 0) {
+      if (andConditions.length === 1) {
+        Object.assign(query, andConditions[0]);
+      } else {
+        query.$and = andConditions;
+      }
+    }
+    
+    // If no conditions, query will be empty {} which means "get all profiles"
+
+    // Build sort
+    const sort: any = {};
+    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Log query for debugging
+    logger.info('ListUsersForAdmin - Query:', JSON.stringify(query, null, 2));
+    logger.info('ListUsersForAdmin - Params:', { page, limit, skip, sortBy, sortOrder, search, status, role });
+
+    // First check total profiles in database (for debugging)
+    const totalProfilesInDb = await Profile.countDocuments({});
+    logger.info(`Total profiles in database: ${totalProfilesInDb}`);
+
+    // Execute query
+    const [profiles, total] = await Promise.all([
+      Profile.find(query)
+        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt')
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Profile.countDocuments(query),
+    ]);
+
+    // Log results for debugging
+    logger.info(`ListUsersForAdmin - Results: ${profiles.length} profiles found, total matching query: ${total}, total in DB: ${totalProfilesInDb}`);
+    
+    if (profiles.length > 0) {
+      logger.info('Sample profile:', {
+        uid: profiles[0].uid,
+        name: profiles[0].name,
+        status: profiles[0].status,
+        isActive: profiles[0].isActive,
+      });
+    } else if (totalProfilesInDb > 0) {
+      logger.warn(`⚠️ Query returned 0 profiles but database has ${totalProfilesInDb} profiles. Query might be too restrictive.`);
+    }
+
+    // Transform to match expected format
+    const data = profiles.map((profile: any) => {
+      // Determine status: use status field if exists, otherwise derive from isActive
+      const userStatus = profile.status || (profile.isActive !== false ? 'active' : 'inactive');
+      
+      return {
+        userId: profile.uid,
+        uid: profile.uid,
+        name: profile.name || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
+        role: profile.roles?.includes('both') ? 'both' : profile.roles?.[0] || 'tasker',
+        roles: profile.roles || [],
+        userType: profile.userType || 'individual',
+        status: userStatus,
+        isVerified: profile.isVerified || false,
+        isActive: profile.isActive !== false,
+        rating: profile.rating || 0,
+        totalReviews: profile.totalReviews || 0,
+        totalTasks: profile.totalTasks || 0,
+        completedTasks: profile.completedTasks || 0,
+        postedTasks: profile.postedTasks || 0,
+        earnedAmount: profile.earnedAmount || 0,
+        photoURL: profile.photoURL || null,
+        createdAt: profile.createdAt,
+        updatedAt: profile.updatedAt,
+        // Include additional profile fields
+        isAadhaarVerified: profile.isAadhaarVerified || false,
+        isPANVerified: profile.isPANVerified || false,
+        isBankVerified: profile.isBankVerified || false,
+        bannedAt: profile.bannedAt || null,
+        suspendedAt: profile.suspendedAt || null,
+      };
+    });
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Get user for admin (full profile data)
+   */
+  static async getUserForAdmin(userId: string): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOne({ uid: userId }).lean();
+
+    if (!profile) {
+      throw new NotFoundError('User not found');
+    }
+
+    // Return full profile data with admin-friendly format
+    // Spread profile first, then override with admin-specific fields
+    const result: any = {
+      ...profile,
+    };
+    
+    // Add admin-friendly fields (these override the spread values)
+    result.userId = profile.uid;
+    result.role = profile.roles?.includes('both') ? 'both' : profile.roles?.[0] || 'tasker';
+    result.status = profile.status || (profile.isActive ? 'active' : 'inactive');
+    if (!result.email) result.email = '';
+    if (!result.phone) result.phone = '';
+    
+    return result;
+  }
+
+  /**
+   * Update user for admin
+   */
+  static async updateUserForAdmin(
+    userId: string,
+    updates: any,
+    _adminUserId?: string
+  ): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOne({ uid: userId });
+
+    if (!profile) {
+      throw new NotFoundError('User not found');
+    }
+
+    // Update allowed fields
+    const allowedFields = [
+      'name',
+      'email',
+      'phone',
+      'roles',
+      'userType',
+      'isActive',
+      'isVerified',
+      'status',
+    ];
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        (profile as any)[field] = updates[field];
+      }
+    }
+
+    await profile.save();
+
+    return this.getUserForAdmin(userId);
+  }
+
+  /**
+   * Ban user
+   */
+  static async banUser(userId: string, reason: string, adminUserId?: string): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOne({ uid: userId });
+
+    if (!profile) {
+      throw new NotFoundError('User not found');
+    }
+
+    profile.status = 'banned';
+    profile.isActive = false;
+    profile.bannedAt = new Date();
+    profile.banReason = reason;
+    profile.bannedBy = adminUserId || undefined;
+
+    await profile.save();
+
+    logger.info(`User banned: ${userId} by admin: ${adminUserId || 'system'}`);
+
+    return this.getUserForAdmin(userId);
+  }
+
+  /**
+   * Unban user
+   */
+  static async unbanUser(userId: string, adminUserId?: string): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOne({ uid: userId });
+
+    if (!profile) {
+      throw new NotFoundError('User not found');
+    }
+
+    profile.status = 'active';
+    profile.isActive = true;
+    profile.bannedAt = null;
+    profile.banReason = undefined;
+    profile.bannedBy = undefined;
+
+    await profile.save();
+
+    logger.info(`User unbanned: ${userId} by admin: ${adminUserId || 'system'}`);
+
+    return this.getUserForAdmin(userId);
+  }
+
+  /**
+   * Suspend user
+   */
+  static async suspendUser(userId: string, reason: string, adminUserId?: string): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOne({ uid: userId });
+
+    if (!profile) {
+      throw new NotFoundError('User not found');
+    }
+
+    profile.status = 'suspended';
+    profile.isActive = false;
+    profile.suspendedAt = new Date();
+    profile.suspendReason = reason;
+    profile.suspendedBy = adminUserId || undefined;
+
+    await profile.save();
+
+    logger.info(`User suspended: ${userId} by admin: ${adminUserId || 'system'}`);
+
+    return this.getUserForAdmin(userId);
+  }
+
+  /**
+   * Unsuspend user
+   */
+  static async unsuspendUser(userId: string, adminUserId?: string): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOne({ uid: userId });
+
+    if (!profile) {
+      throw new NotFoundError('User not found');
+    }
+
+    profile.status = 'active';
+    profile.isActive = true;
+    profile.suspendedAt = null;
+    profile.suspendReason = undefined;
+    profile.suspendedBy = undefined;
+
+    await profile.save();
+
+    logger.info(`User unsuspended: ${userId} by admin: ${adminUserId || 'system'}`);
+
+    return this.getUserForAdmin(userId);
   }
 }
 

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import authRoutes from "./auth";
 import profileRoutes from "./profiles";
+import userRoutes from "./users";
 import businessRoutes from "./business";
 import privacyRoutes from "./privacy";
 import uploadRoutes from "./uploads";
@@ -25,6 +26,7 @@ router.use(gatewayAuthMiddleware);
 // API routes
 router.use("/auth", authRoutes);
 router.use("/profiles", profileRoutes);
+router.use("/users", userRoutes);
 router.use("/business", businessRoutes);
 router.use("/privacy", privacyRoutes);
 router.use("/uploads", uploadRoutes);

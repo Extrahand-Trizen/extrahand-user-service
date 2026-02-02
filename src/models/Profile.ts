@@ -55,6 +55,14 @@ export interface IProfile extends Document {
   isAdminVerified?: boolean;
   phoneVerified?: boolean;
   adminCreatedAt?: Date;
+  // Admin status management
+  status?: 'active' | 'suspended' | 'banned' | 'inactive';
+  bannedAt?: Date | null;
+  suspendedAt?: Date | null;
+  banReason?: string;
+  suspendReason?: string;
+  bannedBy?: string; // Admin user ID who banned
+  suspendedBy?: string; // Admin user ID who suspended
   onboardingStatus?: OnboardingStatus;
   business?: BusinessProfile;
   agreeUpdates?: boolean;
@@ -306,6 +314,37 @@ const ProfileSchema = new Schema<IProfile>({
     index: true
   },
   adminCreatedAt: Date,
+  // Admin status management
+  status: {
+    type: String,
+    enum: ['active', 'suspended', 'banned', 'inactive'],
+    default: 'active',
+    index: true
+  },
+  bannedAt: {
+    type: Date,
+    default: null
+  },
+  suspendedAt: {
+    type: Date,
+    default: null
+  },
+  banReason: {
+    type: String,
+    default: null
+  },
+  suspendReason: {
+    type: String,
+    default: null
+  },
+  bannedBy: {
+    type: String,
+    default: null
+  },
+  suspendedBy: {
+    type: String,
+    default: null
+  },
   onboardingStatus: {
     isCompleted: {
       type: Boolean,
