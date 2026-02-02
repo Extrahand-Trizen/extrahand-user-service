@@ -6,6 +6,8 @@ export interface IProfile extends Document {
   uid: string;
   name: string;
   email?: string | null;
+  isEmailVerified?: boolean;
+  emailVerifiedAt?: Date | null;
   phone?: string | null;
   roles: ('tasker' | 'requester' | 'both')[];
   userType: 'individual' | 'business';
@@ -126,6 +128,13 @@ const ProfileSchema = new Schema<IProfile>({
     type: String,
     trim: true,
     lowercase: true
+  },
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  emailVerifiedAt: {
+    type: Date
   },
   phone: {
     type: String,

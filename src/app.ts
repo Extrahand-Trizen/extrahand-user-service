@@ -9,8 +9,12 @@ import { validateEnv, getCorsConfig } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
 import routes from "./routes";
 import logger from "./config/logger";
+import { EmailServiceClient } from "./clients/EmailServiceClient";
 
 const env = validateEnv();
+
+// Initialize service clients
+EmailServiceClient.initialize();
 
 export function createApp(): Application {
   const app = express();
@@ -56,8 +60,8 @@ export function createApp(): Application {
   app.use((req, _res, next) => {
     console.log("🔍 [USER SERVICE] Incoming headers:", {
       authorization: req.headers.authorization,
-      xServiceAuth: req.headers["x-service-auth"],
-      xServiceName: req.headers["x-service-name"],
+      "x-service-auth": req.headers["x-service-auth"],
+      "x-service-name": req.headers["x-service-name"],
     });
     next();
   });

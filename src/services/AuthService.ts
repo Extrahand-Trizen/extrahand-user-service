@@ -2,6 +2,7 @@ import { auth } from "../config/firebase";
 import Profile from "../models/Profile";
 import { BadRequestError, InternalServerError } from "../errors/AppError";
 import logger from "../config/logger";
+import { EmailServiceClient } from "../clients/EmailServiceClient";
 
 export class AuthService {
    /**
@@ -46,7 +47,7 @@ export class AuthService {
           uid,
           name: name || "User",
           phone: phone || null,
-          email: "user@example.com",
+          // Note: email is not set here - users without email won't receive email notifications
           emailVerified: false,
           roles: [], // New users have no roles
           userType: "individual",
@@ -238,32 +239,55 @@ export class AuthService {
                   : `+91${cleanPhone}`;
 
                const now = Date.now();
-               const created = await Profile.create({
-                  uid,
-                  name: name || "User",
-                  phone: formattedPhone,
-                  roles: [],
-                  userType: "individual",
-                  rating: 0,
-                  totalReviews: 0,
-                  totalTasks: 0,
-                  completedTasks: 0,
-                  isVerified: false,
-                  isAadhaarVerified: false,
-                  isActive: true,
-                  agreeUpdates: false,
-                  agreeTerms: false,
-                  createdAt: now,
-                  updatedAt: now,
-               });
+               
+               try {
+                  const created = await Profile.create({
+                     uid,
+                     name: name || "User",
+                     phone: formattedPhone,
+                     roles: [],
+                     userType: "individual",
+                     rating: 0,
+                     totalReviews: 0,
+                     totalTasks: 0,
+                     completedTasks: 0,
+                     isVerified: false,
+                     isAadhaarVerified: false,
+                     isActive: true,
+                     agreeUpdates: false,
+                     agreeTerms: false,
+                     createdAt: now,
+                     updatedAt: now,
+                  });
 
-               profile = created.toObject() as any;
+                  profile = created.toObject() as any;
+               } catch (error: any) {
+                  // Handle duplicate key error (race condition)
+                  if (error.code === 11000) {
+                     logger.warn("Profile created by concurrent request, fetching existing profile", { uid, phone });
+                     profile = await Profile.findOne({ uid }).lean();
+                     
+                     if (!profile) {
+                        throw new InternalServerError("Profile creation failed and unable to retrieve existing profile");
+                     }
+                  } else {
+                     throw error;
+                  }
+               }
             }
          } else {
             // Signup mode: Create new profile
             if (profile) {
                logger.warn("Profile already exists for signup", { uid });
-               // Profile exists, but continue (might be re-signup)
+               // Return existing profile instead of creating duplicate
+               return {
+                  success: true,
+                  profile,
+                  user: {
+                     uid,
+                     phone: firebasePhone || null,
+                  },
+               };
             } else {
                // Format phone number
                const formattedPhone = cleanPhone.startsWith("91")
@@ -271,26 +295,41 @@ export class AuthService {
                   : `+91${cleanPhone}`;
 
                const now = Date.now();
-               const created = await Profile.create({
-                  uid,
-                  name: name || "User",
-                  phone: formattedPhone,
-                  roles: [],
-                  userType: "individual",
-                  rating: 0,
-                  totalReviews: 0,
-                  totalTasks: 0,
-                  completedTasks: 0,
-                  isVerified: false,
-                  isAadhaarVerified: false,
-                  isActive: true,
-                  agreeUpdates: false,
-                  agreeTerms: false,
-                  createdAt: now,
-                  updatedAt: now,
-               });
+               
+               try {
+                  const created = await Profile.create({
+                     uid,
+                     name: name || "User",
+                     phone: formattedPhone,
+                     roles: [],
+                     userType: "individual",
+                     rating: 0,
+                     totalReviews: 0,
+                     totalTasks: 0,
+                     completedTasks: 0,
+                     isVerified: false,
+                     isAadhaarVerified: false,
+                     isActive: true,
+                     agreeUpdates: false,
+                     agreeTerms: false,
+                     createdAt: now,
+                     updatedAt: now,
+                  });
 
-               profile = created.toObject() as any;
+                  profile = created.toObject() as any;
+               } catch (error: any) {
+                  // Handle duplicate key error (race condition)
+                  if (error.code === 11000) {
+                     logger.warn("Profile created by concurrent request, fetching existing profile", { uid, phone });
+                     profile = await Profile.findOne({ uid }).lean();
+                     
+                     if (!profile) {
+                        throw new InternalServerError("Profile creation failed and unable to retrieve existing profile");
+                     }
+                  } else {
+                     throw error;
+                  }
+               }
             }
          }
 
@@ -299,6 +338,26 @@ export class AuthService {
             mode,
             profileExists: !!profile,
          });
+
+         // Send email notifications based on mode (non-blocking)
+         if (profile?.email) {
+            if (mode === "login") {
+               // Login alert for existing user
+               EmailServiceClient.sendLoginAlert(
+                  profile.email,
+                  profile.name || "User",
+                  {
+                     loginTime: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+                  }
+               ).catch(err => logger.warn("Failed to send login alert email", { error: err.message }));
+            } else if (mode === "signup") {
+               // Welcome email for new user
+               EmailServiceClient.sendWelcomeEmail(
+                  profile.email,
+                  profile.name || "User"
+               ).catch(err => logger.warn("Failed to send welcome email", { error: err.message }));
+            }
+         }
 
          return {
             success: true,

@@ -51,6 +51,8 @@ const envSchema = z.object({
   
   // Storage Configuration
   STORAGE_PROVIDER: z.enum(['minio', 's3']).default('minio'),
+
+  WEB_APP_URL: z.string().url().default('https://extrahand.in'),
   
   // MinIO Configuration
   MINIO_ENDPOINT: z.string().optional(),
