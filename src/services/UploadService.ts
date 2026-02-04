@@ -30,16 +30,23 @@ export class UploadService {
         }
       );
 
-      // Update profile with new photo URL
-      await Profile.updateOne(
-        { uid },
-        {
-          $set: {
-            photoURL: result.url,
-            updatedAt: new Date()
+      // Update profile with new photo URL (best-effort)
+      try {
+        await Profile.updateOne(
+          { uid },
+          {
+            $set: {
+              photoURL: result.url,
+              updatedAt: new Date()
+            }
           }
-        }
-      );
+        );
+      } catch (profileError: any) {
+        logger.warn('Profile update failed after upload (continuing)', {
+          uid,
+          error: profileError?.message
+        });
+      }
 
       logger.info('Profile picture uploaded', {
         uid,
@@ -61,15 +68,22 @@ export class UploadService {
       const base64 = fileBuffer.toString('base64');
       const dataUrl = `data:${mimetype};base64,${base64}`;
 
-      await Profile.updateOne(
-        { uid },
-        {
-          $set: {
-            photoURL: dataUrl,
-            updatedAt: new Date()
+      try {
+        await Profile.updateOne(
+          { uid },
+          {
+            $set: {
+              photoURL: dataUrl,
+              updatedAt: new Date()
+            }
           }
-        }
-      );
+        );
+      } catch (profileError: any) {
+        logger.warn('Profile update failed after base64 fallback (continuing)', {
+          uid,
+          error: profileError?.message
+        });
+      }
 
       logger.info('Profile picture stored as base64 data URL', {
         uid,
