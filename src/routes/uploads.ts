@@ -11,7 +11,7 @@ const multerMemoryStorage = multer.memoryStorage();
 const upload = multer({
   storage: multerMemoryStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 10 * 1024 * 1024, // 10MB limit (match gateway)
   },
   fileFilter: (_req, file, cb) => {
     // Accept only images
@@ -26,8 +26,23 @@ const upload = multer({
 // All upload routes require authentication
 router.use(authMiddleware);
 
+// Helper to handle multer errors (avoid 500s)
+const handleMulterSingle = (fieldName: string) => (req: any, res: any, next: any) => {
+  upload.single(fieldName)(req, res, (err: any) => {
+    if (err) {
+      const message = err?.message || 'Invalid file upload';
+      res.status(400).json({
+        success: false,
+        error: message,
+      });
+      return;
+    }
+    next();
+  });
+};
+
 // POST /api/v1/uploads/profile-picture
-router.post('/profile-picture', upload.single('image'), asyncHandler(UploadController.uploadProfilePicture));
+router.post('/profile-picture', handleMulterSingle('image'), asyncHandler(UploadController.uploadProfilePicture));
 
 // DELETE /api/v1/uploads/profile-picture
 router.delete('/profile-picture', asyncHandler(UploadController.deleteProfilePicture));
@@ -49,7 +64,21 @@ const uploadDocument = multer({
   }
 });
 
-router.post('/document', uploadDocument.single('file'), asyncHandler(UploadController.uploadDocument));
+const handleMulterDocument = (req: any, res: any, next: any) => {
+  uploadDocument.single('file')(req, res, (err: any) => {
+    if (err) {
+      const message = err?.message || 'Invalid file upload';
+      res.status(400).json({
+        success: false,
+        error: message,
+      });
+      return;
+    }
+    next();
+  });
+};
+
+router.post('/document', handleMulterDocument, asyncHandler(UploadController.uploadDocument));
 
 // GET /api/v1/uploads/health
 // Health check for storage service (public, no auth required)
