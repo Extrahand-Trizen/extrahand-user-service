@@ -17,40 +17,70 @@ export class UploadService {
       throw new BadRequestError('No image file provided');
     }
 
-    // Upload to storage (MinIO, S3, etc.)
-    const result = await uploadFile(
-      fileBuffer,
-      filename,
-      mimetype,
-      'profile-pictures',
-      {
-        userId: uid,
-        type: 'profile-picture'
-      }
-    );
-
-    // Update profile with new photo URL
-    await Profile.updateOne(
-      { uid },
-      {
-        $set: {
-          photoURL: result.url,
-          updatedAt: new Date()
+    try {
+      // Upload to storage (MinIO, S3, etc.)
+      const result = await uploadFile(
+        fileBuffer,
+        filename,
+        mimetype,
+        'profile-pictures',
+        {
+          userId: uid,
+          type: 'profile-picture'
         }
-      }
-    );
+      );
 
-    logger.info('Profile picture uploaded', {
-      uid,
-      url: result.url,
-      key: result.key,
-      provider: getStorageType()
-    });
+      // Update profile with new photo URL
+      await Profile.updateOne(
+        { uid },
+        {
+          $set: {
+            photoURL: result.url,
+            updatedAt: new Date()
+          }
+        }
+      );
 
-    return {
-      url: result.url,
-      key: result.key
-    };
+      logger.info('Profile picture uploaded', {
+        uid,
+        url: result.url,
+        key: result.key,
+        provider: getStorageType()
+      });
+
+      return {
+        url: result.url,
+        key: result.key
+      };
+    } catch (error: any) {
+      logger.warn('Storage upload failed, falling back to base64 data URL', {
+        uid,
+        error: error?.message
+      });
+
+      const base64 = fileBuffer.toString('base64');
+      const dataUrl = `data:${mimetype};base64,${base64}`;
+
+      await Profile.updateOne(
+        { uid },
+        {
+          $set: {
+            photoURL: dataUrl,
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      logger.info('Profile picture stored as base64 data URL', {
+        uid,
+        sizeBytes: fileBuffer.length
+      });
+
+      return {
+        url: dataUrl,
+        key: 'base64'
+      };
+    }
   }
 
   /**
@@ -103,6 +133,22 @@ export class UploadService {
     const profile = await Profile.findOne({ uid });
     if (!profile || !profile.photoURL) {
       throw new NotFoundError('No profile picture found');
+    }
+
+    // If stored as data URL, just clear the field
+    if (profile.photoURL.startsWith('data:')) {
+      await Profile.updateOne(
+        { uid },
+        {
+          $set: {
+            photoURL: null,
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      logger.info('Profile picture deleted (data URL)', { uid });
+      return;
     }
 
     // Extract key from URL
