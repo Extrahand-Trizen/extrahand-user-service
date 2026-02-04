@@ -12,7 +12,10 @@ const envSchema = z.object({
   PORT: z.string().transform(Number).refine(n => n > 0 && n < 65536, 'Port must be between 1-65535').default('4001'),
   
   // MongoDB
-  MONGODB_URI: z.string().url('Invalid MongoDB URI').optional(),
+  MONGODB_URI: z
+    .string()
+    .regex(/^mongodb(\+srv)?:\/\//, 'Invalid MongoDB URI')
+    .optional(),
   MONGODB_DB: z.string().default('extrahand'),
   
   // Firebase
