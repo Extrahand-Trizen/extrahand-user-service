@@ -175,6 +175,7 @@ export class AuthService {
    /**
     * Complete OTP authentication flow
     * Verifies Firebase ID token and creates/retrieves user profile
+    */
    static async completeOTPAuth( 
       idToken: string,
       mode: "login" | "signup",
@@ -411,7 +412,7 @@ export class AuthService {
          throw new BadRequestError("Invalid test credentials");
       }
 
-      let uid: string;
+      let uid: string = "";
 
       try {
          const userRecord = await auth.createUser({
@@ -436,7 +437,7 @@ export class AuthService {
                }
                pageToken = listResult.pageToken;
             } while (pageToken);
-            if (!found) {
+            if (!found || !uid) {
                logger.error("Dummy phone user exists in Firebase but could not resolve UID");
                throw new InternalServerError("Could not resolve test user. Try running seed.");
             }
