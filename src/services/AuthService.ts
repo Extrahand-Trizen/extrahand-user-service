@@ -126,13 +126,14 @@ export class AuthService {
          );
 
          // Use aggregation to normalize phone numbers (remove all non-digits) and compare
+         // NOTE: Use $regexReplace instead of $replaceAll, since $replaceAll does not accept regex for "find"
          const normalizedProfiles = await Profile.aggregate([
             {
                $addFields: {
                   normalizedPhone: {
-                     $replaceAll: {
+                     $regexReplace: {
                         input: { $ifNull: ["$phone", ""] },
-                        find: /[^0-9]/g,
+                        regex: /[^0-9]/g,
                         replacement: "",
                      },
                   },
