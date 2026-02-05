@@ -62,7 +62,10 @@ const envSchema = z.object({
   STORAGE_PROVIDER: z.enum(['minio', 's3']).default('minio'),
 
   WEB_APP_URL: z.string().url().default('https://extrahand.in'),
-  
+
+  // Dev-only: when true, allow dummy signin/signup with fixed Indian number + OTP (no reCAPTCHA)
+  LOCAL_TEST: z.string().optional().transform((v) => v === "true" || v === "1"),
+
   // MinIO Configuration
   MINIO_ENDPOINT: z.string().optional(),
   MINIO_PORT: z.string().optional(),

@@ -10,7 +10,8 @@
     "prod": "NODE_ENV=production node dist/server.js",
     "test": "echo \"No tests specified\" && exit 0",
     "lint": "eslint src --ext .ts",
-    "health": "curl -f http://localhost:4001/api/v1/health || exit 1"
+    "health": "curl -f http://localhost:4001/api/v1/health || exit 1",
+    "seed": "npx ts-node --require dotenv/config scripts/seed-test-user.ts"
   },
   "engines": {
     "node": ">=18"

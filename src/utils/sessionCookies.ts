@@ -2,8 +2,10 @@ import { Response, Request } from "express";
 import { validateEnv } from "../config/env";
 
 const env = validateEnv();
-const secure = env.NODE_ENV !== "development";
-const sameSite = secure ? "none" : "lax";
+// Use SameSite=None; Secure so cookies are sent on cross-origin requests (e.g. frontend
+// localhost:4000 → API localhost:5000). Browsers treat localhost as secure.
+const secure = true;
+const sameSite: "lax" | "none" = "none";
 export const REFRESH_COOKIE_NAME = env.REFRESH_TOKEN_COOKIE_NAME;
 export const ACCESS_COOKIE_NAME =
    env.ACCESS_TOKEN_COOKIE_NAME || "accessToken";

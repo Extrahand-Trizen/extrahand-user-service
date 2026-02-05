@@ -23,5 +23,8 @@ router.post("/sync", authMiddleware, asyncHandler(AuthController.sync));
 // POST /api/v1/auth/otp/complete (PUBLIC - no auth required, but requires valid ID token in body)
 router.post('/otp/complete', asyncHandler(AuthController.completeOTP));
 
+// POST /api/v1/auth/otp/complete-dev (DEV only - fixed test phone + OTP, no Firebase)
+router.post('/otp/complete-dev', asyncHandler(AuthController.completeOTPDev));
+
 export default router;
 

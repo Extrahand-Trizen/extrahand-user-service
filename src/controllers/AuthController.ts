@@ -1,4 +1,4 @@
-import { Response } from "express";
+import { Response, Request } from "express";
 import { AuthenticatedRequest } from "../types";
 import { AuthService } from "../services/AuthService";
 import { SessionService } from "../services/SessionService";
@@ -135,6 +135,98 @@ export class AuthController {
          res.status(error.statusCode || 500).json({
             success: false,
             error: error.message || "Failed to complete OTP authentication",
+         });
+      }
+   }
+
+   /**
+    * POST /api/v1/auth/otp/complete-dev
+    * Dev-only: dummy signin/signup with fixed Indian number +91 9876543210, OTP 123456.
+    * Enabled when LOCAL_TEST=true or NODE_ENV=development. Creates Firebase + MongoDB user if needed.
+    */
+   static async completeOTPDev(
+      req: Request,
+      res: Response
+   ): Promise<void> {
+      try {
+         const allowDev =
+            process.env.LOCAL_TEST === "true" ||
+            process.env.LOCAL_TEST === "1" ||
+            process.env.NODE_ENV === "development";
+         if (!allowDev) {
+            res.status(404).json({ success: false, error: "Not found" });
+            return;
+         }
+
+         const { phone, otp, mode, name, clientType, deviceId } = req.body;
+         if (!phone || !otp || !mode) {
+            res.status(400).json({
+               success: false,
+               error: "Missing required fields: phone, otp, mode",
+            });
+            return;
+         }
+         if (mode !== "login" && mode !== "signup") {
+            res.status(400).json({
+               success: false,
+               error: 'Invalid mode. Must be "login" or "signup"',
+            });
+            return;
+         }
+
+         const result = await AuthService.completeOTPDevAuth(phone, otp, mode, name);
+         const firebaseUid = result.profile?.uid;
+         if (!firebaseUid) {
+            res.status(500).json({
+               success: false,
+               error: "Missing profile UID",
+            });
+            return;
+         }
+
+         const normalizedClient: ClientType =
+            clientType === "mobile" ? "mobile" : "web";
+         const tokens = await SessionService.createSession({
+            uid: firebaseUid,
+            clientType: normalizedClient,
+            deviceId,
+            userAgent: req.get("user-agent") ?? undefined,
+            ipAddress: req.ip,
+         });
+
+         if (normalizedClient === "web") {
+            setRefreshTokenCookie(
+               res,
+               tokens.refreshToken,
+               tokens.refreshTokenExpiresAt
+            );
+            setAccessTokenCookie(
+               res,
+               tokens.accessToken,
+               tokens.accessTokenExpiresAt
+            );
+            res.json({
+               ...result,
+               success: true,
+               sessionId: tokens.sessionId,
+               accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
+            });
+         } else {
+            res.json({
+               ...result,
+               tokens: {
+                  accessToken: tokens.accessToken,
+                  accessTokenExpiresAt: tokens.accessTokenExpiresAt.toISOString(),
+                  sessionId: tokens.sessionId,
+                  refreshToken: tokens.refreshToken,
+                  refreshTokenExpiresAt: tokens.refreshTokenExpiresAt.toISOString(),
+               },
+            });
+         }
+      } catch (error: any) {
+         res.status(error.statusCode || 500).json({
+            success: false,
+            error: error.message || "Invalid test credentials or dev OTP not allowed",
          });
       }
    }

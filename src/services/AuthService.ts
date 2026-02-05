@@ -175,8 +175,7 @@ export class AuthService {
    /**
     * Complete OTP authentication flow
     * Verifies Firebase ID token and creates/retrieves user profile
-    */
-   static async completeOTPAuth(
+   static async completeOTPAuth( 
       idToken: string,
       mode: "login" | "signup",
       phone: string,
@@ -378,5 +377,152 @@ export class AuthService {
             error.message || "Failed to complete OTP authentication"
          );
       }
+   }
+
+   /**
+    * Dev-only: complete OTP auth with fixed Indian dummy number + OTP.
+    * When LOCAL_TEST=true: get or create Firebase user and MongoDB profile, return profile for session.
+    * Dummy phone: +91 9876543210, OTP: 123456.
+    */
+   static async completeOTPDevAuth(
+      phone: string,
+      otp: string,
+      mode: "login" | "signup",
+      name?: string
+   ): Promise<{
+      success: boolean;
+      profile?: any;
+      user?: { uid: string; phone: string | null };
+      error?: string;
+   }> {
+      if (!process.env.LOCAL_TEST) {
+         throw new BadRequestError("Local test auth not enabled");
+      }
+
+      const DUMMY_PHONE_E164 = "+919876543210";
+      const DUMMY_PHONE_LAST10 = "9876543210";
+      const DUMMY_OTP = "123456";
+      const DUMMY_DISPLAY_NAME = "Local Test User";
+
+      const cleanPhone = phone.replace(/\D/g, "");
+      const phoneLast10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+
+      if (phoneLast10 !== DUMMY_PHONE_LAST10 || otp !== DUMMY_OTP) {
+         throw new BadRequestError("Invalid test credentials");
+      }
+
+      let uid: string;
+
+      try {
+         const userRecord = await auth.createUser({
+            phoneNumber: DUMMY_PHONE_E164,
+            displayName: name || DUMMY_DISPLAY_NAME,
+         });
+         uid = userRecord.uid;
+         logger.info("Dev dummy Firebase user created", { uid });
+      } catch (err: any) {
+         if (err?.code === "auth/phone-number-already-exists") {
+            let found = false;
+            let pageToken: string | undefined;
+            do {
+               const listResult = await auth.listUsers(1000, pageToken);
+               const byPhone = listResult.users.find(
+                  (u) => u.phoneNumber === DUMMY_PHONE_E164
+               );
+               if (byPhone) {
+                  uid = byPhone.uid;
+                  found = true;
+                  break;
+               }
+               pageToken = listResult.pageToken;
+            } while (pageToken);
+            if (!found) {
+               logger.error("Dummy phone user exists in Firebase but could not resolve UID");
+               throw new InternalServerError("Could not resolve test user. Try running seed.");
+            }
+            logger.info("Dev dummy Firebase user already exists", { uid });
+         } else {
+            throw err;
+         }
+      }
+
+      let profile = await Profile.findOne({ uid }).lean();
+      const formattedPhone = DUMMY_PHONE_E164;
+      const now = Date.now();
+      const displayName = name || DUMMY_DISPLAY_NAME;
+
+      if (mode === "login") {
+         if (!profile) {
+            try {
+               const created = await Profile.create({
+                  uid,
+                  name: displayName,
+                  phone: formattedPhone,
+                  roles: [],
+                  userType: "individual",
+                  rating: 0,
+                  totalReviews: 0,
+                  totalTasks: 0,
+                  completedTasks: 0,
+                  isVerified: false,
+                  isAadhaarVerified: false,
+                  isActive: true,
+                  agreeUpdates: false,
+                  agreeTerms: false,
+                  createdAt: now,
+                  updatedAt: now,
+               });
+               profile = created.toObject() as any;
+            } catch (error: any) {
+               if (error.code === 11000) {
+                 profile = await Profile.findOne({ uid }).lean();
+                 if (!profile) throw new InternalServerError("Profile creation failed");
+               } else throw error;
+            }
+         }
+      } else {
+         if (profile) {
+            logger.info("Dev dummy signup: profile already exists", { uid });
+         } else {
+            try {
+               const created = await Profile.create({
+                  uid,
+                  name: displayName,
+                  phone: formattedPhone,
+                  roles: [],
+                  userType: "individual",
+                  rating: 0,
+                  totalReviews: 0,
+                  totalTasks: 0,
+                  completedTasks: 0,
+                  isVerified: false,
+                  isAadhaarVerified: false,
+                  isActive: true,
+                  agreeUpdates: false,
+                  agreeTerms: false,
+                  createdAt: now,
+                  updatedAt: now,
+               });
+               profile = created.toObject() as any;
+            } catch (error: any) {
+               if (error.code === 11000) {
+                 profile = await Profile.findOne({ uid }).lean();
+                 if (!profile) throw new InternalServerError("Profile creation failed");
+               } else throw error;
+            }
+         }
+      }
+
+      if (!profile) {
+         throw new InternalServerError("Profile not found after create");
+      }
+
+      logger.info("Dev OTP auth completed", { uid: profile.uid, phone: formattedPhone, mode });
+
+      return {
+         success: true,
+         profile,
+         user: { uid: profile.uid, phone: profile.phone || null },
+      };
    }
 }
