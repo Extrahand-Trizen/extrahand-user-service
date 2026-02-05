@@ -119,46 +119,15 @@ export class AuthService {
       // First try exact match with all formats
       let profile = await Profile.findOne(searchQuery).lean();
 
-      // If not found, try aggregation pipeline to normalize and compare phone numbers
-      if (!profile && tenDigitNumber.length === 10) {
-         logger.info(
-            "Exact match not found, trying aggregation pipeline with normalized phone comparison"
-         );
-
-         // Use aggregation to normalize phone numbers (remove all non-digits) and compare
-         // NOTE: Use $regexReplace instead of $replaceAll, since $replaceAll does not accept regex for "find"
-         const normalizedProfiles = await Profile.aggregate([
-            {
-               $addFields: {
-                  normalizedPhone: {
-                     $regexReplace: {
-                        input: { $ifNull: ["$phone", ""] },
-                        regex: /[^0-9]/g,
-                        replacement: "",
-                     },
-                  },
-               },
-            },
-            {
-               $match: {
-                  $or: [
-                     { normalizedPhone: cleanPhone },
-                     { normalizedPhone: `91${tenDigitNumber}` },
-                     { normalizedPhone: tenDigitNumber },
-                  ],
-               },
-            },
-            { $limit: 1 },
-         ]);
-
-         if (normalizedProfiles.length > 0) {
-            profile = normalizedProfiles[0];
-            logger.info("Found profile using normalized phone comparison", {
-               foundPhone: profile?.phone,
-               normalizedPhone: normalizedProfiles[0]?.normalizedPhone,
-            });
-         }
-      }
+      // If not found, we previously tried an aggregation pipeline with newer MongoDB operators
+      // to normalize phone numbers (strip non-digits). However, some production clusters run
+      // MongoDB versions that don't support those operators, causing runtime errors.
+      //
+      // To keep this endpoint robust in production, we skip the aggregation fallback entirely
+      // and rely on the comprehensive exact-match search above. This is safer than returning 500.
+      //
+      // If you upgrade MongoDB and want the extra normalization, you can reintroduce a
+      // version-guarded aggregation here.
 
       logger.info("Phone check result", {
          exists: !!profile,
