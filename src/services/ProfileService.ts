@@ -830,21 +830,27 @@ export class ProfileService {
     logger.info(`🗑️ Starting profile deletion for user: ${uid}`);
 
     try {
+      // Resolve profileId (ObjectId) for task-service cascade - tasks use profileId, not uid
+      const profile = await Profile.findOne({ uid }).select('_id').lean();
+      const profileId = profile?._id?.toString();
+
       // Step 1: Delete all associated data in Task Service (cascading delete)
       let cascadeDeleteResult = null;
       if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN) {
         try {
-          logger.info(`📞 Calling Task Service to delete user data: ${uid}`);
-          
+          logger.info(`📞 Calling Task Service to delete user data: ${uid}${profileId ? ` (profileId: ${profileId})` : ''}`);
+          const headers: Record<string, string> = {
+            'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+            'X-Service-Name': 'user-service',
+            'X-User-Id': uid,
+          };
+          if (profileId) headers['X-Profile-Id'] = profileId;
+
           const taskServiceUrl = env.TASK_SERVICE_URL;
           const response = await axios.delete(
             `${taskServiceUrl}/api/v1/cascade-delete/user/${uid}`,
             {
-              headers: {
-                'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
-                'X-Service-Name': 'user-service',
-                'X-User-Id': uid
-              },
+              headers,
               timeout: 30000 // 30 second timeout for cascade delete
             }
           );
