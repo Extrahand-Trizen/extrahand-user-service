@@ -40,7 +40,9 @@ export class MinIOStorage extends BaseStorage {
         if (rawEndpoint.includes('://')) {
           const url = new URL(rawEndpoint);
           host = url.hostname || host;
-          port = url.port || rawPort || port;
+          // If the URL does not include an explicit port, do not force 9000.
+          // This avoids hitting :9000 on domains served via 443/80.
+          port = url.port || rawPort || '';
           protocol = url.protocol.replace(':', '') || protocol;
         } else {
           host = rawEndpoint;
