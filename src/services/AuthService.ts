@@ -119,16 +119,6 @@ export class AuthService {
       // First try exact match with all formats
       let profile = await Profile.findOne(searchQuery).lean();
 
-      // If not found, we previously tried an aggregation pipeline with newer MongoDB operators
-      // to normalize phone numbers (strip non-digits). However, some production clusters run
-      // MongoDB versions that don't support those operators, causing runtime errors.
-      //
-      // To keep this endpoint robust in production, we skip the aggregation fallback entirely
-      // and rely on the comprehensive exact-match search above. This is safer than returning 500.
-      //
-      // If you upgrade MongoDB and want the extra normalization, you can reintroduce a
-      // version-guarded aggregation here.
-
       logger.info("Phone check result", {
          exists: !!profile,
          foundPhone: profile?.phone,

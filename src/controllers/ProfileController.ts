@@ -829,7 +829,7 @@ export class ProfileController {
    */
   static async updatePANVerification(req: Request, res: Response): Promise<void> {
     const { uid } = req.params;
-    const { isPANVerified, panVerifiedAt } = req.body;
+    const { isPANVerified, panVerifiedAt, maskedPAN } = req.body;
 
     console.log('📥 [USER SERVICE] Received PAN verification update request', {
       uid,
@@ -855,7 +855,8 @@ export class ProfileController {
       const updateData: Partial<IProfile> = {
         isPANVerified: isPANVerified !== undefined ? isPANVerified : true,
         panVerifiedAt: panVerifiedAt ? new Date(panVerifiedAt) : new Date(),
-        isVerified: true // ✅ Set general verification flag when PAN is verified
+        isVerified: true, // ✅ Set general verification flag when PAN is verified
+        ...(maskedPAN && { maskedPan: maskedPAN })
       };
 
       console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
