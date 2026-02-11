@@ -26,7 +26,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isBankVerified bankVerifiedAt maskedBankAccount bankAccount maskedPan location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses createdAt updatedAt')
+      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses createdAt updatedAt')
       .lean();
 
     if (!profile) {
