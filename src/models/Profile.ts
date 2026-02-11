@@ -40,10 +40,10 @@ export interface IProfile extends Document {
   isAadhaarVerified: boolean;
   aadhaarVerifiedAt?: Date | null;
   maskedAadhaar?: string;
-  isPANVerified?: boolean;
+  isPANVerified: boolean;
   panVerifiedAt?: Date | null;
   maskedPan?: string;
-  isBankVerified?: boolean;
+  isBankVerified: boolean;
   bankVerifiedAt?: Date | null;
   maskedBankAccount?: string;
   bankAccount?: {
