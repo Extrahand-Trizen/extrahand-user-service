@@ -75,6 +75,8 @@ export class ProfileController {
         ...profile,
         isAadhaarVerified: profile.isAadhaarVerified || false,
         aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
+        isPANVerified: profile.isPANVerified || false,
+        panVerifiedAt: profile.panVerifiedAt || null,
         savedAddresses: profile.savedAddresses ? profile.savedAddresses.map((addr: any) => ({
           _id: addr._id?.toString() || addr._id,
           label: addr.label,
