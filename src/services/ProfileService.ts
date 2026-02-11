@@ -519,9 +519,13 @@ export class ProfileService {
       uid,
       currentIsAadhaarVerified: existingProfile.isAadhaarVerified,
       currentAadhaarVerifiedAt: existingProfile.aadhaarVerifiedAt,
+      currentIsPANVerified: existingProfile.isPANVerified,
+      currentPANVerifiedAt: existingProfile.panVerifiedAt,
       updateData: {
         isAadhaarVerified: profileData.isAadhaarVerified,
-        aadhaarVerifiedAt: profileData.aadhaarVerifiedAt
+        aadhaarVerifiedAt: profileData.aadhaarVerifiedAt,
+        isPANVerified: profileData.isPANVerified,
+        panVerifiedAt: profileData.panVerifiedAt
       }
     });
 
