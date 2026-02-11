@@ -591,6 +591,24 @@ export class ProfileService {
     if (profileData.bankAccount !== undefined) {
       updatePayload.bankAccount = profileData.bankAccount;
     }
+
+    // ✨ PAN verification fields
+    if (profileData.isPANVerified !== undefined) {
+      updatePayload.isPANVerified = profileData.isPANVerified;
+      console.log('📝 [PROFILE SERVICE] Setting isPANVerified', {
+        uid,
+        value: profileData.isPANVerified,
+        previousValue: existingProfile.isPANVerified
+      });
+    }
+    if (profileData.panVerifiedAt !== undefined) {
+      updatePayload.panVerifiedAt = profileData.panVerifiedAt;
+      console.log('📝 [PROFILE SERVICE] Setting panVerifiedAt', {
+        uid,
+        value: profileData.panVerifiedAt,
+        previousValue: existingProfile.panVerifiedAt
+      });
+    }
     if (profileData.maskedPan !== undefined) {
       updatePayload.maskedPan = profileData.maskedPan;
     }
