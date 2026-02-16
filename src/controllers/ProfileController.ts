@@ -1,9 +1,10 @@
 import { Response, Request } from 'express';
-import { AuthenticatedRequest } from '../types';
 import { ProfileService } from '../services/ProfileService';
 import { IProfile } from '../models/Profile';
+import { AuthenticatedRequest } from '../types';
 import logger from '../config/logger';
 import { validateEnv } from '../config/env';
+import EmailVerificationService from '../services/EmailVerificationService';
 
 export class ProfileController {
   /** 
@@ -13,10 +14,10 @@ export class ProfileController {
     try {
       const uid = req.user!.uid;
       const profile = await ProfileService.getMyProfile(uid);
-      
+
       // Fetch work history from Task Service
       let workHistory: any[] = [];
-      
+
       // Only fetch work history if user has completed tasks
       if (profile.completedTasks && profile.completedTasks > 0) {
         try {
@@ -39,7 +40,7 @@ export class ProfileController {
                 timeout: 5000
               }
             );
-            
+
             const tasks = tasksResponse.data?.tasks || tasksResponse.data?.data || [];
             workHistory = tasks
               .filter((task: any) => task.completedAt && task.status === 'completed')
@@ -50,7 +51,7 @@ export class ProfileController {
                 completedAt: task.completedAt,
                 budget: task.budget?.amount || 0
               }));
-              
+
             logger.info('✅ Fetched work history for my profile', {
               uid,
               workHistoryCount: workHistory.length
@@ -68,7 +69,7 @@ export class ProfileController {
           completedTasks: profile.completedTasks || 0
         });
       }
-      
+
       // Ensure savedAddresses are properly serialized
       const serializedProfile = {
         id: profile.uid,
@@ -93,7 +94,7 @@ export class ProfileController {
         })) : [],
         workHistory: workHistory  // Include work history
       };
-      
+
       res.json(serializedProfile);
     } catch (error: any) {
       console.error('❌ [ProfileController.getMyProfile] Error:', error);
@@ -110,13 +111,13 @@ export class ProfileController {
   static async searchProfiles(req: AuthenticatedRequest, res: Response): Promise<void> {
     const { q, limit = 10 } = req.query;
     const currentUserId = req.user?.uid;
-    
+
     const profiles = await ProfileService.searchProfiles(
       q as string,
       parseInt(limit as string),
       currentUserId
     );
-    
+
     res.json({
       success: true,
       users: profiles.map(profile => ({
@@ -224,7 +225,7 @@ export class ProfileController {
   static async getPublicProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
     const { uid } = req.params;
     const profile = await ProfileService.getProfileByUid(uid);
-    
+
     const publicProfile = {
       uid: profile.uid,
       name: profile.name,
@@ -245,7 +246,7 @@ export class ProfileController {
       isActive: profile.isActive,
       createdAt: profile.createdAt
     };
-    
+
     res.json({
       success: true,
       profile: publicProfile
@@ -258,7 +259,7 @@ export class ProfileController {
   static async getProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
     const { uid } = req.params;
     const profile = await ProfileService.getProfileByUid(uid);
-    
+
     const publicProfile = {
       uid: profile.uid,
       name: profile.name,
@@ -279,7 +280,7 @@ export class ProfileController {
       isActive: profile.isActive,
       createdAt: profile.createdAt
     };
-    
+
     res.json({
       success: true,
       profile: publicProfile
@@ -295,23 +296,23 @@ export class ProfileController {
     try {
       const { profileId } = req.params;
       const profile = await ProfileService.getPublicProfileById(profileId);
-      
+
       // Fetch reviews and work history from Task Service
       let reviews: any[] = [];
       let workHistory: any[] = [];
-      
+
       // Only fetch if user has activity to avoid unnecessary API calls for new accounts
       const hasCompletedTasks = profile.completedTasks && profile.completedTasks > 0;
       const hasTotalReviews = profile.totalReviews && profile.totalReviews > 0;
-      
+
       if (hasCompletedTasks || hasTotalReviews) {
         try {
           const env = validateEnv();
           if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN && profile.uid) {
             const axios = (await import('axios')).default;
-            
+
             const promises: Promise<any>[] = [];
-            
+
             // Only fetch reviews if user has reviews
             if (hasTotalReviews) {
               promises.push(
@@ -330,7 +331,7 @@ export class ProfileController {
             } else {
               promises.push(Promise.resolve({ data: [] }));
             }
-            
+
             // Only fetch work history if user has completed tasks
             if (hasCompletedTasks) {
               promises.push(
@@ -354,12 +355,12 @@ export class ProfileController {
             } else {
               promises.push(Promise.resolve({ data: { tasks: [] } }));
             }
-            
+
             const [reviewsResponse, tasksResponse] = await Promise.all(promises);
-            
+
             reviews = reviewsResponse.data?.data || reviewsResponse.data?.reviews || [];
             const tasks = tasksResponse.data?.tasks || tasksResponse.data?.data || [];
-            
+
             // Map tasks to work history format
             workHistory = tasks
               .filter((task: any) => task.completedAt && task.status === 'completed')
@@ -370,7 +371,7 @@ export class ProfileController {
                 completedAt: task.completedAt,
                 budget: task.budget?.amount || 0
               }));
-            
+
             logger.info('✅ Fetched reviews and work history for public profile', {
               profileId,
               uid: profile.uid,
@@ -395,7 +396,7 @@ export class ProfileController {
           totalReviews: profile.totalReviews || 0
         });
       }
-      
+
       // Return the same structure as public profile section
       const publicProfile = {
         _id: profile._id,
@@ -426,22 +427,28 @@ export class ProfileController {
         business: profile.business,
         isActive: profile.isActive,
         createdAt: profile.createdAt,
-        // Include reviews in response
-        reviews: reviews.map((review: any) => ({
-          _id: review._id,
-          taskId: review.taskId,
-          taskTitle: review.taskTitle || review.title,
-          reviewerId: review.reviewerId || review.reviewerUid,
-          reviewerName: review.reviewerName,
-          reviewerPhoto: review.reviewerPhoto,
-          rating: review.rating,
-          comment: review.comment,
-          createdAt: review.createdAt
-        })),
-        // Include work history in response
-        workHistory: workHistory
+        // Include reviews in response - filter out invalid/empty reviews
+        reviews: reviews
+          .filter((review: any) => 
+            review.reviewerName && 
+            review.reviewerName.trim() !== '' &&
+            review.rating > 0
+          )
+          .map((review: any) => ({
+            _id: review._id,
+            taskId: review.taskId,
+            taskTitle: review.taskTitle || review.title,
+            reviewerId: review.reviewerId || review.reviewerUid,
+            reviewerName: review.reviewerName,
+            reviewerPhoto: review.reviewerPhoto,
+            rating: review.rating,
+            comment: review.comment,
+            createdAt: review.createdAt
+          })),
+        // Include work history in response - filter out invalid entries
+        workHistory: workHistory.filter((item: any) => item.title && item.title.trim() !== '')
       };
-      
+
       res.json({
         success: true,
         profile: publicProfile
@@ -465,7 +472,7 @@ export class ProfileController {
   static async getProfileById(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { profileId } = req.params;
-      
+
       if (!profileId) {
         res.status(400).json({
           success: false,
@@ -475,7 +482,7 @@ export class ProfileController {
       }
 
       const profile = await ProfileService.getProfileById(profileId);
-      
+
       if (!profile) {
         res.status(404).json({
           success: false,
@@ -508,7 +515,7 @@ export class ProfileController {
   static async getProfilesBatch(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { profileIds } = req.body;
-      
+
       if (!Array.isArray(profileIds) || profileIds.length === 0) {
         res.status(400).json({
           success: false,
@@ -519,9 +526,9 @@ export class ProfileController {
 
       // Limit batch size to prevent abuse
       const limitedIds = profileIds.slice(0, 100);
-      
+
       const profileMap = await ProfileService.getProfilesBatch(limitedIds);
-      
+
       // Convert Map to array for JSON response
       const profiles = Array.from(profileMap.values());
 
@@ -553,12 +560,12 @@ export class ProfileController {
       });
       return;
     }
-    
+
     const uid = req.user.uid;
     const profileData: Partial<IProfile> = req.body;
-    
+
     const savedProfile = await ProfileService.upsertProfile(uid, profileData);
-    
+
     res.json({
       id: uid,
       ...savedProfile,
@@ -577,10 +584,10 @@ export class ProfileController {
       });
       return;
     }
-    
+
     const uid = req.user.uid;
     const profileData: Partial<IProfile> = req.body;
-    
+
     // Log request data for debugging
     console.log('🔍 [ProfileController.updateProfile] Request data:', {
       uid,
@@ -588,26 +595,26 @@ export class ProfileController {
       savedAddressesCount: Array.isArray(profileData.savedAddresses) ? profileData.savedAddresses.length : 0,
       savedAddressesPreview: Array.isArray(profileData.savedAddresses) && profileData.savedAddresses.length > 0
         ? {
-            firstAddress: {
-              label: profileData.savedAddresses[0].label,
-              address: profileData.savedAddresses[0].address?.substring(0, 50),
-              hasCoordinates: Array.isArray(profileData.savedAddresses[0].coordinates),
-              coordinates: profileData.savedAddresses[0].coordinates
-            }
+          firstAddress: {
+            label: profileData.savedAddresses[0].label,
+            address: profileData.savedAddresses[0].address?.substring(0, 50),
+            hasCoordinates: Array.isArray(profileData.savedAddresses[0].coordinates),
+            coordinates: profileData.savedAddresses[0].coordinates
           }
+        }
         : null
     });
-    
+
     try {
       const updatedProfile = await ProfileService.updateProfile(uid, profileData);
-      
+
       res.json({
         success: true,
         id: uid,
         ...updatedProfile,
         message: 'Profile updated successfully'
       });
-    } catch (error:   any) {
+    } catch (error: any) {
       console.error('❌ [ProfileController.updateProfile] Error:', {
         message: error.message,
         name: error.name,
@@ -615,14 +622,14 @@ export class ProfileController {
         errors: error.errors,
         stack: error.stack?.substring(0, 500)
       });
-      
+
       // Check for Mongoose validation errors
       if (error.name === 'ValidationError') {
         const validationErrors = Object.keys(error.errors || {}).map(key => ({
           field: key,
           message: error.errors[key].message
         }));
-        
+
         res.status(400).json({
           success: false,
           error: 'Validation error',
@@ -643,7 +650,7 @@ export class ProfileController {
         });
         return;
       }
-      
+
       // Re-throw to be handled by error handler middleware
       throw error;
     }
@@ -655,7 +662,7 @@ export class ProfileController {
   static async deleteProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
     const uid = req.user!.uid;
     const deleteResult = await ProfileService.deleteProfile(uid);
-    
+
     res.json({
       success: true,
       message: 'Profile and all associated data deleted successfully',
@@ -669,7 +676,7 @@ export class ProfileController {
    */
   static async bulkDeleteProfiles(req: AuthenticatedRequest, res: Response): Promise<void> {
     const { uids } = req.body;
-    
+
     if (!uids || !Array.isArray(uids) || uids.length === 0) {
       res.status(400).json({
         success: false,
@@ -690,7 +697,7 @@ export class ProfileController {
       // Use MongoDB bulk delete (optimized)
       // Note: Cascade deletion and Firebase deletion should be handled by the caller
       const deleteResult = await ProfileService.bulkDeleteProfiles(uids);
-      
+
       res.json({
         success: true,
         message: 'Profiles deleted successfully',
@@ -712,11 +719,11 @@ export class ProfileController {
    */
   static async deleteProfileByUid(req: AuthenticatedRequest, res: Response): Promise<void> {
     const uid = req.params.uid;
-    
+
     // For service auth, uid comes from params (route parameter)
     // For Firebase auth, uid comes from req.user.uid
     const targetUid = uid || req.user?.uid;
-    
+
     if (!targetUid) {
       res.status(400).json({
         success: false,
@@ -724,9 +731,9 @@ export class ProfileController {
       });
       return;
     }
-    
+
     const deleteResult = await ProfileService.deleteProfile(targetUid);
-    
+
     res.json({
       success: true,
       message: 'Profile and all associated data deleted successfully',
@@ -741,7 +748,7 @@ export class ProfileController {
   static async getProfileCompletion(req: AuthenticatedRequest, res: Response): Promise<void> {
     const uid = req.user!.uid;
     const completion = await ProfileService.getProfileCompletion(uid);
-    
+
     res.json({
       success: true,
       ...completion
@@ -754,7 +761,7 @@ export class ProfileController {
   static async getOnboardingStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
     const uid = req.user!.uid;
     const status = await ProfileService.getOnboardingStatus(uid);
-    
+
     res.json(status);
   }
 
@@ -1020,6 +1027,201 @@ export class ProfileController {
       res.status(500).json({
         success: false,
         error: error.message || 'Failed to update email verification status'
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/verification/email/initiate
+   * Initiate email verification by sending OTP
+   */
+  static async initiateEmailVerificationOTP(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const { email } = req.body;
+
+      if (!email) {
+        res.status(400).json({
+          success: false,
+          error: 'Email is required'
+        });
+        return;
+      }
+
+      // Get user profile for name
+      const profile = await ProfileService.getProfileByUid(req.user.uid);
+
+      const result = await EmailVerificationService.initiateEmailVerification(
+        req.user.uid,
+        email,
+        profile.name
+      );
+
+      if (result.success) {
+        res.json({
+          success: true,
+          message: result.message,
+          data: {
+            verificationId: result.verificationId,
+            expiresInMinutes: result.expiresInMinutes
+          }
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.message
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error initiating email verification', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to initiate email verification'
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/verification/email/verify
+   * Verify email OTP
+   */
+  static async verifyEmailOTPCode(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const { otp, verificationId } = req.body;
+
+      if (!otp) {
+        res.status(400).json({
+          success: false,
+          error: 'OTP is required'
+        });
+        return;
+      }
+
+      const result = await EmailVerificationService.verifyEmailOTP(
+        req.user.uid,
+        otp,
+        verificationId
+      );
+
+      if (result.success) {
+        res.json({
+          success: true,
+          message: result.message
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.message
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error verifying email OTP', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to verify email'
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/verification/email/resend
+   * Resend email OTP
+   */
+  static async resendEmailOTPCode(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const result = await EmailVerificationService.resendEmailOTP(req.user.uid);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          message: result.message,
+          data: {
+            verificationId: result.verificationId,
+            expiresInMinutes: result.expiresInMinutes
+          }
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.message
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error resending email OTP', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to resend verification code'
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/verification/email/status
+   * Get email verification status
+   */
+  static async getEmailVerificationStatusOTP(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const result = await EmailVerificationService.getVerificationStatus(req.user.uid);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          data: result.data
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: result.message
+        });
+      }
+    } catch (error: any) {
+      logger.error('Error getting email verification status', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get verification status'
       });
     }
   }

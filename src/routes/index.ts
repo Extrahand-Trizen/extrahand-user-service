@@ -6,6 +6,8 @@ import businessRoutes from "./business";
 import privacyRoutes from "./privacy";
 import uploadRoutes from "./uploads";
 import sessionRoutes from "./sessions";
+import verificationRoutes from "./verification";
+import notificationPreferencesRoutes from "./notificationPreferences";
 import { gatewayAuthMiddleware } from "../middleware/gatewayAuth";
 
 const router = Router();
@@ -31,5 +33,7 @@ router.use("/business", businessRoutes);
 router.use("/privacy", privacyRoutes);
 router.use("/uploads", uploadRoutes);
 router.use("/sessions", sessionRoutes);
+router.use("/verification", verificationRoutes);
+router.use("/notification-preferences", notificationPreferencesRoutes);
 
 export default router;
