@@ -53,11 +53,11 @@ export class EmailServiceClient {
    */
   private static isValidEmail(email: string): boolean {
     if (!email || typeof email !== 'string') return false;
-    
+
     // Basic email format check
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) return false;
-    
+
     // Block RFC 2606 reserved domains (example.com, example.net, example.org, test, localhost, invalid)
     const reservedDomains = ['example.com', 'example.net', 'example.org', 'test', 'localhost', 'invalid'];
     const domain = email.split('@')[1]?.toLowerCase();
@@ -65,7 +65,7 @@ export class EmailServiceClient {
       logger.warn('EmailServiceClient: Skipping email to reserved/placeholder domain', { email, domain });
       return false;
     }
-    
+
     return true;
   }
 
@@ -75,17 +75,17 @@ export class EmailServiceClient {
     // Validate email address
     const email = data.email || data.to;
     if (!this.isValidEmail(email)) {
-      logger.warn('EmailServiceClient: Skipping email - invalid or placeholder address', { 
-        email, 
-        endpoint 
+      logger.warn('EmailServiceClient: Skipping email - invalid or placeholder address', {
+        email,
+        endpoint
       });
       return false;
     }
 
     try {
-      logger.info('EmailServiceClient: Sending email request', { 
-        endpoint, 
-        to: email 
+      logger.info('EmailServiceClient: Sending email request', {
+        endpoint,
+        to: email
       });
 
       await axios.post(
@@ -138,8 +138,8 @@ export class EmailServiceClient {
    * Send email verification
    */
   static async sendEmailVerification(
-    email: string, 
-    otp?: string, 
+    email: string,
+    otp?: string,
     verificationLink?: string,
     name?: string,
     expiresAt?: Date
@@ -230,6 +230,33 @@ export class EmailServiceClient {
       resetLink,
       name,
       expiresAt: expiresAt?.toISOString()
+    });
+  }
+
+  /**
+   * Send verification confirmed email
+   * Used when user verifies Aadhaar, Phone, Email, PAN, or Bank Account
+   */
+  static async sendVerificationConfirmed(
+    email: string,
+    data: {
+      userName: string;
+      verificationType: 'Aadhaar' | 'Phone Number' | 'Email Address' | 'PAN Card' | 'Bank Account';
+      maskedValue?: string;
+      verifiedDate?: string;
+      nextSteps?: string;
+      userId?: string;
+    }
+  ): Promise<boolean> {
+    const env = validateEnv();
+    return this.sendRequest('/send', {
+      to: email,
+      template: 'verification_confirmed',
+      data: {
+        ...data,
+        profileUrl: `${env.WEB_APP_URL || 'https://extrahand.in'}/profile`,
+        platformName: 'ExtraHand'
+      }
     });
   }
 }

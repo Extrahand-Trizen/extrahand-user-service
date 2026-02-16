@@ -247,6 +247,36 @@ export class EmailVerificationService {
                 email: otpRecord.email
             });
 
+            // Send verification confirmation email
+            try {
+                const profile = await ProfileService.getProfileByUid(uid);
+                if (profile) {
+                    await EmailServiceClient.sendVerificationConfirmed(otpRecord.email, {
+                        userName: profile.name || profile.fullName || 'there',
+                        verificationType: 'Email Address',
+                        maskedValue: otpRecord.email,
+                        verifiedDate: new Date().toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                        }),
+                        nextSteps: 'Verify your phone number to enable two-factor authentication.',
+                        userId: uid
+                    });
+                    logger.info('Verification confirmation email sent', {
+                        uid,
+                        email: otpRecord.email
+                    });
+                }
+            } catch (emailError: any) {
+                // Don't fail verification if email sending fails
+                logger.error('Failed to send verification confirmation email', {
+                    uid,
+                    email: otpRecord.email,
+                    error: emailError.message
+                });
+            }
+
             return {
                 success: true,
                 message: 'Email verified successfully'
