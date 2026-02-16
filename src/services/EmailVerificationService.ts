@@ -252,7 +252,7 @@ export class EmailVerificationService {
                 const profile = await ProfileService.getProfileByUid(uid);
                 if (profile) {
                     await EmailServiceClient.sendVerificationConfirmed(otpRecord.email, {
-                        userName: profile.name || profile.fullName || 'there',
+                        userName: profile.name || 'there',
                         verificationType: 'Email Address',
                         maskedValue: otpRecord.email,
                         verifiedDate: new Date().toLocaleDateString('en-IN', {
