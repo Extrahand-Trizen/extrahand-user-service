@@ -21,7 +21,7 @@ export class NotificationPreferencesService {
      */
     static async getPreferences(uid: string): Promise<INotificationPreferences> {
         try {
-            let preferences = await NotificationPreferences.findOne({ uid }).lean();
+            let preferences = await NotificationPreferences.findOne({ uid });
 
             if (!preferences) {
                 // Create default preferences
@@ -29,7 +29,7 @@ export class NotificationPreferencesService {
                 logger.info('Created default notification preferences', { uid });
             }
 
-            return preferences as INotificationPreferences;
+            return preferences;
         } catch (error: any) {
             logger.error('Error getting notification preferences', {
                 uid,

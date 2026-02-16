@@ -14,7 +14,9 @@ export class EmailVerificationService {
      * Generate a random 6-digit OTP
      */
     private static generateOTP(): string {
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const min = Math.pow(10, this.OTP_LENGTH - 1);
+        const max = Math.pow(10, this.OTP_LENGTH) - 1;
+        const otp = Math.floor(min + Math.random() * (max - min + 1)).toString();
         return otp;
     }
 
