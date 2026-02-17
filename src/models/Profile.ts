@@ -237,29 +237,23 @@ const ProfileSchema = new Schema<IProfile>({
   },
   rating: {
     type: Number,
-    default: 0,
     min: 0,
     max: 5
   },
   totalReviews: {
-    type: Number,
-    default: 0
+    type: Number
   },
   totalTasks: {
-    type: Number,
-    default: 0
+    type: Number
   },
   completedTasks: {
-    type: Number,
-    default: 0
+    type: Number
   },
   postedTasks: {
-    type: Number,
-    default: 0
+    type: Number
   },
   earnedAmount: {
-    type: Number,
-    default: 0
+    type: Number
   },
   isVerified: {
     type: Boolean,

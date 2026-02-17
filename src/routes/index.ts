@@ -8,6 +8,8 @@ import uploadRoutes from "./uploads";
 import sessionRoutes from "./sessions";
 import verificationRoutes from "./verification";
 import notificationPreferencesRoutes from "./notificationPreferences";
+import referralRoutes from "./referral";
+import badgeRoutes from "./badge";
 import { gatewayAuthMiddleware } from "../middleware/gatewayAuth";
 
 const router = Router();
@@ -35,5 +37,7 @@ router.use("/uploads", uploadRoutes);
 router.use("/sessions", sessionRoutes);
 router.use("/verification", verificationRoutes);
 router.use("/notification-preferences", notificationPreferencesRoutes);
+router.use("/user", referralRoutes);
+router.use("/user", badgeRoutes);
 
 export default router;

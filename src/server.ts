@@ -2,6 +2,8 @@ import { createApp } from './app';
 import { connectMongo } from './config/database';
 import { validateEnv } from './config/env';
 import logger from './config/logger';
+import { scheduleExpiredReferralCheck } from './jobs/checkExpiredReferrals';
+import { scheduleDailyBadgeCheck } from './jobs/dailyBadgeCheck';
 
 const env = validateEnv();
 
@@ -17,12 +19,17 @@ async function startServer() {
     // Create Express app
     const app = createApp();
 
+    // Schedule background jobs
+    scheduleExpiredReferralCheck();
+    scheduleDailyBadgeCheck();
+
     // Start server
     const port = env.PORT;
     app.listen(port, () => {
       logger.info(`🚀 User Service running on port ${port}`);
       logger.info(`📝 Environment: ${env.NODE_ENV}`);
       logger.info(`🔗 Health check: http://localhost:${port}/api/v1/health`);
+      logger.info(`⏰ Scheduled jobs: Badge checks & referral expiration checks enabled`);
     });
 
     // Graceful shutdown
