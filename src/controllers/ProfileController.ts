@@ -5,6 +5,8 @@ import { AuthenticatedRequest } from '../types';
 import logger from '../config/logger';
 import { validateEnv } from '../config/env';
 import EmailVerificationService from '../services/EmailVerificationService';
+import { VerificationBadgeService } from '../services/verificationBadgeService';
+import { VerificationType } from '../types/badge';
 
 export class ProfileController {
   /** 
@@ -935,6 +937,23 @@ export class ProfileController {
         aadhaarVerifiedAt: updatedProfile.aadhaarVerifiedAt
       });
 
+      // 🎖️ Update verification badge and tier
+      try {
+        const badgeResult = await VerificationBadgeService.handleVerificationComplete(
+          uid,
+          updatedProfile._id.toString(),
+          VerificationType.AADHAAR,
+          { provider: 'digilocker' }
+        );
+        logger.info('🎖️ Badge updated after Aadhaar verification', {
+          uid,
+          tier: badgeResult.tier,
+          badge: badgeResult.badge
+        });
+      } catch (badgeError: any) {
+        logger.error('Failed to update badge after Aadhaar verification', badgeError);
+      }
+
       res.json({
         success: true,
         message: 'Aadhaar verification status updated',
@@ -1002,6 +1021,23 @@ export class ProfileController {
         panVerifiedAt: updatedProfile.panVerifiedAt
       });
 
+      // 🎖️ Update verification badge and tier
+      try {
+        const badgeResult = await VerificationBadgeService.handleVerificationComplete(
+          uid,
+          updatedProfile._id.toString(),
+          VerificationType.PAN,
+          { provider: 'cashfree' }
+        );
+        logger.info('🎖️ Badge updated after PAN verification', {
+          uid,
+          tier: badgeResult.tier,
+          badge: badgeResult.badge
+        });
+      } catch (badgeError: any) {
+        logger.error('Failed to update badge after PAN verification', badgeError);
+      }
+
       res.json({
         success: true,
         message: 'PAN verification status updated',
@@ -1068,6 +1104,23 @@ export class ProfileController {
         bankVerifiedAt: updatedProfile.bankVerifiedAt
       });
 
+      // 🎖️ Update verification badge and tier
+      try {
+        const badgeResult = await VerificationBadgeService.handleVerificationComplete(
+          uid,
+          updatedProfile._id.toString(),
+          VerificationType.BANK,
+          { provider: 'cashfree' }
+        );
+        logger.info('🎖️ Badge updated after Bank verification', {
+          uid,
+          tier: badgeResult.tier,
+          badge: badgeResult.badge
+        });
+      } catch (badgeError: any) {
+        logger.error('Failed to update badge after Bank verification', badgeError);
+      }
+
       res.json({
         success: true,
         message: 'Bank verification status updated',
@@ -1133,6 +1186,22 @@ export class ProfileController {
         isEmailVerified: updatedProfile.isEmailVerified,
         emailVerifiedAt: updatedProfile.emailVerifiedAt
       });
+
+      // 🎖️ Update verification badge and tier
+      try {
+        const badgeResult = await VerificationBadgeService.handleVerificationComplete(
+          uid,
+          updatedProfile._id.toString(),
+          VerificationType.EMAIL
+        );
+        logger.info('🎖️ Badge updated after Email verification', {
+          uid,
+          tier: badgeResult.tier,
+          badge: badgeResult.badge
+        });
+      } catch (badgeError: any) {
+        logger.error('Failed to update badge after Email verification', badgeError);
+      }
 
       res.json({
         success: true,

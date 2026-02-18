@@ -110,27 +110,40 @@ export class BadgeService {
    * Returns both current badge and progress to next level
    */
   static determineBadgeLevel(profile: Partial<UserBadgeProfile>): BadgeLevel {
+    // Log profile data for debugging
+    console.log('🎖️ Determining badge level for profile:', {
+      verifications: profile.verifications?.map(v => ({ type: v.type, status: v.status })),
+      totalTasksCompleted: profile.totalTasksCompleted,
+      averageRating: profile.averageRating,
+      totalReviews: profile.totalReviews
+    });
+
     // Check ELITE requirements
     if (this.checkBadgeRequirements(profile, BadgeLevel.ELITE)) {
+      console.log('✨ Badge determined: ELITE');
       return BadgeLevel.ELITE;
     }
 
     // Check TRUSTED requirements
     if (this.checkBadgeRequirements(profile, BadgeLevel.TRUSTED)) {
+      console.log('🥇 Badge determined: TRUSTED');
       return BadgeLevel.TRUSTED;
     }
 
     // Check VERIFIED requirements
     if (this.checkBadgeRequirements(profile, BadgeLevel.VERIFIED)) {
+      console.log('🥈 Badge determined: VERIFIED');
       return BadgeLevel.VERIFIED;
     }
 
     // Check BASIC requirements
     if (this.checkBadgeRequirements(profile, BadgeLevel.BASIC)) {
+      console.log('🥉 Badge determined: BASIC');
       return BadgeLevel.BASIC;
     }
 
     // Default to NONE
+    console.log('⭐ Badge determined: NONE');
     return BadgeLevel.NONE;
   }
 
@@ -151,29 +164,46 @@ export class BadgeService {
         .filter(v => v.status === "verified")
         .map(v => v.type);
 
-      const allVerified = requiredVerifications.every(req => verifiedTypes.includes(req));
+      const allVerified = requiredVerifications.every((req: string) => verifiedTypes.includes(req));
+      console.log(`  📋 ${badgeLevel} - Verifications check:`, {
+        required: requiredVerifications,
+        verified: verifiedTypes,
+        passed: allVerified
+      });
       if (!allVerified) return false;
     }
 
     // Check task count
     if (requirements.taskCount && requirements.taskCount > 0) {
-      if ((profile.totalTasksCompleted || 0) < requirements.taskCount) {
-        return false;
-      }
+      const passed = (profile.totalTasksCompleted || 0) >= requirements.taskCount;
+      console.log(`  📋 ${badgeLevel} - TaskCount check:`, {
+        required: requirements.taskCount,
+        actual: profile.totalTasksCompleted || 0,
+        passed
+      });
+      if (!passed) return false;
     }
 
     // Check minimum rating
     if (requirements.minRating && requirements.minRating > 0) {
-      if ((profile.averageRating || 0) < requirements.minRating) {
-        return false;
-      }
+      const passed = (profile.averageRating || 0) >= requirements.minRating;
+      console.log(`  📋 ${badgeLevel} - Rating check:`, {
+        required: requirements.minRating,
+        actual: profile.averageRating || 0,
+        passed
+      });
+      if (!passed) return false;
     }
 
     // Check minimum reviews
     if (requirements.minReviews && requirements.minReviews > 0) {
-      if ((profile.totalReviews || 0) < requirements.minReviews) {
-        return false;
-      }
+      const passed = (profile.totalReviews || 0) >= requirements.minReviews;
+      console.log(`  📋 ${badgeLevel} - Reviews check:`, {
+        required: requirements.minReviews,
+        actual: profile.totalReviews || 0,
+        passed
+      });
+      if (!passed) return false;
     }
 
     // Check maximum response time (for TRUSTED and ELITE)
@@ -195,9 +225,6 @@ export class BadgeService {
         return false;
       }
     }
-
-    // ELITE requires manual approval - this function doesn't check that
-    // Manual approval is handled in a separate admin review process
 
     return true;
   }

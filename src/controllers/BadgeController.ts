@@ -1,11 +1,11 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../types';
 import logger from '../config/logger';
-import { Profile } from '../models/Profile';
+import Profile from '../models/Profile';
 import { BadgeInfo } from '../models/BadgeInfo';
-import { VerificationRecord } from '../models/VerificationRecord';
-import { BadgeService, BadgeBatchService } from '../services/badgeService';
-import { BadgeLevel } from '../types/badge';
+import { BadgeService } from '../services/badgeService';
+import { BadgeLevel, VerificationType } from '../types/badge';
+import { BadgeNotificationService } from '../services/badgeNotificationService';
 
 export class BadgeController {
   /**
@@ -31,10 +31,21 @@ export class BadgeController {
         });
       }
 
-      const verifications = await VerificationRecord.find({
-        userId: profile._id,
-        status: 'verified'
-      });
+      // Ensure phone verification is set if phone exists
+      if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        profile.phoneVerified = true;
+        await profile.save();
+        logger.info(`Updated phoneVerified for user ${uid} in getUserBadge`);
+      }
+
+      // Build verification data from Profile model
+      const verifications = [
+        ...(profile.isEmailVerified ? [{ type: VerificationType.EMAIL, status: 'verified' }] : []),
+        ...(profile.phoneVerified ? [{ type: VerificationType.PHONE, status: 'verified' }] : []),
+        ...(profile.isAadhaarVerified ? [{ type: VerificationType.AADHAAR, status: 'verified' }] : []),
+        ...(profile.isPANVerified ? [{ type: VerificationType.PAN, status: 'verified' }] : []),
+        ...(profile.isBankVerified ? [{ type: VerificationType.BANK, status: 'verified' }] : []),
+      ];
 
       // Fetch real-time stats
       let totalTasksCompleted = 0;
@@ -58,8 +69,24 @@ export class BadgeController {
         logger.warn('Failed to fetch real-time stats for badge', { uid, error: error.message });
       }
 
+      // Check if badge can be upgraded based on current profile
+      const newBadgeLevel = BadgeService.determineBadgeLevel({
+        verifications: verifications as any,
+        totalTasksCompleted,
+        totalTasksPosted,
+        averageRating,
+        totalReviews
+      });
+
+      // Update badge if it changed
+      if (newBadgeLevel !== badgeInfo.currentBadge) {
+        logger.info(`Badge upgraded for user ${uid}: ${badgeInfo.currentBadge} → ${newBadgeLevel}`);
+        badgeInfo.currentBadge = newBadgeLevel;
+        await badgeInfo.save();
+      }
+
       const reputationScore = BadgeService.calculateReputationScore({
-        verifications,
+        verifications: verifications as any,
         totalTasksCompleted,
         totalTasksPosted,
         averageRating,
@@ -76,7 +103,7 @@ export class BadgeController {
           previousBadge: badgeInfo.previousBadge,
           badgeUpgradedAt: badgeInfo.badgeUpgradedAt,
           reputationScore,
-          platformFeePercentage: profile.platformFeePercentage || 5,
+          platformFeePercentage: 5,
           badges: badgeInfo.badgeHistory
         }
       });
@@ -107,7 +134,21 @@ export class BadgeController {
         });
       }
 
-      const verifications = await VerificationRecord.find({ userId: profile._id });
+      // Ensure phone verification is set if phone exists
+      if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        profile.phoneVerified = true;
+        await profile.save();
+        logger.info(`Updated phoneVerified for user ${uid}`);
+      }
+
+      // Build verification data from Profile model
+      const verifications = [
+        ...(profile.isEmailVerified ? [{ type: VerificationType.EMAIL, status: 'verified' }] : []),
+        ...(profile.phoneVerified ? [{ type: VerificationType.PHONE, status: 'verified' }] : []),
+        ...(profile.isAadhaarVerified ? [{ type: VerificationType.AADHAAR, status: 'verified' }] : []),
+        ...(profile.isPANVerified ? [{ type: VerificationType.PAN, status: 'verified' }] : []),
+        ...(profile.isBankVerified ? [{ type: VerificationType.BANK, status: 'verified' }] : []),
+      ];
 
       // Fetch real-time stats
       let totalTasksCompleted = 0;
@@ -131,10 +172,27 @@ export class BadgeController {
         logger.warn('Failed to fetch real-time stats for badge progress', { uid, error: error.message });
       }
 
-      const currentBadge = badgeInfo.currentBadge;
+      // Check if badge can be upgraded based on current profile
+      const newBadgeLevel = BadgeService.determineBadgeLevel({
+        verifications: verifications as any,
+        totalTasksCompleted,
+        totalTasksPosted,
+        averageRating,
+        totalReviews
+      });
+
+      // Update badge if it changed
+      let currentBadge = badgeInfo.currentBadge;
+      if (newBadgeLevel !== currentBadge) {
+        logger.info(`Badge upgraded for user ${uid}: ${currentBadge} → ${newBadgeLevel}`);
+        badgeInfo.currentBadge = newBadgeLevel;
+        await badgeInfo.save();
+        currentBadge = newBadgeLevel;
+      }
+
       const progressPercentage = BadgeService.calculateProgressToNextBadge(
         {
-          verifications,
+          verifications: verifications as any,
           totalTasksCompleted,
           totalTasksPosted,
           averageRating,
@@ -143,13 +201,95 @@ export class BadgeController {
         currentBadge
       );
 
+      // Calculate current reputation score
+      const currentReputation = BadgeService.calculateReputationScore({
+        verifications: verifications as any,
+        totalTasksCompleted,
+        totalTasksPosted,
+        averageRating,
+        totalReviews,
+        averageResponseTime: 0,
+        cancellationRate: 0
+      });
+
       res.json({
         success: true,
         data: {
           currentBadge,
+          currentReputation: currentReputation.total,
           progressPercentage,
+          reputationBreakdown: {
+            verifications: currentReputation.verifications,
+            performance: currentReputation.performance,
+            reviews: currentReputation.reviews,
+            reliability: currentReputation.reliability,
+            total: currentReputation.total
+          },
+          badgeRequirements: {
+            none: {
+              minReputation: 0,
+              minTasks: 0,
+              minRating: 0,
+              minReviews: 0,
+              description: 'New user - Browse tasks'
+            },
+            basic: {
+              minReputation: 10,
+              minTasks: 0,
+              minRating: 0,
+              minReviews: 0,
+              description: 'Email + Phone verified - Post tasks, 5% fee'
+            },
+            verified: {
+              minReputation: 25,
+              minTasks: 5,
+              minRating: 4.0,
+              minReviews: 0,
+              description: 'Aadhaar + 5 tasks + 4.0 rating - Priority app, 4.5% fee'
+            },
+            trusted: {
+              minReputation: 50,
+              minTasks: 25,
+              minRating: 4.5,
+              minReviews: 10,
+              responseTime: '< 6 hours',
+              completionRate: 90,
+              description: 'PAN + Bank + 25 tasks + 4.5 rating - Featured, 4% fee'
+            },
+            elite: {
+              minReputation: 100,
+              minTasks: 100,
+              minRating: 4.8,
+              minReviews: 50,
+              responseTime: '< 2 hours',
+              completionRate: 95,
+              description: '100+ tasks + 4.8 rating + Admin approved - Exclusive tasks, 3% fee'
+            }
+          },
           verifications: {
-            count: verifications.filter(v => v.status === 'verified').length,
+            count: verifications.length,
+            breakdown: {
+              email: {
+                status: profile.isEmailVerified ? 'verified' : 'pending',
+                points: profile.isEmailVerified ? 3 : 0
+              },
+              phone: {
+                status: profile.phoneVerified ? 'verified' : 'pending',
+                points: profile.phoneVerified ? 3 : 0
+              },
+              aadhaar: {
+                status: profile.isAadhaarVerified ? 'verified' : 'pending',
+                points: profile.isAadhaarVerified ? 8 : 0
+              },
+              pan: {
+                status: profile.isPANVerified ? 'verified' : 'pending',
+                points: profile.isPANVerified ? 6 : 0
+              },
+              bank: {
+                status: profile.isBankVerified ? 'verified' : 'pending',
+                points: profile.isBankVerified ? 5 : 0
+              }
+            },
             list: verifications.map(v => ({
               type: v.type,
               status: v.status
@@ -179,7 +319,20 @@ export class BadgeController {
         return;
       }
 
-      const verifications = await VerificationRecord.find({ userId: profile._id });
+      // Ensure phone verification is set if phone exists
+      if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        profile.phoneVerified = true;
+        await profile.save();
+      }
+
+      // Build verification data from Profile model
+      const verifications = [
+        ...(profile.isEmailVerified ? [{ type: VerificationType.EMAIL, status: 'verified' }] : []),
+        ...(profile.phoneVerified ? [{ type: VerificationType.PHONE, status: 'verified' }] : []),
+        ...(profile.isAadhaarVerified ? [{ type: VerificationType.AADHAAR, status: 'verified' }] : []),
+        ...(profile.isPANVerified ? [{ type: VerificationType.PAN, status: 'verified' }] : []),
+        ...(profile.isBankVerified ? [{ type: VerificationType.BANK, status: 'verified' }] : []),
+      ];
 
       // Fetch real-time stats
       let totalTasksCompleted = 0;
@@ -204,7 +357,7 @@ export class BadgeController {
       }
 
       const breakdown = BadgeService.calculateReputationScore({
-        verifications,
+        verifications: verifications as any,
         totalTasksCompleted,
         totalTasksPosted,
         averageRating,
@@ -241,7 +394,20 @@ export class BadgeController {
         });
       }
 
-      const verifications = await VerificationRecord.find({ userId: profile._id });
+      // Ensure phone verification is set if phone exists
+      if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        profile.phoneVerified = true;
+        await profile.save();
+      }
+
+      // Build verification data from Profile model
+      const verifications = [
+        ...(profile.isEmailVerified ? [{ type: VerificationType.EMAIL, status: 'verified' }] : []),
+        ...(profile.phoneVerified ? [{ type: VerificationType.PHONE, status: 'verified' }] : []),
+        ...(profile.isAadhaarVerified ? [{ type: VerificationType.AADHAAR, status: 'verified' }] : []),
+        ...(profile.isPANVerified ? [{ type: VerificationType.PAN, status: 'verified' }] : []),
+        ...(profile.isBankVerified ? [{ type: VerificationType.BANK, status: 'verified' }] : []),
+      ];
 
       // Fetch real-time stats
       let totalTasksCompleted = 0;
@@ -266,7 +432,7 @@ export class BadgeController {
       }
 
       const reputationScore = BadgeService.calculateReputationScore({
-        verifications,
+        verifications: verifications as any,
         totalTasksCompleted,
         totalTasksPosted,
         averageRating,
@@ -277,7 +443,7 @@ export class BadgeController {
 
       const profileData = {
         currentBadge: badgeInfo.currentBadge,
-        verifications,
+        verifications: verifications as any,
         totalTasksCompleted,
         totalTasksPosted,
         averageRating,
@@ -301,7 +467,7 @@ export class BadgeController {
           }
         );
 
-        badgeInfo.badgeHistory.push({
+        (badgeInfo.badgeHistory as any).push({
           badge: result.newBadge!,
           achievedAt: new Date(),
           reason: result.reason || 'Automatic upgrade',
@@ -405,7 +571,7 @@ export class BadgeController {
       if (approve) {
         await Profile.updateOne({ _id: userId }, { currentBadge: BadgeLevel.ELITE, platformFeePercentage: 3 });
 
-        badgeInfo.badgeHistory.push({
+        (badgeInfo.badgeHistory as any).push({
           badge: BadgeLevel.ELITE,
           achievedAt: new Date(),
           reason: 'Manually approved by admin',
@@ -419,6 +585,17 @@ export class BadgeController {
 
         logger.info('Elite badge approved', { userId, approvedBy: adminId });
 
+        // 🔔 Send approval notification
+        try {
+          await BadgeNotificationService.sendEliteApprovalNotification(
+            userId,
+            profile.uid,
+            profile.name
+          );
+        } catch (notifError: any) {
+          logger.error('Failed to send elite approval notification', notifError);
+        }
+
         res.json({
           success: true,
           data: { userId, badge: BadgeLevel.ELITE, approved: true }
@@ -429,6 +606,18 @@ export class BadgeController {
 
         logger.info('Elite badge rejected', { userId, reason: reviewNotes });
 
+        // 🔔 Send rejection notification
+        try {
+          await BadgeNotificationService.sendEliteRejectionNotification(
+            userId,
+            profile.uid,
+            profile.name,
+            reviewNotes
+          );
+        } catch (notifError: any) {
+          logger.error('Failed to send elite rejection notification', notifError);
+        }
+
         res.json({
           success: true,
           data: { userId, badge: BadgeLevel.ELITE, approved: false, rejectionReason: reviewNotes }
@@ -436,6 +625,69 @@ export class BadgeController {
       }
     } catch (error: any) {
       logger.error('Error approving elite badge:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * GET /api/v1/user/badge/public/:uid
+   * Public endpoint to get any user's badge info (used for displaying badges on profiles, tasks, etc.)
+   * Supports both Firebase UID and MongoDB ObjectId lookup
+   */
+  static async getPublicUserBadge(req: any, res: Response): Promise<void> {
+    try {
+      const { uid } = req.params;
+      
+      if (!uid) {
+        res.status(400).json({ success: false, error: 'User UID or ID is required' });
+        return;
+      }
+
+      let profile: any;
+      
+      // Try to find by uid first (Firebase UID)
+      profile = await Profile.findOne({ uid });
+      
+      // If not found, try to find by MongoDB ObjectId
+      if (!profile && uid.match(/^[0-9a-fA-F]{24}$/)) {
+        try {
+          profile = await Profile.findById(uid);
+        } catch (error) {
+          // Invalid ObjectId format, skip
+        }
+      }
+
+      if (!profile) {
+        res.status(404).json({ success: false, error: 'User not found' });
+        return;
+      }
+
+      let badgeInfo = await BadgeInfo.findOne({ userId: profile._id });
+
+      if (!badgeInfo) {
+        badgeInfo = await BadgeInfo.create({
+          userId: profile._id,
+          currentBadge: BadgeLevel.NONE,
+          badgeHistory: []
+        });
+      }
+
+      // Build verification data from Profile model
+      // (Note: We're not using verifications here, just returning public badge info)
+
+      // Return minimal public badge info
+      res.json({
+        success: true,
+        data: {
+          userId: profile._id,
+          uid: profile.uid,
+          currentBadge: badgeInfo.currentBadge,
+          name: profile.name,
+          badgeUpgradedAt: badgeInfo.badgeUpgradedAt
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error getting public user badge:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }

@@ -6,6 +6,7 @@ const router: Router = express.Router();
 
 // User referral endpoints (authenticated)
 router.get('/referral-code', authMiddleware, ReferralController.getUserReferralCode);
+router.post('/referral/apply', authMiddleware, ReferralController.applyReferralCode);
 router.get('/referral-dashboard', authMiddleware, ReferralController.getReferralDashboard);
 
 // Credit management endpoints (authenticated)
@@ -13,6 +14,8 @@ router.get('/credits/balance', authMiddleware, ReferralController.getCreditBalan
 router.get('/credits/transactions', authMiddleware, ReferralController.getTransactionHistory);
 router.post('/credits/use-payment', authMiddleware, ReferralController.useCredit);
 router.post('/credits/gift', authMiddleware, ReferralController.giftCredit);
+router.post('/credits/withdraw', authMiddleware, ReferralController.withdrawCredit);
+router.get('/credits/withdrawals', authMiddleware, ReferralController.getWithdrawalHistory);
 
 // Service-to-service endpoints (no auth middleware, uses x-service-token header)
 router.post('/referral/qualify', ReferralController.qualifyReferral);

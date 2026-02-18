@@ -12,6 +12,7 @@ router.post('/badge/check-upgrade', authMiddleware, BadgeController.checkBadgeUp
 
 // Public endpoints
 router.get('/badge/tier-config/:badgeLevel', BadgeController.getBadgeTierConfig);
+router.get('/badge/public/:uid', BadgeController.getPublicUserBadge);
 
 // Admin endpoints
 router.post('/admin/badge/approve-elite', authMiddleware, BadgeController.approveEliteBadge);

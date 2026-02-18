@@ -4,7 +4,8 @@ import logger from '../config/logger';
 import { ReferralCode } from '../models/ReferralCode';
 import { ReferralRecord } from '../models/ReferralRecord';
 import { Credit } from '../models/Credit';
-import { Profile } from '../models/Profile';
+import { WithdrawalRequest } from '../models/WithdrawalRequest';
+import Profile from '../models/Profile';
 import { ReferralService, CreditService } from '../services/referralService';
 import { CreditTransactionType, ReferralStatus } from '../types/referral';
 
@@ -48,6 +49,81 @@ export class ReferralController {
   }
 
   /**
+   * POST /api/v1/user/referral/apply
+   * Apply a referral code when a new user signs up
+   */
+  static async applyReferralCode(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const { referralCode } = req.body;
+
+      if (!referralCode) {
+        res.status(400).json({ success: false, error: 'Referral code is required' });
+        return;
+      }
+
+      // Validate referral code format
+      if (!ReferralService.isValidReferralCode(referralCode.toUpperCase())) {
+        res.status(400).json({ success: false, error: 'Invalid referral code format' });
+        return;
+      }
+
+      const profile = await Profile.findOne({ uid });
+      if (!profile) {
+        res.status(404).json({ success: false, error: 'Profile not found' });
+        return;
+      }
+
+      // Find the referrer by referral code
+      const referrerCode = await ReferralCode.findOne({ code: referralCode.toUpperCase() });
+      if (!referrerCode) {
+        res.status(404).json({ success: false, error: 'Invalid referral code' });
+        return;
+      }
+
+      // Prevent self-referral
+      if (referrerCode.userId.toString() === profile._id.toString()) {
+        res.status(400).json({ success: false, error: 'You cannot use your own referral code' });
+        return;
+      }
+
+      // Check if user already has a referral applied
+      const existingReferral = await ReferralRecord.findOne({ refereeId: profile._id });
+      if (existingReferral) {
+        res.status(400).json({ success: false, error: 'You have already used a referral code' });
+        return;
+      }
+
+      // Create referral record
+      const referralRecord = await ReferralService.createReferralRecord(
+        referrerCode.userId.toString(),
+        profile._id.toString(),
+        referralCode.toUpperCase()
+      );
+
+      logger.info('✅ Referral code applied successfully', {
+        refereeId: profile._id,
+        referrerId: referrerCode.userId,
+        referralCode: referralCode.toUpperCase()
+      });
+
+      res.json({
+        success: true,
+        message: 'Referral code applied successfully! Complete a task worth ₹500+ to unlock rewards.',
+        data: {
+          referralCode: referralRecord.referralCode,
+          status: referralRecord.status,
+          expiresAt: referralRecord.expiresAt,
+          potentialReward: referralRecord.refereeRewardAmount
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error applying referral code:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
    * GET /api/v1/user/referral-dashboard
    */
   static async getReferralDashboard(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -62,10 +138,29 @@ export class ReferralController {
         return;
       }
 
-      const referralCode = await ReferralCode.findOne({ userId: profile._id });
+      // Auto-create referral code if it doesn't exist
+      let referralCode = await ReferralCode.findOne({ userId: profile._id });
       if (!referralCode) {
-        res.status(404).json({ success: false, error: 'Referral code not found' });
-        return;
+        logger.info(`Creating new referral code for user ${uid}`);
+        const code = ReferralService.generateReferralCode(profile.name);
+        referralCode = await ReferralCode.create({
+          code,
+          userId: profile._id
+        });
+      }
+
+      // Auto-create credit record if it doesn't exist
+      let credits = await Credit.findOne({ userId: profile._id });
+      if (!credits) {
+        logger.info(`Creating new credit record for user ${uid}`);
+        credits = await Credit.create({
+          userId: profile._id,
+          balance: 0,
+          totalEarned: 0,
+          totalUsed: 0,
+          totalWithdrawn: 0,
+          transactions: []
+        });
       }
 
       const allReferrals = await ReferralRecord.find({ referrerId: profile._id });
@@ -77,10 +172,8 @@ export class ReferralController {
       const totalEarnings = successfulReferrals * 100; // ₹100 per successful referral
       const conversionRate = totalReferrals > 0 ? Math.round((successfulReferrals / totalReferrals) * 100) : 0;
 
-      const credits = await Credit.findOne({ userId: profile._id });
-      const creditBalance = credits?.balance || 0;
-
-      const transactions = credits?.transactions.slice(offset, offset + limit) || [];
+      const creditBalance = credits.balance || 0;
+      const transactions = credits.transactions.slice(offset, offset + limit) || [];
 
       res.json({
         success: true,
@@ -344,6 +437,132 @@ export class ReferralController {
       }
     } catch (error: any) {
       logger.error('Error gifting credit:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * POST /api/v1/user/credits/withdraw
+   * Request credit withdrawal to bank account
+   */
+  static async withdrawCredit(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const { amount, bankAccountId } = req.body;
+
+      if (!amount || amount < 500) {
+        res.status(400).json({ 
+          success: false, 
+          error: 'Minimum withdrawal amount is ₹500' 
+        });
+        return;
+      }
+
+      const profile = await Profile.findOne({ uid });
+      if (!profile) {
+        res.status(404).json({ success: false, error: 'Profile not found' });
+        return;
+      }
+
+      // Check if user has bank account verified
+      if (!profile.isBankVerified) {
+        res.status(400).json({ 
+          success: false, 
+          error: 'Bank account verification required for withdrawals' 
+        });
+        return;
+      }
+
+      // Process withdrawal
+      const result = await CreditService.withdrawCredit(
+        profile._id.toString(),
+        amount,
+        bankAccountId || 'default'
+      );
+
+      if (!result.success) {
+        res.status(400).json({ 
+          success: false, 
+          error: result.message || 'Withdrawal failed' 
+        });
+        return;
+      }
+
+      // Create withdrawal request
+      const withdrawalRequest = await WithdrawalRequest.create({
+        userId: profile._id,
+        amount,
+        creditTransactionId: result.transactionId,
+        bankAccountId: bankAccountId || profile.maskedBankAccount,
+        status: 'pending',
+        requestedAt: new Date()
+      });
+
+      logger.info('✅ Withdrawal request created', {
+        uid,
+        amount,
+        withdrawalId: withdrawalRequest._id
+      });
+
+      res.json({
+        success: true,
+        message: 'Withdrawal request submitted successfully. Processing time: 2-3 business days',
+        data: {
+          withdrawalId: withdrawalRequest._id,
+          amount,
+          status: 'pending',
+          transactionId: result.transactionId,
+          estimatedProcessingTime: '2-3 business days',
+          requestedAt: withdrawalRequest.requestedAt
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error processing withdrawal:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * GET /api/v1/user/credits/withdrawals
+   * Get user's withdrawal history
+   */
+  static async getWithdrawalHistory(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      const profile = await Profile.findOne({ uid });
+      if (!profile) {
+        res.status(404).json({ success: false, error: 'Profile not found' });
+        return;
+      }
+
+      const total = await WithdrawalRequest.countDocuments({ userId: profile._id });
+      const withdrawals = await WithdrawalRequest.find({ userId: profile._id })
+        .sort({ requestedAt: -1 })
+        .skip(offset)
+        .limit(limit);
+
+      res.json({
+        success: true,
+        data: {
+          total,
+          withdrawals: withdrawals.map(w => ({
+            withdrawalId: w._id,
+            amount: w.amount,
+            status: w.status,
+            bankAccount: w.bankAccountId,
+            requestedAt: w.requestedAt,
+            processedAt: w.processedAt,
+            completedAt: w.completedAt,
+            failureReason: w.failureReason,
+            utrNumber: w.utrNumber
+          }))
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error getting withdrawal history:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }
