@@ -18,7 +18,14 @@ export class ProfileController {
       const profile = await ProfileService.getMyProfile(uid);
 
       // Always fetch real-time stats from task-service (not from stored profile)
-      let realTimeStats = {
+      let realTimeStats: {
+        totalTasks: number | undefined;
+        completedTasks: number | undefined;
+        postedTasks: number | undefined;
+        totalReviews: number | undefined;
+        rating: number | undefined;
+        ratingBreakdowns: any;
+      } = {
         totalTasks: undefined,
         completedTasks: undefined,
         postedTasks: undefined,
@@ -406,7 +413,14 @@ export class ProfileController {
       const profile = await ProfileService.getPublicProfileById(profileId);
 
       // Always fetch real-time stats from task-service (not from stored profile)
-      let realTimeStats = {
+      let realTimeStats: {
+        totalTasks: number | undefined;
+        completedTasks: number | undefined;
+        postedTasks: number | undefined;
+        totalReviews: number | undefined;
+        rating: number | undefined;
+        ratingBreakdowns: any;
+      } = {
         totalTasks: undefined,
         completedTasks: undefined,
         postedTasks: undefined,

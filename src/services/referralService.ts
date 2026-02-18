@@ -3,7 +3,7 @@
  * Handles referral code generation, tracking, qualification, and credit management
  */
 
-import { ReferralStatus, CreditTransactionType, ReferralDashboard } from "../types/referral";
+import { ReferralStatus, CreditTransactionType } from "../types/referral";
 import { ReferralCode } from "../models/ReferralCode";
 import { ReferralRecord } from "../models/ReferralRecord";
 import { Credit } from "../models/Credit";
@@ -71,7 +71,7 @@ export class ReferralService {
    */
   static async qualifyReferral(
     referralRecordId: string,
-    taskId: string,
+    _taskId: string,
     taskAmount: number
   ): Promise<{ success: boolean; message?: string }> {
     // Validate minimum amount

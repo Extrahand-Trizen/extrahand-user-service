@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import logger from '../config/logger';
-import { Profile } from '../models/Profile';
+import Profile from '../models/Profile';
 import { BadgeInfo } from '../models/BadgeInfo';
 import { VerificationRecord } from '../models/VerificationRecord';
 import { BadgeService } from '../services/badgeService';
@@ -66,9 +66,19 @@ export async function runDailyBadgeCheck(): Promise<void> {
           }
         }
 
+        // Map verifications to plain objects for type compatibility
+        const mappedVerifications = verifications.map(v => ({
+          _id: v._id.toString(),
+          userId: v.userId.toString(),
+          type: v.type,
+          status: v.status,
+          verifiedAt: v.verifiedAt,
+          expiresAt: v.expiresAt
+        }));
+
         // Calculate current badge level
         const reputationScore = BadgeService.calculateReputationScore({
-          verifications,
+          verifications: mappedVerifications,
           totalTasksCompleted,
           totalTasksPosted,
           averageRating,
@@ -79,7 +89,7 @@ export async function runDailyBadgeCheck(): Promise<void> {
 
         const profileData = {
           currentBadge: badgeInfo.currentBadge,
-          verifications,
+          verifications: mappedVerifications,
           totalTasksCompleted,
           totalTasksPosted,
           averageRating,
@@ -108,7 +118,7 @@ export async function runDailyBadgeCheck(): Promise<void> {
             achievedAt: new Date(),
             reason: result.reason || 'Automatic upgrade',
             reputationScoreAtTime: profileData.reputationScore.total
-          });
+          } as any);
           badgeInfo.currentBadge = result.newBadge!;
           badgeInfo.badgeUpgradedAt = new Date();
           badgeInfo.previousBadge = result.previousBadge;

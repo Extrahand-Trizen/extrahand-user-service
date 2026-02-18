@@ -1,5 +1,4 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
-import { ReferralStatus } from '../types/referral';
 
 export interface IReferralCode extends Document {
   code: string;

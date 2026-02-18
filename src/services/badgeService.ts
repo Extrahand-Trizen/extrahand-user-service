@@ -6,10 +6,8 @@
 import {
   BadgeLevel,
   BadgeTierConfig,
-  BadgeInfo,
   UserBadgeProfile,
   ReputationScoreBreakdown,
-  VerificationRecord,
   VerificationType,
   BADGE_REQUIREMENTS,
   FEE_STRUCTURE,
@@ -33,7 +31,7 @@ export class BadgeService {
 
     // 1. VERIFICATIONS SCORE (0-25)
     if (profile.verifications && Array.isArray(profile.verifications)) {
-      const verified = (profile.verifications as IVerificationRecord[]).filter(v => v.status === "verified");
+      const verified = (profile.verifications as unknown as IVerificationRecord[]).filter(v => v.status === "verified");
       verified.forEach(v => {
         switch (v.type) {
           case VerificationType.EMAIL:
@@ -164,7 +162,7 @@ export class BadgeService {
         .filter(v => v.status === "verified")
         .map(v => v.type);
 
-      const allVerified = requiredVerifications.every((req: string) => verifiedTypes.includes(req));
+      const allVerified = requiredVerifications.every((req: string) => verifiedTypes.includes(req as VerificationType));
       console.log(`  📋 ${badgeLevel} - Verifications check:`, {
         required: requiredVerifications,
         verified: verifiedTypes,
@@ -369,8 +367,7 @@ export class BadgeService {
           minimumRating: 4.8,
           minimumReviews: 50,
           maxResponseTime: "2 hours",
-          minimumCompletionRate: "95%",
-          requiresAdminApproval: true
+          minimumCompletionRate: "95%"
         },
         description:
           "The highest tier. Only for exceptional performers with admin approval"
@@ -385,7 +382,7 @@ export class BadgeService {
    * Returns previous badge, new badge, and whether upgrade occurred
    */
   static async checkAndUpgradeBadge(
-    userId: string,
+    _userId: string,
     profile: Partial<UserBadgeProfile>
   ): Promise<{ upgraded: boolean; previousBadge?: BadgeLevel; newBadge?: BadgeLevel; reason?: string }> {
     const currentBadge = profile.currentBadge || BadgeLevel.NONE;
@@ -467,7 +464,7 @@ export class BadgeBatchService {
    * Check single user for badge upgrade (called after task completion)
    * This is event-driven, so can happen multiple times per day
    */
-  static async checkUserBadgeUpgrade(userId: string): Promise<{
+  static async checkUserBadgeUpgrade(_userId: string): Promise<{
     upgraded: boolean;
     previousBadge?: BadgeLevel;
     newBadge?: BadgeLevel;
