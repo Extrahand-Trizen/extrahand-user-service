@@ -142,7 +142,7 @@ export class ReferralController {
       let referralCode = await ReferralCode.findOne({ userId: profile._id });
       if (!referralCode) {
         logger.info(`Creating new referral code for user ${uid}`);
-        const name = profile.name || profile.displayName || 'User';
+        const name = profile.name || 'User';
         const code = ReferralService.generateReferralCode(name);
         referralCode = await ReferralCode.create({
           code,

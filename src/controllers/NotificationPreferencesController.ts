@@ -18,21 +18,20 @@ export class NotificationPreferencesController {
      * Get user's notification preferences
      * GET /api/v1/notification-preferences
      */
-    static async getPreferences(req: AuthenticatedRequest, res: Response): Promise<void> {
+    static async getPreferences(req: AuthenticatedRequest, res: Response): Promise<Response | void> {
         try {
             const uid = req.user?.uid;
 
             if (!uid) {
-                res.status(401).json({
+                return res.status(401).json({
                     success: false,
                     error: 'Unauthorized',
                 });
-                return;
             }
 
             const preferences = await NotificationPreferencesService.getPreferences(uid);
 
-            res.json({
+            return res.json({
                 success: true,
                 data: preferences,
             });
@@ -42,7 +41,7 @@ export class NotificationPreferencesController {
                 error: error.message,
             });
 
-            res.status(500).json({
+            return res.status(500).json({
                 success: false,
                 error: 'Failed to get notification preferences',
             });
@@ -53,23 +52,22 @@ export class NotificationPreferencesController {
      * Update user's notification preferences
      * PUT /api/v1/notification-preferences
      */
-    static async updatePreferences(req: AuthenticatedRequest, res: Response): Promise<void> {
+    static async updatePreferences(req: AuthenticatedRequest, res: Response): Promise<Response | void> {
         try {
             const uid = req.user?.uid;
 
             if (!uid) {
-                res.status(401).json({
+                return res.status(401).json({
                     success: false,
                     error: 'Unauthorized',
                 });
-                return;
             }
 
             const updates = req.body;
 
             const preferences = await NotificationPreferencesService.updatePreferences(uid, updates);
 
-            res.json({
+            return res.json({
                 success: true,
                 data: preferences,
                 message: 'Notification preferences updated successfully',
@@ -80,7 +78,7 @@ export class NotificationPreferencesController {
                 error: error.message,
             });
 
-            res.status(500).json({
+            return res.status(500).json({
                 success: false,
                 error: 'Failed to update notification preferences',
             });
