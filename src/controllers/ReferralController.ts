@@ -142,7 +142,8 @@ export class ReferralController {
       let referralCode = await ReferralCode.findOne({ userId: profile._id });
       if (!referralCode) {
         logger.info(`Creating new referral code for user ${uid}`);
-        const code = ReferralService.generateReferralCode(profile.name);
+        const name = profile.name || profile.displayName || 'User';
+        const code = ReferralService.generateReferralCode(name);
         referralCode = await ReferralCode.create({
           code,
           userId: profile._id
@@ -172,8 +173,9 @@ export class ReferralController {
       const totalEarnings = successfulReferrals * 100; // ₹100 per successful referral
       const conversionRate = totalReferrals > 0 ? Math.round((successfulReferrals / totalReferrals) * 100) : 0;
 
-      const creditBalance = credits.balance || 0;
-      const transactions = credits.transactions.slice(offset, offset + limit) || [];
+      const creditBalance = credits.balance ?? 0;
+      const transactionsList = Array.isArray(credits.transactions) ? credits.transactions : [];
+      const transactions = transactionsList.slice(offset, offset + limit);
 
       res.json({
         success: true,
