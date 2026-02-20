@@ -234,10 +234,19 @@ export class ProfileController {
           return;
         }
         userIds = await ProfileService.findUsersByAnyKeyword(criteria.keywords);
+      } else if (type === 'categories') {
+        if (!criteria.categorySlugs || !Array.isArray(criteria.categorySlugs)) {
+          res.status(400).json({
+            success: false,
+            error: 'Missing or invalid categorySlugs array in criteria for category matching'
+          });
+          return;
+        }
+        userIds = await ProfileService.findUsersByAnyCategory(criteria.categorySlugs);
       } else {
         res.status(400).json({
           success: false,
-          error: `Invalid matching type: ${type}. Must be 'skill' or 'keywords'`
+          error: `Invalid matching type: ${type}. Must be 'skill', 'keywords', or 'categories'`
         });
         return;
       }
@@ -1429,5 +1438,88 @@ export class ProfileController {
       });
     }
   }
-}
 
+  /**
+   * PUT /api/v1/profiles/me/category-alerts
+   * Save user's selected categories for alerts
+   */
+  static async updateCategoryAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const { categories } = req.body;
+
+      if (!Array.isArray(categories)) {
+        res.status(400).json({
+          success: false,
+          error: 'Categories must be an array'
+        });
+        return;
+      }
+
+      // Validate tha each category has slug and name
+      const validCategories = categories.every(
+        cat => typeof cat === 'object' && cat.slug && cat.name
+      );
+      if (!validCategories) {
+        res.status(400).json({
+          success: false,
+          error: 'Each category must have slug and name'
+        });
+        return;
+      }
+
+      // Limit to 10 categories
+      const limitedCategories = categories.slice(0, 10);
+
+      const profile = await ProfileService.updateCategoryAlerts(uid, limitedCategories);
+
+      logger.info('ProfileController.updateCategoryAlerts: Categories updated', {
+        uid,
+        categoryCount: limitedCategories.length
+      });
+
+      res.json({
+        success: true,
+        data: {
+          categories: profile.savedCategories?.categories || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error updating category alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update category alerts'
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/me/category-alerts
+   * Get user's selected categories for alerts
+   */
+  static async getCategoryAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      
+      const profile = await ProfileService.getMyProfile(uid);
+
+      res.json({
+        success: true,
+        data: {
+          categories: profile.savedCategories?.categories || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error getting category alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get category alerts'
+      });
+    }
+  }}

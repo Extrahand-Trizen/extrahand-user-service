@@ -296,6 +296,49 @@ export class ProfileService {
   }
 
   /**
+   * Find users with any of the provided category slugs
+   * For service-to-service calls from task-service
+   * Used when a task is created to find users interested in those categories
+   * 
+   * @param categorySlugs - Array of category slugs to search for
+   * @returns Promise<string[]> Array of user UIDs with matching categories
+   */
+  static async findUsersByAnyCategory(categorySlugs: string[]): Promise<string[]> {
+    this.checkConnection();
+    
+    if (!categorySlugs || categorySlugs.length === 0) {
+      logger.warn('ProfileService.findUsersByAnyCategory: Empty category slugs provided');
+      return [];
+    }
+
+    try {
+      const users = await Profile.find({
+        isActive: true,
+        isVerified: true,
+        'savedCategories.categories.slug': {
+          $in: categorySlugs
+        }
+      })
+        .select('uid')
+        .lean();
+
+      const userIds = users.map((u: any) => u.uid);
+      logger.info('ProfileService: Found users by categories', {
+        categoryCount: categorySlugs.length,
+        userCount: userIds.length
+      });
+
+      return userIds;
+    } catch (error) {
+      logger.error('ProfileService.findUsersByAnyCategory error:', {
+        categoryCount: categorySlugs.length,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return [];
+    }
+  }
+
+  /**
    * Create or update profile
    */
   static async upsertProfile(uid: string, profileData: Partial<IProfile>): Promise<IProfileDocument> {
@@ -1334,4 +1377,32 @@ export class ProfileService {
     console.log(`✅ Updated profile ${profileId} with stats from task-service`);
   }
 
+  /**
+   * Update user's selected categories for alerts
+   */
+  static async updateCategoryAlerts(uid: string, categories: Array<{ slug: string; name: string }>): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOneAndUpdate(
+      { uid },
+      {
+        $set: {
+          'savedCategories.categories': categories,
+          'savedCategories.updatedAt': new Date()
+        }
+      },
+      { new: true }
+    );
+
+    if (!profile) {
+      throw new Error(`Profile not found for UID: ${uid}`);
+    }
+
+    logger.info('ProfileService.updateCategoryAlerts: Categories updated', {
+      uid,
+      categoryCount: categories.length
+    });
+
+    return profile;
+  }
 }
