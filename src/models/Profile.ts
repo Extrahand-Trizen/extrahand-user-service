@@ -525,6 +525,12 @@ ProfileSchema.index({ 'skills.primaryCategory': 1, isActive: 1 });
 ProfileSchema.index({ 'savedKeywords.keywords': 1, isActive: 1 });
 ProfileSchema.index({ 'savedCategories.categories.slug': 1, isActive: 1 });
 
+// Tasker matching (task-service queries by roles) and admin list sort
+ProfileSchema.index({ roles: 1 });
+ProfileSchema.index({ roles: 1, isActive: 1 });
+ProfileSchema.index({ createdAt: -1 });
+ProfileSchema.index({ status: 1, createdAt: -1 });
+
 // Static method to calculate completion percentage
 ProfileSchema.statics.calculateCompletionPercentage = function(profile: IProfile) {
   const fields = {

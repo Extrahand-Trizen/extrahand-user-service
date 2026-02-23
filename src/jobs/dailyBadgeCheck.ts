@@ -21,13 +21,16 @@ export async function runDailyBadgeCheck(): Promise<void> {
     let upgradedCount = 0;
     const upgrades: Array<{ userId: string; from: BadgeLevel; to: BadgeLevel }> = [];
 
-    // Get all profiles
-    const profiles = await Profile.find({}).select('_id name uid currentBadge platformFeePercentage isActive');
-
     const env = validateEnv();
     const hasTaskService = env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN;
 
-    for (const profile of profiles) {
+    // Use cursor with batch size to avoid loading all profiles into memory (M0-safe)
+    const BATCH_SIZE = 100;
+    const cursor = Profile.find({})
+      .select('_id name uid currentBadge platformFeePercentage isActive')
+      .cursor({ batchSize: BATCH_SIZE });
+
+    for await (const profile of cursor) {
       try {
         // Get verifications
         const verifications = await VerificationRecord.find({

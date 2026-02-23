@@ -529,8 +529,11 @@ export class ReferralController {
   static async getWithdrawalHistory(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const uid = req.user!.uid;
-      const limit = parseInt(req.query.limit as string) || 20;
-      const offset = parseInt(req.query.offset as string) || 0;
+      const requestedLimit = parseInt(req.query.limit as string) || 20;
+      const requestedOffset = parseInt(req.query.offset as string) || 0;
+      const limit = Math.min(Math.max(1, requestedLimit), 100);
+      const maxSkip = (100 - 1) * limit;
+      const offset = Math.min(Math.max(0, requestedOffset), maxSkip);
 
       const profile = await Profile.findOne({ uid });
       if (!profile) {
