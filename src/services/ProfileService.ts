@@ -1405,4 +1405,33 @@ export class ProfileService {
 
     return profile;
   }
+
+  /**
+   * Update user's selected keywords for alerts
+   */
+  static async updateKeywordAlerts(uid: string, keywords: string[]): Promise<any> {
+    this.checkConnection();
+
+    const profile = await Profile.findOneAndUpdate(
+      { uid },
+      {
+        $set: {
+          'savedKeywords.keywords': keywords,
+          'savedKeywords.updatedAt': new Date()
+        }
+      },
+      { new: true }
+    );
+
+    if (!profile) {
+      throw new Error(`Profile not found for UID: ${uid}`);
+    }
+
+    logger.info('ProfileService.updateKeywordAlerts: Keywords updated', {
+      uid,
+      keywordCount: keywords.length
+    });
+
+    return profile;
+  }
 }

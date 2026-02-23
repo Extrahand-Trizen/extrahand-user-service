@@ -1644,4 +1644,79 @@ export class ProfileController {
         error: 'Failed to get category alerts'
       });
     }
-  }}
+  }
+
+  /**
+   * PUT /api/v1/profiles/me/keyword-alerts
+   * Save user's selected keywords for alerts
+   */
+  static async updateKeywordAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const { keywords } = req.body;
+
+      if (!Array.isArray(keywords)) {
+        res.status(400).json({
+          success: false,
+          error: 'Keywords must be an array'
+        });
+        return;
+      }
+
+      const normalizedKeywords = keywords
+        .map((k) => (typeof k === 'string' ? k.trim().toLowerCase() : ''))
+        .filter((k) => k.length >= 2 && k.length <= 30)
+        .slice(0, 10);
+
+      const profile = await ProfileService.updateKeywordAlerts(uid, normalizedKeywords);
+
+      logger.info('ProfileController.updateKeywordAlerts: Keywords updated', {
+        uid,
+        keywordCount: normalizedKeywords.length
+      });
+
+      res.json({
+        success: true,
+        data: {
+          keywords: profile.savedKeywords?.keywords || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error updating keyword alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update keyword alerts'
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/me/keyword-alerts
+   * Get user's selected keywords for alerts
+   */
+  static async getKeywordAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const profile = await ProfileService.getMyProfile(uid);
+
+      res.json({
+        success: true,
+        data: {
+          keywords: profile.savedKeywords?.keywords || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error getting keyword alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get keyword alerts'
+      });
+    }
+  }
+}
