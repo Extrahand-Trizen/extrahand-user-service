@@ -1007,8 +1007,12 @@ export class ProfileService {
   }> {
     this.checkConnection();
 
+    const MAX_LIMIT = 50;
+    const MAX_PAGE = 100;
     const { page, limit, search, status, role, sortBy = 'createdAt', sortOrder = 'desc' } = params;
-    const skip = (page - 1) * limit;
+    const effectiveLimit = Math.min(Math.max(1, Number(limit) || 20), MAX_LIMIT);
+    const effectivePage = Math.min(Math.max(1, Number(page) || 1), MAX_PAGE);
+    const skip = (effectivePage - 1) * effectiveLimit;
 
     // Build query using $and to properly combine conditions
     const query: any = {};
@@ -1069,7 +1073,7 @@ export class ProfileService {
 
     // Log query for debugging
     logger.info('ListUsersForAdmin - Query:', JSON.stringify(query, null, 2));
-    logger.info('ListUsersForAdmin - Params:', { page, limit, skip, sortBy, sortOrder, search, status, role });
+    logger.info('ListUsersForAdmin - Params:', { page: effectivePage, limit: effectiveLimit, skip, sortBy, sortOrder, search, status, role });
 
     // First check total profiles in database (for debugging)
     const totalProfilesInDb = await Profile.countDocuments({});
@@ -1081,7 +1085,7 @@ export class ProfileService {
         .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt')
         .sort(sort)
         .skip(skip)
-        .limit(limit)
+        .limit(effectiveLimit)
         .lean(),
       Profile.countDocuments(query),
     ]);
@@ -1138,10 +1142,10 @@ export class ProfileService {
     return {
       data,
       pagination: {
-        page,
-        limit,
+        page: effectivePage,
+        limit: effectiveLimit,
         total,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(total / effectiveLimit),
       },
     };
   }
