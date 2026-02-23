@@ -264,16 +264,18 @@ export class ProfileService {
     }
 
     try {
-      // Escape special regex characters and create case-insensitive patterns
-      const keywordPatterns = keywords.map(k => 
-        k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      );
+      const normalizedKeywords = keywords
+        .map(k => (typeof k === 'string' ? k.toLowerCase().trim() : ''))
+        .filter(k => k.length > 0);
+
+      if (normalizedKeywords.length === 0) {
+        return [];
+      }
 
       const users = await Profile.find({
         isActive: true,
-        isVerified: true,
         'savedKeywords.keywords': {
-          $in: keywordPatterns
+          $in: normalizedKeywords
         }
       })
         .select('uid')
@@ -312,11 +314,18 @@ export class ProfileService {
     }
 
     try {
+      const normalizedSlugs = categorySlugs
+        .map((slug) => (typeof slug === 'string' ? slug.toLowerCase().trim() : ''))
+        .filter((slug) => slug.length > 0);
+
+      if (normalizedSlugs.length === 0) {
+        return [];
+      }
+
       const users = await Profile.find({
         isActive: true,
-        isVerified: true,
         'savedCategories.categories.slug': {
-          $in: categorySlugs
+          $in: normalizedSlugs
         }
       })
         .select('uid')
