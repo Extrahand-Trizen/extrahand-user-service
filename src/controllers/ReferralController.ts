@@ -166,7 +166,6 @@ export class ReferralController {
 
       const allReferrals = await ReferralRecord.find({ referrerId: profile._id });
       const totalReferrals = allReferrals.length;
-      const pendingReferrals = allReferrals.filter(r => r.status === ReferralStatus.PENDING).length;
       const successfulReferrals = allReferrals.filter(r => r.status === ReferralStatus.QUALIFIED).length;
       const failedReferrals = allReferrals.filter(r => r.status === ReferralStatus.EXPIRED).length;
 
@@ -183,7 +182,6 @@ export class ReferralController {
           referralCode: referralCode.code,
           referralLink: ReferralService.getReferralLink(referralCode.code),
           totalReferrals,
-          pendingReferrals,
           successfulReferrals,
           failedReferrals,
           totalEarnings,

@@ -234,10 +234,19 @@ export class ProfileController {
           return;
         }
         userIds = await ProfileService.findUsersByAnyKeyword(criteria.keywords);
+      } else if (type === 'categories') {
+        if (!criteria.categorySlugs || !Array.isArray(criteria.categorySlugs)) {
+          res.status(400).json({
+            success: false,
+            error: 'Missing or invalid categorySlugs array in criteria for category matching'
+          });
+          return;
+        }
+        userIds = await ProfileService.findUsersByAnyCategory(criteria.categorySlugs);
       } else {
         res.status(400).json({
           success: false,
-          error: `Invalid matching type: ${type}. Must be 'skill' or 'keywords'`
+          error: `Invalid matching type: ${type}. Must be 'skill', 'keywords', or 'categories'`
         });
         return;
       }
@@ -340,39 +349,134 @@ export class ProfileController {
       const { uid } = req.params;
       const profile = await ProfileService.getProfileByUid(uid);
 
-      // Always fetch real-time stats from task-service
-      let rating: number | undefined = undefined;
-      let totalReviews: number | undefined = undefined;
+      // Always fetch real-time stats from task-service (not from stored profile)
+      let realTimeStats: {
+        totalTasks: number | undefined;
+        completedTasks: number | undefined;
+        postedTasks: number | undefined;
+        totalReviews: number | undefined;
+        rating: number | undefined;
+        ratingBreakdowns: any;
+      } = {
+        totalTasks: undefined,
+        completedTasks: undefined,
+        postedTasks: undefined,
+        totalReviews: undefined,
+        rating: undefined,
+        ratingBreakdowns: undefined
+      };
+      let reviews: any[] = [];
+      let workHistory: any[] = [];
 
       try {
         const env = validateEnv();
         if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN && profile._id) {
           const { statsService } = await import('../services/StatsService');
-          const stats = await statsService.calculateReviewStats(profile._id.toString());
           
-          rating = stats.avgRating > 0 ? Math.round(stats.avgRating * 10) / 10 : undefined;
-          totalReviews = stats.totalReviews > 0 ? stats.totalReviews : undefined;
+          // Fetch all stats real-time
+          const stats = await statsService.calculateAllStats(profile._id.toString(), profile.uid);
           
-          logger.info('✅ Fetched real-time rating/reviews for profile', {
+          realTimeStats = {
+            totalTasks: stats.totalTasks,
+            completedTasks: stats.completedTasks,
+            postedTasks: stats.postedTasks,
+            totalReviews: stats.totalReviews,
+            rating: stats.avgRating > 0 ? Math.round(stats.avgRating * 10) / 10 : undefined,
+            ratingBreakdowns: stats.ratingBreakdowns
+          };
+
+          logger.info('✅ Fetched real-time stats for profile', {
             uid,
-            rating,
-            totalReviews
+            stats: realTimeStats
+          });
+
+          const axios = (await import('axios')).default;
+
+          // Fetch reviews only if user has reviews
+          if (stats.totalReviews && stats.totalReviews > 0) {
+            try {
+              const reviewsResponse = await axios.get(
+                `${env.TASK_SERVICE_URL}/api/v1/reviews/user/${profile.uid}`,
+                {
+                  headers: {
+                    'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                    'X-User-Id': profile.uid,
+                    'X-Service-Name': 'user-service'
+                  },
+                  timeout: 5000
+                }
+              );
+
+              reviews = reviewsResponse.data?.data || reviewsResponse.data?.reviews || [];
+            } catch (error: any) {
+              logger.warn('Failed to fetch reviews for profile', {
+                uid,
+                error: error.message
+              });
+            }
+          }
+
+          // Fetch work history only if user has completed tasks
+          if (stats.completedTasks && stats.completedTasks > 0) {
+            try {
+              const tasksResponse = await axios.get(
+                `${env.TASK_SERVICE_URL}/api/v1/tasks`,
+                {
+                  params: {
+                    assigneeId: profile._id.toString(),
+                    status: 'completed',
+                    limit: 10,
+                    sort: '-completedAt'
+                  },
+                  headers: {
+                    'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                    'X-Service-Name': 'user-service'
+                  },
+                  timeout: 5000
+                }
+              );
+
+              const tasks = tasksResponse.data?.tasks || tasksResponse.data?.data || [];
+              workHistory = tasks
+                .filter((task: any) => task.completedAt && task.status === 'completed')
+                .map((task: any) => ({
+                  _id: task._id,
+                  title: task.title,
+                  category: task.category,
+                  completedAt: task.completedAt,
+                  budget: task.budget?.amount || 0
+                }));
+            } catch (error: any) {
+              logger.warn('Failed to fetch work history for profile', {
+                uid,
+                error: error.message
+              });
+            }
+          }
+
+          logger.info('✅ Fetched reviews and work history for profile', {
+            uid,
+            reviewsCount: reviews.length,
+            workHistoryCount: workHistory.length
           });
         }
       } catch (error: any) {
-        logger.warn('Failed to fetch real-time stats for profile', {
+        logger.warn('Failed to fetch real-time stats for profile (non-critical)', {
           uid,
           error: error.message
         });
       }
 
       const publicProfile = {
+        _id: profile._id,
         uid: profile.uid,
         name: profile.name,
+        email: profile.email,
+        phone: profile.phone,
         roles: profile.roles,
         userType: profile.userType,
-        rating: rating,
-        totalReviews: totalReviews,
+        rating: realTimeStats.rating,
+        totalReviews: realTimeStats.totalReviews,
         skills: profile.skills,
         photoURL: profile.photoURL || null,
         location: profile.location ? {
@@ -383,8 +487,35 @@ export class ProfileController {
         isVerified: profile.isVerified,
         isAadhaarVerified: profile.isAadhaarVerified || false,
         aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
+        isBankVerified: profile.isBankVerified || false,
+        bankVerifiedAt: profile.bankVerifiedAt || null,
+        totalTasks: realTimeStats.totalTasks,
+        completedTasks: realTimeStats.completedTasks,
+        postedTasks: realTimeStats.postedTasks,
+        earnedAmount: profile.earnedAmount,
+        business: profile.business,
         isActive: profile.isActive,
-        createdAt: profile.createdAt
+        createdAt: profile.createdAt,
+        // Include reviews in response - filter out invalid/empty reviews
+        reviews: reviews
+          .filter((review: any) => 
+            review.reviewerName && 
+            review.reviewerName.trim() !== '' &&
+            review.rating > 0
+          )
+          .map((review: any) => ({
+            _id: review._id,
+            taskId: review.taskId,
+            taskTitle: review.taskTitle || review.title,
+            reviewerId: review.reviewerId || review.reviewerUid,
+            reviewerName: review.reviewerName,
+            reviewerPhoto: review.reviewerPhoto,
+            rating: review.rating,
+            comment: review.comment,
+            createdAt: review.createdAt
+          })),
+        // Include work history in response - filter out invalid entries
+        workHistory: workHistory.filter((item: any) => item.title && item.title.trim() !== '')
       };
 
       res.json({
@@ -1429,5 +1560,163 @@ export class ProfileController {
       });
     }
   }
-}
 
+  /**
+   * PUT /api/v1/profiles/me/category-alerts
+   * Save user's selected categories for alerts
+   */
+  static async updateCategoryAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const { categories } = req.body;
+
+      if (!Array.isArray(categories)) {
+        res.status(400).json({
+          success: false,
+          error: 'Categories must be an array'
+        });
+        return;
+      }
+
+      // Validate tha each category has slug and name
+      const validCategories = categories.every(
+        cat => typeof cat === 'object' && cat.slug && cat.name
+      );
+      if (!validCategories) {
+        res.status(400).json({
+          success: false,
+          error: 'Each category must have slug and name'
+        });
+        return;
+      }
+
+      // Limit to 10 categories
+      const limitedCategories = categories.slice(0, 10);
+
+      const profile = await ProfileService.updateCategoryAlerts(uid, limitedCategories);
+
+      logger.info('ProfileController.updateCategoryAlerts: Categories updated', {
+        uid,
+        categoryCount: limitedCategories.length
+      });
+
+      res.json({
+        success: true,
+        data: {
+          categories: profile.savedCategories?.categories || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error updating category alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update category alerts'
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/me/category-alerts
+   * Get user's selected categories for alerts
+   */
+  static async getCategoryAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      
+      const profile = await ProfileService.getMyProfile(uid);
+
+      res.json({
+        success: true,
+        data: {
+          categories: profile.savedCategories?.categories || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error getting category alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get category alerts'
+      });
+    }
+  }
+
+  /**
+   * PUT /api/v1/profiles/me/keyword-alerts
+   * Save user's selected keywords for alerts
+   */
+  static async updateKeywordAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const { keywords } = req.body;
+
+      if (!Array.isArray(keywords)) {
+        res.status(400).json({
+          success: false,
+          error: 'Keywords must be an array'
+        });
+        return;
+      }
+
+      const normalizedKeywords = keywords
+        .map((k) => (typeof k === 'string' ? k.trim().toLowerCase() : ''))
+        .filter((k) => k.length >= 2 && k.length <= 30)
+        .slice(0, 10);
+
+      const profile = await ProfileService.updateKeywordAlerts(uid, normalizedKeywords);
+
+      logger.info('ProfileController.updateKeywordAlerts: Keywords updated', {
+        uid,
+        keywordCount: normalizedKeywords.length
+      });
+
+      res.json({
+        success: true,
+        data: {
+          keywords: profile.savedKeywords?.keywords || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error updating keyword alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update keyword alerts'
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/me/keyword-alerts
+   * Get user's selected keywords for alerts
+   */
+  static async getKeywordAlerts(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const profile = await ProfileService.getMyProfile(uid);
+
+      res.json({
+        success: true,
+        data: {
+          keywords: profile.savedKeywords?.keywords || []
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error getting keyword alerts', {
+        uid: req.user?.uid,
+        error: error.message
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get keyword alerts'
+      });
+    }
+  }
+}

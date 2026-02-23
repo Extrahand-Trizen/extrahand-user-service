@@ -99,6 +99,18 @@ router.get('/:uid', optionalAuthMiddleware, asyncHandler(ProfileController.getPr
 // POST /api/v1/profiles - Create profile (accepts Firebase auth OR service auth)
 router.post('/', authMiddleware, asyncHandler(ProfileController.createProfile));
 
+// PUT /api/v1/profiles/me/category-alerts - Save category alerts (requires auth)
+router.put('/me/category-alerts', authMiddleware, asyncHandler(ProfileController.updateCategoryAlerts));
+
+// GET /api/v1/profiles/me/category-alerts - Get category alerts (requires auth)
+router.get('/me/category-alerts', authMiddleware, asyncHandler(ProfileController.getCategoryAlerts));
+
+// PUT /api/v1/profiles/me/keyword-alerts - Save keyword alerts (requires auth)
+router.put('/me/keyword-alerts', authMiddleware, asyncHandler(ProfileController.updateKeywordAlerts));
+
+// GET /api/v1/profiles/me/keyword-alerts - Get keyword alerts (requires auth)
+router.get('/me/keyword-alerts', authMiddleware, asyncHandler(ProfileController.getKeywordAlerts));
+
 // PUT /api/v1/profiles/me - Update profile (requires auth)
 router.put('/me', authMiddleware, asyncHandler(ProfileController.updateProfile));
 
