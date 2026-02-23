@@ -85,7 +85,9 @@ export class EmailServiceClient {
     try {
       logger.info('EmailServiceClient: Sending email request', {
         endpoint,
-        to: email
+        to: email,
+        template: data.template,
+        subject: data.subject
       });
 
       await axios.post(
@@ -107,6 +109,9 @@ export class EmailServiceClient {
       const axiosError = error as AxiosError;
       logger.error('EmailServiceClient: Failed to send email', {
         endpoint,
+        to: email,
+        template: data.template,
+        subject: data.subject,
         status: axiosError.response?.status,
         statusText: axiosError.response?.statusText,
         message: axiosError.message
