@@ -272,22 +272,33 @@ export class ProfileService {
         return [];
       }
 
+      // Build an OR query that matches:
+      // 1. Exact keyword match (e.g., user saved "plumbing", task has "plumbing")
+      // 2. Partial word match (e.g., user saved "home cleaning", task has ["home", "cleaning"])
+      // This ensures multi-word keywords like "home cleaning" match tasks with those words
+      const orConditions = normalizedKeywords.map(keyword => ({
+        'savedKeywords.keywords': {
+          $regex: new RegExp(`\\b${keyword}\\b`, 'i') // Word boundary match
+        }
+      }));
+
       const users = await Profile.find({
         isActive: true,
-        'savedKeywords.keywords': {
-          $in: normalizedKeywords
-        }
+        $or: orConditions
       })
         .select('uid')
         .lean();
 
-      const userIds = users.map((u: any) => u.uid);
+      // Remove duplicates (same user might match multiple keywords)
+      const uniqueUserIds = [...new Set(users.map((u: any) => u.uid))];
+
       logger.info('ProfileService: Found users by keywords', {
         keywordCount: keywords.length,
-        userCount: userIds.length
+        userCount: uniqueUserIds.length,
+        keywords: normalizedKeywords.slice(0, 5) // Log first 5 for debugging
       });
 
-      return userIds;
+      return uniqueUserIds;
     } catch (error) {
       logger.error('ProfileService.findUsersByAnyKeyword error:', {
         keywordCount: keywords.length,
