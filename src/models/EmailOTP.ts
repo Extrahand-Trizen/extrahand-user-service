@@ -39,14 +39,14 @@ const EmailOTPSchema = new Schema<IEmailOTP>({
   attempts: {
     type: Number,
     default: 0,
-    max: 3
+    max: 5
   }
 }, {
   timestamps: true
 });
 
-// TTL index - automatically delete documents 10 minutes after expiry
-EmailOTPSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 600 });
+// TTL index - automatically delete documents 5 minutes after expiry
+EmailOTPSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 300 });
 
 // Compound index for efficient queries
 EmailOTPSchema.index({ uid: 1, verified: 1, expiresAt: 1 });
