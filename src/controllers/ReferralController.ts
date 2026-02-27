@@ -173,18 +173,31 @@ export class ReferralController {
         });
       }
 
-      // Auto-create credit record if it doesn't exist
+      // Auto-create credit record if it doesn't exist with retry logic
       let credits = await Credit.findOne({ userId: profile._id });
       if (!credits) {
         logger.info(`Creating new credit record for user ${uid}`);
-        credits = await Credit.create({
-          userId: profile._id,
-          balance: 0,
-          totalEarned: 0,
-          totalUsed: 0,
-          totalWithdrawn: 0,
-          transactions: []
-        });
+        try {
+          credits = await Credit.create({
+            userId: profile._id,
+            balance: 0,
+            totalEarned: 0,
+            totalUsed: 0,
+            totalWithdrawn: 0,
+            transactions: []
+          });
+        } catch (error: any) {
+          // If duplicate key error occurs, try to fetch existing record
+          if (error.code === 11000) {
+            logger.warn(`Duplicate credit record detected for user ${uid}, fetching existing...`);
+            credits = await Credit.findOne({ userId: profile._id });
+            if (!credits) {
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
       }
 
       const allReferrals = await ReferralRecord.find({ referrerId: profile._id });

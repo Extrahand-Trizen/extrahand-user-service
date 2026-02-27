@@ -27,6 +27,7 @@ const creditTransactionSchema = new Schema<ICreditTransaction>({
   transactionId: {
     type: String,
     required: false, // Allow null for legacy data
+    sparse: true,   // Sparse index - ignore null values
     index: true
   },
   type: {

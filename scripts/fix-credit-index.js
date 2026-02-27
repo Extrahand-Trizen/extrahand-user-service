@@ -19,7 +19,22 @@ async function fixCreditIndex() {
     await mongoose.connect(mongoUri);
     console.log('✅ Connected to MongoDB');
 
+    // Get the actual database name from connection
+    const dbName = mongoose.connection.name;
+    console.log(`📊 Database: ${dbName}`);
+
     const db = mongoose.connection.db;
+    
+    // Check if collection exists
+    const collections = await db.listCollections({ name: 'credits' }).toArray();
+    const collectionExists = collections.length > 0;
+    
+    if (!collectionExists) {
+      console.log('\n✅ Credits collection does not exist yet - fresh database state');
+      console.log('✅ Migration completed - no issues to fix!');
+      process.exit(0);
+    }
+
     const creditsCollection = db.collection('credits');
 
     // Step 1: List existing indexes
@@ -85,12 +100,12 @@ async function fixCreditIndex() {
 
     console.log(`\n✅ Backfilled transactionIds for ${updatedCount} credit documents`);
 
-    // Step 5: Create a new non-unique index
-    console.log('\n📊 Creating new non-unique index on transactions.transactionId...');
+    // Step 5: Create a new sparse, non-unique index
+    console.log('\n📊 Creating new sparse, non-unique index on transactions.transactionId...');
     try {
       await creditsCollection.createIndex(
         { 'transactions.transactionId': 1 },
-        { sparse: true, unique: false }
+        { sparse: true }
       );
       console.log('✅ Created new sparse, non-unique index');
     } catch (error) {
