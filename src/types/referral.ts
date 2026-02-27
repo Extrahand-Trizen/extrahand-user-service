@@ -66,7 +66,7 @@ export interface Credit {
 
 export interface CreditTransaction {
   _id?: string;
-  transactionId: string;     // Unique transaction ID
+  transactionId?: string;    // Unique transaction ID (optional for legacy data)
   type: CreditTransactionType;
   amount: number;            // Amount in ₹
   description: string;       // Details (e.g., "Referral bonus from JOHN2024", "Fee reduction on task ABC123")

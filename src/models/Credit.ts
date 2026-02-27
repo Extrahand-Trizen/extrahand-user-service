@@ -2,7 +2,7 @@ import mongoose, { Schema, Model, Document } from 'mongoose';
 import { CreditTransactionType } from '../types/referral';
 
 export interface ICreditTransaction extends Document {
-  transactionId: string;
+  transactionId?: string; // Optional for backward compatibility with legacy data
   type: CreditTransactionType;
   amount: number;
   description: string;
@@ -26,8 +26,7 @@ export interface ICredit extends Document {
 const creditTransactionSchema = new Schema<ICreditTransaction>({
   transactionId: {
     type: String,
-    required: true,
-    unique: true,
+    required: false, // Allow null for legacy data
     index: true
   },
   type: {
