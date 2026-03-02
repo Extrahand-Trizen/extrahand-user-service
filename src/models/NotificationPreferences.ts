@@ -7,7 +7,6 @@ export interface INotificationPreferences extends Document {
         taskUpdates: boolean;
         payments: boolean;
         promotions: boolean;
-        reminders: boolean;
         system: boolean;
         transactional: boolean;
         taskReminders: boolean;
@@ -19,7 +18,6 @@ export interface INotificationPreferences extends Document {
         taskUpdates: boolean;
         payments: boolean;
         promotions: boolean;
-        reminders: boolean;
         system: boolean;
         marketing: boolean;
         transactional: boolean;
@@ -31,7 +29,6 @@ export interface INotificationPreferences extends Document {
         enabled: boolean;
         taskUpdates: boolean;
         payments: boolean;
-        reminders: boolean;
     };
     preferredChannel: 'email' | 'sms' | 'push' | 'whatsapp';
     frequency: {
@@ -61,7 +58,6 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             taskUpdates: { type: Boolean, default: true },
             payments: { type: Boolean, default: true },
             promotions: { type: Boolean, default: false },
-            reminders: { type: Boolean, default: true },
             system: { type: Boolean, default: true },
             transactional: { type: Boolean, default: true },
             taskReminders: { type: Boolean, default: true },
@@ -73,7 +69,6 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             taskUpdates: { type: Boolean, default: true },
             payments: { type: Boolean, default: true },
             promotions: { type: Boolean, default: false },
-            reminders: { type: Boolean, default: false },
             system: { type: Boolean, default: true },
             marketing: { type: Boolean, default: false },
             transactional: { type: Boolean, default: true },
@@ -85,7 +80,6 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             enabled: { type: Boolean, default: true },
             taskUpdates: { type: Boolean, default: true },
             payments: { type: Boolean, default: true },
-            reminders: { type: Boolean, default: false },
         },
         preferredChannel: {
             type: String,

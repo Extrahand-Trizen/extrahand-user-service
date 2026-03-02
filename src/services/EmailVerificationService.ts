@@ -7,7 +7,7 @@ import { ProfileService } from './ProfileService';
 export class EmailVerificationService {
     private static readonly OTP_LENGTH = 6;
     private static readonly OTP_EXPIRY_MINUTES = 5;
-    private static readonly MAX_ATTEMPTS = 3;
+    private static readonly MAX_ATTEMPTS = 5;
     private static readonly SALT_ROUNDS = 10;
 
     /**

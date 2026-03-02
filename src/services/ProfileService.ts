@@ -264,28 +264,41 @@ export class ProfileService {
     }
 
     try {
-      // Escape special regex characters and create case-insensitive patterns
-      const keywordPatterns = keywords.map(k => 
-        k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      );
+      const normalizedKeywords = keywords
+        .map(k => (typeof k === 'string' ? k.toLowerCase().trim() : ''))
+        .filter(k => k.length > 0);
+
+      if (normalizedKeywords.length === 0) {
+        return [];
+      }
+
+      // Build an OR query that matches:
+      // 1. Exact keyword match (e.g., user saved "plumbing", task has "plumbing")
+      // 2. Partial word match (e.g., user saved "home cleaning", task has ["home", "cleaning"])
+      // This ensures multi-word keywords like "home cleaning" match tasks with those words
+      const orConditions = normalizedKeywords.map(keyword => ({
+        'savedKeywords.keywords': {
+          $regex: new RegExp(`\\b${keyword}\\b`, 'i') // Word boundary match
+        }
+      }));
 
       const users = await Profile.find({
         isActive: true,
-        isVerified: true,
-        'savedKeywords.keywords': {
-          $in: keywordPatterns
-        }
+        $or: orConditions
       })
         .select('uid')
         .lean();
 
-      const userIds = users.map((u: any) => u.uid);
+      // Remove duplicates (same user might match multiple keywords)
+      const uniqueUserIds = [...new Set(users.map((u: any) => u.uid))];
+
       logger.info('ProfileService: Found users by keywords', {
         keywordCount: keywords.length,
-        userCount: userIds.length
+        userCount: uniqueUserIds.length,
+        keywords: normalizedKeywords.slice(0, 5) // Log first 5 for debugging
       });
 
-      return userIds;
+      return uniqueUserIds;
     } catch (error) {
       logger.error('ProfileService.findUsersByAnyKeyword error:', {
         keywordCount: keywords.length,
@@ -312,11 +325,18 @@ export class ProfileService {
     }
 
     try {
+      const normalizedSlugs = categorySlugs
+        .map((slug) => (typeof slug === 'string' ? slug.toLowerCase().trim() : ''))
+        .filter((slug) => slug.length > 0);
+
+      if (normalizedSlugs.length === 0) {
+        return [];
+      }
+
       const users = await Profile.find({
         isActive: true,
-        isVerified: true,
         'savedCategories.categories.slug': {
-          $in: categorySlugs
+          $in: normalizedSlugs
         }
       })
         .select('uid')

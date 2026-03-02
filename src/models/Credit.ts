@@ -2,7 +2,7 @@ import mongoose, { Schema, Model, Document } from 'mongoose';
 import { CreditTransactionType } from '../types/referral';
 
 export interface ICreditTransaction extends Document {
-  transactionId: string;
+  transactionId?: string; // Optional for backward compatibility with legacy data
   type: CreditTransactionType;
   amount: number;
   description: string;
@@ -26,9 +26,9 @@ export interface ICredit extends Document {
 const creditTransactionSchema = new Schema<ICreditTransaction>({
   transactionId: {
     type: String,
-    required: true
-    // Unique enforced by sparse index on parent (transactions.transactionId)
-    // so multiple null/missing values from legacy data don't cause E11000
+    required: false, // Allow null for legacy data
+    sparse: true,   // Sparse index - ignore null values
+    index: true
   },
   type: {
     type: String,

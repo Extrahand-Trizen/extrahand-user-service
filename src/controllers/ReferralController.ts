@@ -16,11 +16,18 @@ export class ReferralController {
   static async getUserReferralCode(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const uid = req.user!.uid;
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
 
+      // If profile doesn't exist, create a basic one
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on referral code access`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       let referralCode = await ReferralCode.findOne({ userId: profile._id });
@@ -68,10 +75,18 @@ export class ReferralController {
         return;
       }
 
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
+      
+      // If profile doesn't exist, create a basic one
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on referral code apply`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       // Find the referrer by referral code
@@ -132,10 +147,18 @@ export class ReferralController {
       const limit = parseInt(req.query.limit as string) || 20;
       const offset = parseInt(req.query.offset as string) || 0;
 
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
+      
+      // If profile doesn't exist, create a basic one
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on referral dashboard access`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       // Auto-create referral code if it doesn't exist
@@ -150,18 +173,31 @@ export class ReferralController {
         });
       }
 
-      // Auto-create credit record if it doesn't exist
+      // Auto-create credit record if it doesn't exist with retry logic
       let credits = await Credit.findOne({ userId: profile._id });
       if (!credits) {
         logger.info(`Creating new credit record for user ${uid}`);
-        credits = await Credit.create({
-          userId: profile._id,
-          balance: 0,
-          totalEarned: 0,
-          totalUsed: 0,
-          totalWithdrawn: 0,
-          transactions: []
-        });
+        try {
+          credits = await Credit.create({
+            userId: profile._id,
+            balance: 0,
+            totalEarned: 0,
+            totalUsed: 0,
+            totalWithdrawn: 0,
+            transactions: []
+          });
+        } catch (error: any) {
+          // If duplicate key error occurs, try to fetch existing record
+          if (error.code === 11000) {
+            logger.warn(`Duplicate credit record detected for user ${uid}, fetching existing...`);
+            credits = await Credit.findOne({ userId: profile._id });
+            if (!credits) {
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
       }
 
       const allReferrals = await ReferralRecord.find({ referrerId: profile._id });
@@ -291,11 +327,18 @@ export class ReferralController {
   static async getCreditBalance(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const uid = req.user!.uid;
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
 
+      // If profile doesn't exist, create a basic one
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on credit balance access`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       let credit = await Credit.findOne({ userId: profile._id });
@@ -338,10 +381,16 @@ export class ReferralController {
       const type = req.query.type as string;
       const status = req.query.status as string;
 
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on transaction history access`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       const credit = await Credit.findOne({ userId: profile._id });
@@ -385,10 +434,16 @@ export class ReferralController {
       const uid = req.user!.uid;
       const { taskId, amount } = req.body;
 
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on credit use`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       const result = await CreditService.useCredit(profile._id.toString(), amount, taskId);
@@ -412,10 +467,16 @@ export class ReferralController {
       const fromUid = req.user!.uid;
       const { recipientUserId, amount, message } = req.body;
 
-      const fromProfile = await Profile.findOne({ uid: fromUid });
+      let fromProfile = await Profile.findOne({ uid: fromUid });
       if (!fromProfile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${fromUid} on credit gift`);
+        fromProfile = await Profile.create({
+          uid: fromUid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       if (fromProfile._id.toString() === recipientUserId) {
@@ -458,10 +519,16 @@ export class ReferralController {
         return;
       }
 
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on credit withdrawal`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       // Check if user has bank account verified
@@ -535,10 +602,16 @@ export class ReferralController {
       const maxSkip = (100 - 1) * limit;
       const offset = Math.min(Math.max(0, requestedOffset), maxSkip);
 
-      const profile = await Profile.findOne({ uid });
+      let profile = await Profile.findOne({ uid });
       if (!profile) {
-        res.status(404).json({ success: false, error: 'Profile not found' });
-        return;
+        logger.info(`Creating profile for user ${uid} on withdrawal history access`);
+        profile = await Profile.create({
+          uid,
+          name: 'User',
+          roles: ['both'],
+          userType: 'individual',
+          isActive: true,
+        });
       }
 
       const total = await WithdrawalRequest.countDocuments({ userId: profile._id });
