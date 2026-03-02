@@ -106,6 +106,21 @@ export class ProfileController {
         });
       }
 
+      // Ensure verification badge/tier are always present (recompute if missing so trust level reflects)
+      let verificationBadge = profile.verificationBadge ?? 'none';
+      let verificationTier = profile.verificationTier ?? 0;
+      if (profile.verificationBadge == null || profile.verificationTier == null) {
+        try {
+          const badgeResult = await VerificationBadgeService.calculateVerificationBadge(uid);
+          verificationBadge = badgeResult.badge;
+          verificationTier = badgeResult.tier;
+          // Persist so future requests have it
+          await VerificationBadgeService.updateProfileBadge(uid);
+        } catch (badgeErr: any) {
+          logger.warn('Could not compute verification badge for profile response', { uid, err: badgeErr?.message });
+        }
+      }
+
       // Ensure savedAddresses are properly serialized
       const serializedProfile = {
         id: profile.uid,
@@ -121,6 +136,8 @@ export class ProfileController {
         aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
         isPANVerified: profile.isPANVerified || false,
         panVerifiedAt: profile.panVerifiedAt || null,
+        verificationBadge,
+        verificationTier,
         savedAddresses: profile.savedAddresses ? profile.savedAddresses.map((addr: any) => ({
           _id: addr._id?.toString() || addr._id,
           label: addr.label,

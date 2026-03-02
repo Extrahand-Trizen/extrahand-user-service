@@ -18,10 +18,10 @@ export interface VerificationBadgeResult {
 export class VerificationBadgeService {
   /**
    * Calculate verification tier and badge based on completed verifications
-   * 
+   *
    * Individual User Tiers:
    * - Tier 0 (None): No verifications
-   * - Tier 1 (Basic): Email OR Phone verified
+   * - Tier 1 (Basic): Email OR Phone OR PAN verified (any one contact/doc)
    * - Tier 2 (Verified): Aadhaar verified
    * - Tier 3 (Trusted): Aadhaar + PAN + Bank verified
    */
@@ -56,8 +56,8 @@ export class VerificationBadgeService {
         };
       }
 
-      // Tier 1 (Basic): Email OR Phone
-      if (hasEmail || hasPhone) {
+      // Tier 1 (Basic): Email OR Phone OR PAN (so PAN verification alone is reflected)
+      if (hasEmail || hasPhone || hasPAN) {
         return {
           tier: 1,
           badge: 'basic',
