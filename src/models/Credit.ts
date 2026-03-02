@@ -26,9 +26,9 @@ export interface ICredit extends Document {
 const creditTransactionSchema = new Schema<ICreditTransaction>({
   transactionId: {
     type: String,
-    required: true,
-    unique: true,
-    index: true
+    required: true
+    // Unique enforced by sparse index on parent (transactions.transactionId)
+    // so multiple null/missing values from legacy data don't cause E11000
   },
   type: {
     type: String,
@@ -91,6 +91,14 @@ const creditSchema = new Schema<ICredit>({
     default: Date.now
   }
 });
+
+// Sparse unique index: only index non-null transactionIds, so legacy entries
+// with null/missing transactionId don't cause E11000 duplicate key errors.
+// Before first deploy: run once "npm run migrate:drop-credits-tx-index" to drop old index.
+creditSchema.index(
+  { 'transactions.transactionId': 1 },
+  { unique: true, sparse: true }
+);
 
 export const Credit: Model<ICredit> = mongoose.model<ICredit>(
   'Credit',

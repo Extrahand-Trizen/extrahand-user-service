@@ -11,7 +11,8 @@
     "test": "echo \"No tests specified\" && exit 0",
     "lint": "eslint src --ext .ts",
     "health": "curl -f http://localhost:4001/api/v1/health || exit 1",
-    "seed": "npx ts-node --require dotenv/config scripts/seed-test-user.ts"
+    "seed": "npx ts-node --require dotenv/config scripts/seed-test-user.ts",
+    "migrate:drop-credits-tx-index": "npx ts-node --require dotenv/config scripts/drop-credits-transactionId-index.ts"
   },
   "engines": {
     "node": ">=18"
