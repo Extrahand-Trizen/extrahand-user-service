@@ -24,6 +24,39 @@ export class AuthController {
    }
 
    /**
+    * POST /api/v1/auth/user-by-phone
+    * Service-auth only. Returns platform user uid and Aadhaar verification status for onboarding.
+    */
+   static async getUserByPhone(req: Request, res: Response): Promise<void> {
+      const { phone } = req.body;
+      if (!phone || typeof phone !== "string") {
+         res.status(400).json({
+            success: false,
+            error: "Phone number is required",
+         });
+         return;
+      }
+
+      const profile = await AuthService.getProfileByPhone(phone);
+      if (!profile) {
+         res.status(404).json({
+            success: false,
+            error: "No user found for this phone",
+         });
+         return;
+      }
+
+      res.json({
+         success: true,
+         data: {
+            uid: profile.uid,
+            isAadhaarVerified: profile.isAadhaarVerified,
+            name: profile.name,
+         },
+      });
+   }
+
+   /**
     * POST /api/v1/auth/sync
     * Authenticated endpoint to sync Firebase user with MongoDB profile
     */

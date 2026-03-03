@@ -133,6 +133,83 @@ export class AuthService {
    }
 
    /**
+    * Get profile by phone (for onboarding/conversion lookup).
+    * Returns uid, isAadhaarVerified, name or null if not found.
+    * Service-auth only.
+    */
+   static async getProfileByPhone(
+      phone: string
+   ): Promise<{ uid: string; isAadhaarVerified: boolean; name?: string } | null> {
+      if (!phone || typeof phone !== "string") {
+         return null;
+      }
+
+      const cleanPhone = phone.replace(/\D/g, "");
+      const tenDigitNumber =
+         cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+      const formattedPhone = cleanPhone.startsWith("91")
+         ? `+${cleanPhone}`
+         : `+91${cleanPhone}`;
+
+      // Match checkPhoneExists: try all common storage formats
+      const searchFormats = [
+         formattedPhone,
+         formattedPhone.replace("+91", "+91-"),
+         `+91 ${tenDigitNumber}`,
+         `91 ${tenDigitNumber}`,
+         cleanPhone,
+         `+${cleanPhone}`,
+         cleanPhone.startsWith("91") ? cleanPhone : `91${cleanPhone}`,
+         tenDigitNumber,
+         `+91${tenDigitNumber}`,
+         `91${tenDigitNumber}`,
+      ];
+      const uniqueFormats = [...new Set(searchFormats)];
+      let profile = await Profile.findOne({
+         $or: uniqueFormats.map((format) => ({ phone: format })),
+      })
+         .select("uid name isAadhaarVerified")
+         .lean();
+
+      // Fallback 1: match by last 10 digits (regex)
+      if (!profile && tenDigitNumber.length === 10) {
+         profile = await Profile.findOne({
+            $or: [
+               { phone: { $regex: new RegExp(`${tenDigitNumber}$`) } },
+               { phone: { $regex: new RegExp(`^\\+?91?\\s*${tenDigitNumber}`) } },
+            ],
+         })
+            .select("uid name isAadhaarVerified")
+            .lean();
+      }
+
+      // Fallback 2: phone contains the 10 digits (with optional spaces/dashes between)
+      if (!profile && tenDigitNumber.length === 10) {
+         const flexiblePattern = tenDigitNumber.split("").join("\\D*");
+         profile = await Profile.findOne({
+            phone: { $regex: new RegExp(flexiblePattern) },
+         })
+            .select("uid name isAadhaarVerified")
+            .lean();
+      }
+
+      if (!profile) {
+         logger.warn("getProfileByPhone: no profile found", {
+            requestedPhone: phone,
+            tenDigitNumber,
+            searchFormats: uniqueFormats,
+         });
+         return null;
+      }
+
+      return {
+         uid: profile.uid,
+         isAadhaarVerified: !!profile.isAadhaarVerified,
+         name: profile.name || undefined,
+      };
+   }
+
+   /**
     * Complete OTP authentication flow
     * Verifies Firebase ID token and creates/retrieves user profile
     */

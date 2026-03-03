@@ -2,6 +2,7 @@ import { Router } from "express";
 import { AuthController } from "../controllers/AuthController";
 import { asyncHandler } from "../middleware/errorHandler";
 import { authMiddleware } from "../middleware/auth";
+import { serviceAuthMiddleware } from "../middleware/serviceAuth";
 
 const router = Router();
 
@@ -16,6 +17,9 @@ const router = Router();
 
 // POST /api/v1/auth/check-phone (PUBLIC - no auth required)
 router.post('/check-phone', asyncHandler(AuthController.checkPhone));
+
+// POST /api/v1/auth/user-by-phone (service-auth only; for onboarding conversion lookup)
+router.post('/user-by-phone', serviceAuthMiddleware, asyncHandler(AuthController.getUserByPhone));
 
 // POST /api/v1/auth/sync (Authenticated - accepts service auth from API Gateway OR Firebase token)
 router.post("/sync", authMiddleware, asyncHandler(AuthController.sync));
