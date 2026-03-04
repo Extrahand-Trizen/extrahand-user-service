@@ -231,7 +231,7 @@ export class BadgeController {
               minTasks: 0,
               minRating: 0,
               minReviews: 0,
-              description: 'New user - Browse tasks'
+              description: 'New User - Browse tasks'
             },
             basic: {
               minReputation: 10,

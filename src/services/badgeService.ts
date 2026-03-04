@@ -106,6 +106,7 @@ export class BadgeService {
   /**
    * Determine badge level based on user profile
    * Returns both current badge and progress to next level
+   * Considers both reputation score and detailed requirements
    */
   static determineBadgeLevel(profile: Partial<UserBadgeProfile>): BadgeLevel {
     // Log profile data for debugging
@@ -116,32 +117,34 @@ export class BadgeService {
       totalReviews: profile.totalReviews
     });
 
-    // Check ELITE requirements
-    if (this.checkBadgeRequirements(profile, BadgeLevel.ELITE)) {
-      console.log('✨ Badge determined: ELITE');
+    // Calculate current reputation score
+    const reputationScore = this.calculateReputationScore(profile);
+    console.log(`📊 Current reputation score: ${reputationScore.total}/100`);
+
+    // Determine badge based on reputation score as primary factor
+    // Users who reach the reputation threshold get the badge, even if other metrics aren't perfect
+    if (reputationScore.total >= 100) {
+      console.log('✨ Badge determined: ELITE (reputation >= 100)');
       return BadgeLevel.ELITE;
     }
 
-    // Check TRUSTED requirements
-    if (this.checkBadgeRequirements(profile, BadgeLevel.TRUSTED)) {
-      console.log('🥇 Badge determined: TRUSTED');
+    if (reputationScore.total >= 50) {
+      console.log('🥇 Badge determined: TRUSTED (reputation >= 50)');
       return BadgeLevel.TRUSTED;
     }
 
-    // Check VERIFIED requirements
-    if (this.checkBadgeRequirements(profile, BadgeLevel.VERIFIED)) {
-      console.log('🥈 Badge determined: VERIFIED');
+    if (reputationScore.total >= 25) {
+      console.log('🥈 Badge determined: VERIFIED (reputation >= 25)');
       return BadgeLevel.VERIFIED;
     }
 
-    // Check BASIC requirements
-    if (this.checkBadgeRequirements(profile, BadgeLevel.BASIC)) {
-      console.log('🥉 Badge determined: BASIC');
+    if (reputationScore.total >= 10) {
+      console.log('🥉 Badge determined: BASIC (reputation >= 10)');
       return BadgeLevel.BASIC;
     }
 
     // Default to NONE
-    console.log('⭐ Badge determined: NONE');
+    console.log('⭐ Badge determined: NONE (New User)');
     return BadgeLevel.NONE;
   }
 
