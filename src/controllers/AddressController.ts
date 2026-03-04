@@ -22,7 +22,7 @@ export class AddressController {
 
       // Return saved addresses or empty array
       const addresses = profile.savedAddresses || [];
-      
+
       res.status(200).json({
         success: true,
         data: addresses
@@ -88,18 +88,40 @@ export class AddressController {
         });
       }
 
-      // Add new address
-      const updatedAddresses = [...currentAddresses, newAddress];
+      // Check if an address with the same label already exists
+      const existingIndex = currentAddresses.findIndex(
+        addr => addr.label?.toLowerCase() === newAddress.label?.toLowerCase()
+      );
+
+      let updatedAddresses: typeof currentAddresses;
+      if (existingIndex !== -1) {
+        // Update existing address with the same label instead of adding a duplicate
+        currentAddresses[existingIndex] = {
+          ...currentAddresses[existingIndex],
+          ...newAddress,
+          _id: currentAddresses[existingIndex]._id, // Preserve the original ID
+        };
+        updatedAddresses = [...currentAddresses];
+      } else {
+        // Add new address
+        updatedAddresses = [...currentAddresses, newAddress];
+      }
 
       // Update profile
       await ProfileService.updateProfile(uid, {
         savedAddresses: updatedAddresses
       });
 
-      res.status(201).json({
+      const savedAddress = existingIndex !== -1
+        ? updatedAddresses[existingIndex]
+        : newAddress;
+      const statusCode = existingIndex !== -1 ? 200 : 201;
+      const message = existingIndex !== -1 ? 'Address updated successfully' : 'Address added successfully';
+
+      res.status(statusCode).json({
         success: true,
-        data: newAddress,
-        message: 'Address added successfully'
+        data: savedAddress,
+        message
       });
     } catch (error: any) {
       logger.error('Error adding address:', error);
