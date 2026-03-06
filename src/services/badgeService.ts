@@ -121,30 +121,28 @@ export class BadgeService {
     const reputationScore = this.calculateReputationScore(profile);
     console.log(`📊 Current reputation score: ${reputationScore.total}/100`);
 
-    // Determine badge based on reputation score as primary factor
-    // Users who reach the reputation threshold get the badge, even if other metrics aren't perfect
-    if (reputationScore.total >= 100) {
-      console.log('✨ Badge determined: ELITE (reputation >= 100)');
+    // Determine badge using reputation threshold + configured requirement checks.
+    if (reputationScore.total >= 100 && this.checkBadgeRequirements(profile, BadgeLevel.ELITE)) {
+      console.log('Badge determined: ELITE');
       return BadgeLevel.ELITE;
     }
 
-    if (reputationScore.total >= 50) {
-      console.log('🥇 Badge determined: TRUSTED (reputation >= 50)');
+    if (reputationScore.total >= 50 && this.checkBadgeRequirements(profile, BadgeLevel.TRUSTED)) {
+      console.log('Badge determined: TRUSTED');
       return BadgeLevel.TRUSTED;
     }
 
-    if (reputationScore.total >= 25) {
-      console.log('🥈 Badge determined: VERIFIED (reputation >= 25)');
+    if (reputationScore.total >= 25 && this.checkBadgeRequirements(profile, BadgeLevel.VERIFIED)) {
+      console.log('Badge determined: VERIFIED');
       return BadgeLevel.VERIFIED;
     }
 
-    if (reputationScore.total >= 10) {
-      console.log('🥉 Badge determined: BASIC (reputation >= 10)');
+    if (reputationScore.total >= 10 && this.checkBadgeRequirements(profile, BadgeLevel.BASIC)) {
+      console.log('Badge determined: BASIC');
       return BadgeLevel.BASIC;
     }
 
-    // Default to NONE
-    console.log('⭐ Badge determined: NONE (New User)');
+    console.log('Badge determined: NONE');
     return BadgeLevel.NONE;
   }
 
@@ -302,7 +300,7 @@ export class BadgeService {
         badge: BadgeLevel.BASIC,
         name: "Basic Member",
         platformFeePercentage: FEE_STRUCTURE[BadgeLevel.BASIC],
-        featuresBenefits: ["Apply and post tasks", "5% platform fee", "Basic support"],
+        featuresBenefits: ["Apply and post tasks", "Basic support"],
         minimumRequirements: {
           verifications: ["email", "phone"]
         },
@@ -315,15 +313,12 @@ export class BadgeService {
         platformFeePercentage: FEE_STRUCTURE[BadgeLevel.VERIFIED],
         featuresBenefits: [
           "Priority in app visibility",
-          "4.5% platform fee",
           "Add custom rates (up to +10%)",
           "Verified badge on profile",
           "Email support"
         ],
         minimumRequirements: {
-          verifications: ["email", "phone", "aadhaar"],
-          completedTasks: 5,
-          minimumRating: 4.0
+          verifications: ["email", "phone", "aadhaar"]
         },
         description:
           "Your identity is verified. Enjoy better visibility and lower fees"
@@ -334,29 +329,23 @@ export class BadgeService {
         platformFeePercentage: FEE_STRUCTURE[BadgeLevel.TRUSTED],
         featuresBenefits: [
           "Featured on platform",
-          "4% platform fee",
           "Instant payouts",
           "Custom pricing",
-          "<6 hour response time",
-          "10+ verified reviews",
           "Direct support"
         ],
         minimumRequirements: {
           verifications: ["email", "phone", "aadhaar", "pan", "bank"],
-          completedTasks: 25,
-          minimumRating: 4.5,
-          minimumReviews: 10,
-          maxResponseTime: "6 hours"
+          completedTasks: 3,
+          minimumRating: 4.0
         },
         description:
-          "Elite performers only. Enjoy maximum visibility, lower fees, and instant payouts"
+          "For reliable taskers with strong verification, quality, and consistent delivery"
       },
       [BadgeLevel.ELITE]: {
         badge: BadgeLevel.ELITE,
         name: "Elite",
         platformFeePercentage: FEE_STRUCTURE[BadgeLevel.ELITE],
         featuresBenefits: [
-          "3% platform fee",
           "Featured on homepage",
           "Exclusive high-value tasks",
           "24/7 dedicated support",
@@ -366,11 +355,9 @@ export class BadgeService {
         ],
         minimumRequirements: {
           verifications: ["email", "phone", "aadhaar", "pan", "bank"],
-          completedTasks: 100,
-          minimumRating: 4.8,
-          minimumReviews: 50,
-          maxResponseTime: "2 hours",
-          minimumCompletionRate: "95%"
+          completedTasks: 10,
+          minimumRating: 4.5,
+          adminApproval: "Required"
         },
         description:
           "The highest tier. Only for exceptional performers with admin approval"

@@ -16,11 +16,9 @@ async function fixCreditIndex() {
     }
 
     console.log('🔌 Connecting to MongoDB...');
-    await mongoose.connect(mongoUri);
+    const dbName = process.env.MONGODB_DB || 'extrahand';
+    await mongoose.connect(mongoUri, { dbName });
     console.log('✅ Connected to MongoDB');
-
-    // Get the actual database name from connection
-    const dbName = mongoose.connection.name;
     console.log(`📊 Database: ${dbName}`);
 
     const db = mongoose.connection.db;
