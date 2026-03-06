@@ -418,10 +418,20 @@ export class AuthService {
    }
 
    /**
-    * Dev-only: complete OTP auth with fixed Indian dummy number + OTP.
+    * Dev-only: complete OTP auth with fixed Indian dummy numbers + OTP.
     * When LOCAL_TEST=true: get or create Firebase user and MongoDB profile, return profile for session.
-    * Dummy phone: +91 9876543210, OTP: 123456.
+    * Allowed: +91 9876543210 / OTP 123456; +91 1234567890 / OTP 654321.
     */
+   private static readonly DEV_DUMMY_USERS: Array<{
+      phoneLast10: string;
+      phoneE164: string;
+      otp: string;
+      displayName: string;
+   }> = [
+      { phoneLast10: "9876543210", phoneE164: "+919876543210", otp: "123456", displayName: "Local Test User" },
+      { phoneLast10: "1234567890", phoneE164: "+911234567890", otp: "654321", displayName: "Local Test User 2" },
+   ];
+
    static async completeOTPDevAuth(
       phone: string,
       otp: string,
@@ -437,17 +447,17 @@ export class AuthService {
          throw new BadRequestError("Local test auth not enabled");
       }
 
-      const DUMMY_PHONE_E164 = "+919876543210";
-      const DUMMY_PHONE_LAST10 = "9876543210";
-      const DUMMY_OTP = "123456";
-      const DUMMY_DISPLAY_NAME = "Local Test User";
-
       const cleanPhone = phone.replace(/\D/g, "");
       const phoneLast10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
-
-      if (phoneLast10 !== DUMMY_PHONE_LAST10 || otp !== DUMMY_OTP) {
+      const match = AuthService.DEV_DUMMY_USERS.find(
+         (u) => u.phoneLast10 === phoneLast10 && u.otp === otp
+      );
+      if (!match) {
          throw new BadRequestError("Invalid test credentials");
       }
+
+      const DUMMY_PHONE_E164 = match.phoneE164;
+      const DUMMY_DISPLAY_NAME = name || match.displayName;
 
       let uid: string = "";
 
