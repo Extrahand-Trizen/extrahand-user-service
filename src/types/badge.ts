@@ -5,10 +5,10 @@
 
 export enum BadgeLevel {
   NONE = "none",              // New user - browse only
-  BASIC = "basic",            // Email + phone verified - apply/post tasks, 5% fee
-  VERIFIED = "verified",      // Aadhaar + 5 tasks + 4.0 rating - priority app, 4.5% fee
-  TRUSTED = "trusted",        // PAN + bank + 25 tasks + 4.5 rating + 10 reviews + <6hr response - featured, 4% fee, instant payout
-  ELITE = "elite"             // 100+ tasks + 4.8 rating + 50 reviews + <2hr response + 95% completion + admin approved - 3% fee, exclusive tasks, 24/7 support
+  BASIC = "basic",            // Email + phone verified
+  VERIFIED = "verified",      // Aadhaar verified
+  TRUSTED = "trusted",        // PAN + bank + 3 tasks + 4.0 rating
+  ELITE = "elite"             // PAN + bank + 10 tasks + 4.5 rating + admin approved
 }
 
 export enum VerificationType {
@@ -188,24 +188,21 @@ export const BADGE_REQUIREMENTS: Record<BadgeLevel, Record<string, any>> = {
   },
   [BadgeLevel.VERIFIED]: {
     verifications: ["email", "phone", "aadhaar_digilocker"],
-    taskCount: 5,
-    minRating: 4.0,
+    taskCount: 0,
+    minRating: 0,
     minReviews: 0
   },
   [BadgeLevel.TRUSTED]: {
     verifications: ["email", "phone", "aadhaar_digilocker", "pan", "bank"],
-    taskCount: 25,
-    minRating: 4.5,
-    minReviews: 10,
-    maxResponseTime: "6 hours"
+    taskCount: 3,
+    minRating: 4.0,
+    minReviews: 0
   },
   [BadgeLevel.ELITE]: {
     verifications: ["email", "phone", "aadhaar_digilocker", "pan", "bank"],
-    taskCount: 100,
-    minRating: 4.8,
-    minReviews: 50,
-    maxResponseTime: "2 hours",
-    minCompletionRate: 95,
+    taskCount: 10,
+    minRating: 4.5,
+    minReviews: 0,
     manualApprovalRequired: true
   }
 };

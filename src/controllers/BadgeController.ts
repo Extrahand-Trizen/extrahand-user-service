@@ -231,39 +231,35 @@ export class BadgeController {
               minTasks: 0,
               minRating: 0,
               minReviews: 0,
-              description: 'New user - Browse tasks'
+              description: 'New User - Browse tasks'
             },
             basic: {
               minReputation: 10,
               minTasks: 0,
               minRating: 0,
               minReviews: 0,
-              description: 'Email + Phone verified - Post tasks, 5% fee'
+              description: 'Email + Phone verified'
             },
             verified: {
               minReputation: 25,
-              minTasks: 5,
-              minRating: 4.0,
+              minTasks: 0,
+              minRating: 0,
               minReviews: 0,
-              description: 'Aadhaar + 5 tasks + 4.0 rating - Priority app, 4.5% fee'
+              description: 'Aadhaar verified'
             },
             trusted: {
               minReputation: 50,
-              minTasks: 25,
-              minRating: 4.5,
-              minReviews: 10,
-              responseTime: '< 6 hours',
-              completionRate: 90,
-              description: 'PAN + Bank + 25 tasks + 4.5 rating - Featured, 4% fee'
+              minTasks: 3,
+              minRating: 4.0,
+              minReviews: 0,
+              description: 'PAN + Bank + 3 tasks + 4.0 rating'
             },
             elite: {
               minReputation: 100,
-              minTasks: 100,
-              minRating: 4.8,
-              minReviews: 50,
-              responseTime: '< 2 hours',
-              completionRate: 95,
-              description: '100+ tasks + 4.8 rating + Admin approved - Exclusive tasks, 3% fee'
+              minTasks: 10,
+              minRating: 4.5,
+              minReviews: 0,
+              description: 'PAN + Bank + 10 tasks + 4.5 rating + Admin approved'
             }
           },
           verifications: {
