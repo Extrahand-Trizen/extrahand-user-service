@@ -7,7 +7,7 @@ import {
    setAccessTokenCookie,
 } from "../utils/sessionCookies";
 import type { ClientType } from "../models/SessionToken";
-import { logger } from "../config/logger";
+import logger from "../config/logger";
 
 export class AuthController {
    static async checkPhone(
