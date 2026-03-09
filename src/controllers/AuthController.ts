@@ -7,6 +7,7 @@ import {
    setAccessTokenCookie,
 } from "../utils/sessionCookies";
 import type { ClientType } from "../models/SessionToken";
+import { logger } from "../config/logger";
 
 export class AuthController {
    static async checkPhone(
@@ -257,6 +258,7 @@ export class AuthController {
             });
          }
       } catch (error: any) {
+         logger.error("Dev OTP verification error", { error: error.message, stack: error.stack });
          res.status(error.statusCode || 500).json({
             success: false,
             error: error.message || "Invalid test credentials or dev OTP not allowed",
