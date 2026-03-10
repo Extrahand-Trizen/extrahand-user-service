@@ -144,8 +144,8 @@ export class NotificationPreferencesService {
                 category,
                 error: error.message,
             });
-            // On error, default to allowing the notification (fail open for critical notifications)
-            return true;
+            // Fail closed to avoid sending unwanted notifications when checks fail.
+            return false;
         }
     }
 
