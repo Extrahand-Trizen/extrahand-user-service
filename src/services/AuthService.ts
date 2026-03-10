@@ -523,8 +523,14 @@ export class AuthService {
                profile = created.toObject() as any;
             } catch (error: any) {
                if (error.code === 11000) {
-                 profile = await Profile.findOne({ uid }).lean();
+                 // Duplicate key: could be on uid or phone. Find by either.
+                 profile = await Profile.findOne({ $or: [{ uid }, { phone: formattedPhone }] }).lean();
                  if (!profile) throw new InternalServerError("Profile creation failed");
+                 // If found by phone but uid differs, update uid to match current Firebase user
+                 if (profile.uid !== uid) {
+                   await Profile.updateOne({ _id: (profile as any)._id }, { $set: { uid } });
+                   profile = { ...profile, uid };
+                 }
                } else throw error;
             }
          }
@@ -554,8 +560,14 @@ export class AuthService {
                profile = created.toObject() as any;
             } catch (error: any) {
                if (error.code === 11000) {
-                 profile = await Profile.findOne({ uid }).lean();
+                 // Duplicate key: could be on uid or phone. Find by either.
+                 profile = await Profile.findOne({ $or: [{ uid }, { phone: formattedPhone }] }).lean();
                  if (!profile) throw new InternalServerError("Profile creation failed");
+                 // If found by phone but uid differs, update uid to match current Firebase user
+                 if (profile.uid !== uid) {
+                   await Profile.updateOne({ _id: (profile as any)._id }, { $set: { uid } });
+                   profile = { ...profile, uid };
+                 }
                } else throw error;
             }
          }
