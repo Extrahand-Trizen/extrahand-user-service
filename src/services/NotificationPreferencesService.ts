@@ -47,9 +47,47 @@ export class NotificationPreferencesService {
         updates: Partial<INotificationPreferences>
     ): Promise<INotificationPreferences> {
         try {
+            // Convert nested object updates to dot-notation for safe partial updates.
+            // Using $set: { email: {…} } would replace the ENTIRE email subdocument;
+            // dot-notation ($set: { 'email.enabled': false }) touches only the supplied fields.
+            const dotNotationUpdates: Record<string, any> = {};
+
+            const flattenObject = (obj: Record<string, any>, prefix: string = '') => {
+                for (const [key, value] of Object.entries(obj)) {
+                    const fieldPath = prefix ? `${prefix}.${key}` : key;
+                    if (
+                        value !== null &&
+                        typeof value === 'object' &&
+                        !Array.isArray(value) &&
+                        !(value instanceof Date)
+                    ) {
+                        flattenObject(value, fieldPath);
+                    } else {
+                        dotNotationUpdates[fieldPath] = value;
+                    }
+                }
+            };
+
+            flattenObject(updates as Record<string, any>);
+
+            if (Object.keys(dotNotationUpdates).length === 0) {
+                logger.warn('updatePreferences called with empty payload', { uid });
+                // Return current preferences without saving
+                const current = await NotificationPreferences.findOne({ uid });
+                if (!current) {
+                    return await NotificationPreferences.create({ uid });
+                }
+                return current;
+            }
+
+            logger.info('Updating notification preferences', {
+                uid,
+                fields: Object.keys(dotNotationUpdates),
+            });
+
             const preferences = await NotificationPreferences.findOneAndUpdate(
                 { uid },
-                { $set: updates },
+                { $set: dotNotationUpdates },
                 { new: true, upsert: true, runValidators: true }
             );
 
@@ -57,9 +95,9 @@ export class NotificationPreferencesService {
                 throw new Error('Failed to update notification preferences');
             }
 
-            logger.info('Updated notification preferences', {
+            logger.info('Notification preferences updated successfully', {
                 uid,
-                updatedFields: Object.keys(updates),
+                updatedFields: Object.keys(dotNotationUpdates),
             });
 
             return preferences;
