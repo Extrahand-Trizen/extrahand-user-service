@@ -31,7 +31,11 @@ export class ReferralController {
       }
 
       let referralCode = await ReferralCode.findOne({ userId: profile._id });
-
+      if (referralCode && !ReferralService.isValidReferralCode(referralCode.code)) {
+        logger.warn(`Removing invalid referral code for user ${uid}: "${referralCode.code}"`);
+        await ReferralCode.deleteOne({ _id: referralCode._id });
+        referralCode = null;
+      }
       if (!referralCode) {
         const code = ReferralService.generateReferralCode(profile.name);
         referralCode = await ReferralCode.create({
@@ -161,8 +165,13 @@ export class ReferralController {
         });
       }
 
-      // Auto-create referral code if it doesn't exist
+      // Auto-create referral code if it doesn't exist (or fix invalid existing code)
       let referralCode = await ReferralCode.findOne({ userId: profile._id });
+      if (referralCode && !ReferralService.isValidReferralCode(referralCode.code)) {
+        logger.warn(`Removing invalid referral code for user ${uid}: "${referralCode.code}"`);
+        await ReferralCode.deleteOne({ _id: referralCode._id });
+        referralCode = null;
+      }
       if (!referralCode) {
         logger.info(`Creating new referral code for user ${uid}`);
         const name = profile.name || 'User';
