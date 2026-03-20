@@ -176,7 +176,7 @@ export class AuthController {
     * POST /api/v1/auth/otp/complete-dev
       * Dev-only: dummy signin/signup. Allowed:
       * +91 9876543210 with OTP 654321 or 123456;
-      * +91 1234567890 with OTP 654321 or 123456.
+      * +91 9876543211 with OTP 654321 or 123456.
     * Enabled when LOCAL_TEST=true or NODE_ENV=development. Creates Firebase + MongoDB user if needed.
     */
    static async completeOTPDev(

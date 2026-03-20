@@ -420,7 +420,7 @@ export class AuthService {
    /**
     * Dev-only: complete OTP auth with fixed Indian dummy numbers + OTP.
     * When LOCAL_TEST=true: get or create Firebase user and MongoDB profile, return profile for session.
-    * Allowed: +91 9876543210 / OTP 654321 or 123456; +91 1234567890 / OTP 654321 or 123456.
+   * Allowed: +91 9876543210 / OTP 654321 or 123456; +91 9876543211 / OTP 654321 or 123456.
     */
    private static readonly DEV_DUMMY_USERS: Array<{
       phoneLast10: string;
@@ -429,7 +429,7 @@ export class AuthService {
       displayName: string;
    }> = [
       { phoneLast10: "9876543210", phoneE164: "+919876543210", otps: ["654321", "123456"], displayName: "Local Test User" },
-      { phoneLast10: "1234567890", phoneE164: "+911234567890", otps: ["654321", "123456"], displayName: "Local Test User 2" },
+      { phoneLast10: "9876543211", phoneE164: "+919876543211", otps: ["654321", "123456"], displayName: "Local Test User 2" },
    ];
 
    static async completeOTPDevAuth(
