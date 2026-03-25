@@ -229,23 +229,23 @@ export class BadgeController {
             none: {
               minReputation: 0,
               minTasks: 0,
-              minRating: 0,
+              minRating: 0,cd
               minReviews: 0,
               description: 'New User - Browse tasks'
             },
             basic: {
-              minReputation: 10,
+              minReputation: 0,
               minTasks: 0,
               minRating: 0,
               minReviews: 0,
               description: 'Email + Phone verified'
             },
             verified: {
-              minReputation: 25,
+              minReputation: 0,
               minTasks: 0,
               minRating: 0,
               minReviews: 0,
-              description: 'Aadhaar verified'
+              description: 'Email + Phone + Aadhaar verified'
             },
             trusted: {
               minReputation: 50,

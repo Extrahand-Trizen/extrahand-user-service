@@ -121,7 +121,8 @@ export class BadgeService {
     const reputationScore = this.calculateReputationScore(profile);
     console.log(`📊 Current reputation score: ${reputationScore.total}/100`);
 
-    // Determine badge using reputation threshold + configured requirement checks.
+    // Determine badge with requirement checks as the source of truth.
+    // Reputation threshold remains only for higher trust tiers.
     if (reputationScore.total >= 100 && this.checkBadgeRequirements(profile, BadgeLevel.ELITE)) {
       console.log('Badge determined: ELITE');
       return BadgeLevel.ELITE;
@@ -132,12 +133,12 @@ export class BadgeService {
       return BadgeLevel.TRUSTED;
     }
 
-    if (reputationScore.total >= 25 && this.checkBadgeRequirements(profile, BadgeLevel.VERIFIED)) {
+    if (this.checkBadgeRequirements(profile, BadgeLevel.VERIFIED)) {
       console.log('Badge determined: VERIFIED');
       return BadgeLevel.VERIFIED;
     }
 
-    if (reputationScore.total >= 10 && this.checkBadgeRequirements(profile, BadgeLevel.BASIC)) {
+    if (this.checkBadgeRequirements(profile, BadgeLevel.BASIC)) {
       console.log('Badge determined: BASIC');
       return BadgeLevel.BASIC;
     }
