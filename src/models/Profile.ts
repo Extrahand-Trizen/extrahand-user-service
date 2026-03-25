@@ -9,7 +9,7 @@ export interface IProfile extends Document {
   isEmailVerified?: boolean;
   emailVerifiedAt?: Date | null;
   phone?: string | null;
-  roles: ('tasker' | 'requester' | 'both')[];
+  roles: ('tasker' | 'requester' | 'poster' | 'both')[];
   userType: 'individual' | 'business';
   location?: Location | null;
   savedAddresses?: SavedAddress[];
@@ -152,7 +152,7 @@ const ProfileSchema = new Schema<IProfile>({
   },
   roles: {
     type: [String],
-    enum: ['tasker', 'requester', 'both'],
+    enum: ['tasker', 'requester', 'poster', 'both'],
     default: ['both']
   },
   userType: {

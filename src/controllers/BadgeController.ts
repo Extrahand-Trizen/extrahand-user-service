@@ -33,8 +33,8 @@ export class BadgeController {
 
       // Ensure phone verification is set if phone exists
       if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        await Profile.updateOne({ _id: profile._id }, { phoneVerified: true });
         profile.phoneVerified = true;
-        await profile.save();
         logger.info(`Updated phoneVerified for user ${uid} in getUserBadge`);
       }
 
@@ -136,8 +136,8 @@ export class BadgeController {
 
       // Ensure phone verification is set if phone exists
       if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        await Profile.updateOne({ _id: profile._id }, { phoneVerified: true });
         profile.phoneVerified = true;
-        await profile.save();
         logger.info(`Updated phoneVerified for user ${uid}`);
       }
 
@@ -317,8 +317,8 @@ export class BadgeController {
 
       // Ensure phone verification is set if phone exists
       if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        await Profile.updateOne({ _id: profile._id }, { phoneVerified: true });
         profile.phoneVerified = true;
-        await profile.save();
       }
 
       // Build verification data from Profile model
@@ -392,8 +392,8 @@ export class BadgeController {
 
       // Ensure phone verification is set if phone exists
       if (!profile.phoneVerified && profile.phone && profile.phone.length > 0) {
+        await Profile.updateOne({ _id: profile._id }, { phoneVerified: true });
         profile.phoneVerified = true;
-        await profile.save();
       }
 
       // Build verification data from Profile model
