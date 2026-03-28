@@ -3,6 +3,13 @@ import { NotFoundError, BadRequestError } from '../errors/AppError';
 import logger from '../config/logger';
 import axios from 'axios';
 
+function maskBankAccountNumber(accountNumber: string): string {
+  const normalized = (accountNumber || '').trim();
+  if (!normalized) return normalized;
+  if (normalized.length <= 4) return normalized;
+  return `XXXX${normalized.slice(-4)}`;
+}
+
 export class BusinessService {
   /**
    * Save business details
@@ -17,13 +24,25 @@ export class BusinessService {
       throw new BadRequestError('User is not a business poster');
     }
 
+    const normalizedBusinessData = { ...(businessData || {}) };
+    if (normalizedBusinessData.bankAccount && typeof normalizedBusinessData.bankAccount === 'object') {
+      const normalizedBankAccount = { ...normalizedBusinessData.bankAccount };
+      if (typeof normalizedBankAccount.accountNumber === 'string') {
+        normalizedBankAccount.accountNumber = maskBankAccountNumber(normalizedBankAccount.accountNumber);
+      }
+      if (typeof normalizedBankAccount.ifsc === 'string') {
+        normalizedBankAccount.ifsc = normalizedBankAccount.ifsc.toUpperCase().trim();
+      }
+      normalizedBusinessData.bankAccount = normalizedBankAccount;
+    }
+
     await Profile.updateOne(
       { uid },
       {
         $set: {
           business: {
             ...(profile.business || {}),
-            ...businessData,
+            ...normalizedBusinessData,
             updatedAt: new Date()
           },
           updatedAt: new Date()
@@ -121,6 +140,10 @@ export class BusinessService {
       throw new BadRequestError('Account number, IFSC, and account holder name are required');
     }
 
+    const normalizedAccountNumber = accountNumber.trim();
+    const maskedAccountNumber = maskBankAccountNumber(normalizedAccountNumber);
+    const normalizedIfsc = ifsc.toUpperCase().trim();
+
     logger.info('Verifying business bank account', { uid });
 
     try {
@@ -128,8 +151,8 @@ export class BusinessService {
         `${verificationServiceUrl}/api/v1/verification/bank/verify`,
         {
           userId: uid,
-          accountNumber,
-          ifsc: ifsc.toUpperCase(),
+          accountNumber: normalizedAccountNumber,
+          ifsc: normalizedIfsc,
           accountHolderName,
           consent: consent || {
             given: true,
@@ -151,9 +174,11 @@ export class BusinessService {
           { uid },
           {
             $set: {
-              'business.bankAccount.accountNumber': accountNumber,
+              // Store masked account number only (industry standard).
+              'business.bankAccount.accountNumber': maskedAccountNumber,
               'business.bankAccount.accountHolderName': accountHolderName,
-              'business.bankAccount.ifsc': ifsc.toUpperCase(),
+              // IFSC should remain fully visible.
+              'business.bankAccount.ifsc': normalizedIfsc,
               'business.bankAccount.bankName': response.data.data?.bankName || 'Unknown',
               'business.bankAccount.isVerified': true,
               'business.bankAccount.verifiedAt': new Date(),
