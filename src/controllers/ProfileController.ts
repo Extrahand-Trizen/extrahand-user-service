@@ -160,7 +160,11 @@ export class ProfileController {
       };
 
       const responseBody =
-        isReviewBypassUser(uid, profile.phone as string | undefined)
+        isReviewBypassUser(
+          uid,
+          profile.phone as string | undefined,
+          profile.email as string | undefined
+        )
           ? {
               ...serializedProfile,
               ...getReviewBypassProfileOverrides(),
