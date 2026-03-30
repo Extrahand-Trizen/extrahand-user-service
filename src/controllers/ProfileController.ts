@@ -1438,7 +1438,11 @@ export class ProfileController {
           }
         });
       } else {
-        res.status(400).json({
+        const statusCode = result.code === 'email_already_verified' || result.code === 'email_already_verified_elsewhere'
+          ? 409
+          : 400;
+
+        res.status(statusCode).json({
           success: false,
           error: result.message
         });
@@ -1491,7 +1495,9 @@ export class ProfileController {
           message: result.message
         });
       } else {
-        res.status(400).json({
+        const statusCode = result.code === 'email_already_verified_elsewhere' ? 409 : 400;
+
+        res.status(statusCode).json({
           success: false,
           error: result.message
         });

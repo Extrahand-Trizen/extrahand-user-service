@@ -4,7 +4,7 @@
  *
  * Fixed credentials (no env):
  *   - Phone +91 9876543210, OTP 123456
- *   - Phone +91 1234567890, OTP 654321
+ *   - Phone +91 9876543211, OTP 654321
  * Set LOCAL_TEST=true in .env to allow dummy signin/signup.
  *
  * Requires: MONGODB_URI, Firebase credentials (same as user-service).
@@ -19,7 +19,7 @@ import Profile from "../src/models/Profile";
 
 const DEV_DUMMY_USERS: Array<{ phoneE164: string; otp: string; name: string }> = [
    { phoneE164: "+919876543210", otp: "123456", name: "Local Test User" },
-   { phoneE164: "+911234567890", otp: "654321", name: "Local Test User 2" },
+   { phoneE164: "+919876543211", otp: "654321", name: "Local Test User 2" },
 ];
 
 async function ensureDevUser(phoneE164: string, displayName: string): Promise<string> {

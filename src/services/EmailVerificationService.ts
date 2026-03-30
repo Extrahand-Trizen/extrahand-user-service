@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import EmailOTP from '../models/EmailOTP';
+import Profile from '../models/Profile';
 import { EmailServiceClient } from '../clients/EmailServiceClient';
 import logger from '../config/logger';
 import { ProfileService } from './ProfileService';
@@ -9,6 +10,21 @@ export class EmailVerificationService {
     private static readonly OTP_EXPIRY_MINUTES = 5;
     private static readonly MAX_ATTEMPTS = 5;
     private static readonly SALT_ROUNDS = 10;
+
+    private static normalizeEmail(email: string): string {
+        return email.trim().toLowerCase();
+    }
+
+    private static async findOtherVerifiedProfileByEmail(uid: string, email: string) {
+        return Profile.findOne({
+            uid: { $ne: uid },
+            email,
+            isEmailVerified: true,
+            isActive: true
+        })
+            .select('uid email')
+            .lean();
+    }
 
     /**
      * Generate a random 6-digit OTP
@@ -43,11 +59,40 @@ export class EmailVerificationService {
         name?: string
     ): Promise<{
         success: boolean;
+        code?: string;
         verificationId?: string;
         expiresInMinutes?: number;
         message?: string;
     }> {
         try {
+            const normalizedEmail = this.normalizeEmail(email);
+            const currentProfile = await ProfileService.getProfileByUid(uid);
+
+            if (
+                currentProfile.isEmailVerified &&
+                this.normalizeEmail(currentProfile.email || '') === normalizedEmail
+            ) {
+                return {
+                    success: false,
+                    code: 'email_already_verified',
+                    message: 'This email is already verified on your account.'
+                };
+            }
+
+            const existingVerifiedProfile = await this.findOtherVerifiedProfileByEmail(uid, normalizedEmail);
+            if (existingVerifiedProfile) {
+                logger.warn('Attempted to verify email already verified by another account', {
+                    uid,
+                    email: normalizedEmail,
+                    existingUid: existingVerifiedProfile.uid
+                });
+                return {
+                    success: false,
+                    code: 'email_already_verified_elsewhere',
+                    message: 'This email is already verified on another account. Please use a different email address.'
+                };
+            }
+
             // Invalidate any existing unverified OTPs for this user
             await EmailOTP.updateMany(
                 { uid, verified: false },
@@ -61,7 +106,7 @@ export class EmailVerificationService {
 
             logger.info('Generated OTP for email verification', {
                 uid,
-                email,
+                email: normalizedEmail,
                 otp: otp, // IMPORTANT: Log the actual OTP for debugging
                 expiresAt: expiresAt.toISOString()
             });
@@ -69,7 +114,7 @@ export class EmailVerificationService {
             // Store OTP in database
             const otpRecord = await EmailOTP.create({
                 uid,
-                email,
+                email: normalizedEmail,
                 otp: hashedOTP,
                 expiresAt,
                 verified: false,
@@ -78,7 +123,7 @@ export class EmailVerificationService {
 
             logger.info('Email OTP generated and stored', {
                 uid,
-                email,
+                email: normalizedEmail,
                 verificationId: otpRecord._id.toString(),
                 expiresAt,
                 hashedOtpLength: hashedOTP.length
@@ -86,7 +131,7 @@ export class EmailVerificationService {
 
             // Send OTP via email
             const emailSent = await EmailServiceClient.sendEmailVerification(
-                email,
+                normalizedEmail,
                 otp,
                 undefined, // No verification link
                 name,
@@ -94,7 +139,7 @@ export class EmailVerificationService {
             );
 
             if (!emailSent) {
-                logger.warn('Failed to send OTP email', { uid, email });
+                logger.warn('Failed to send OTP email', { uid, email: normalizedEmail });
                 return {
                     success: false,
                     message: 'Failed to send verification email. Please try again.'
@@ -129,6 +174,7 @@ export class EmailVerificationService {
         verificationId?: string
     ): Promise<{
         success: boolean;
+        code?: string;
         message?: string;
     }> {
         try {
@@ -232,6 +278,21 @@ export class EmailVerificationService {
             }
 
             // OTP is valid - mark as verified
+            const existingVerifiedProfile = await this.findOtherVerifiedProfileByEmail(uid, otpRecord.email);
+            if (existingVerifiedProfile) {
+                logger.warn('Blocked email verification because email is already verified by another account', {
+                    uid,
+                    email: otpRecord.email,
+                    existingUid: existingVerifiedProfile.uid,
+                    verificationId: otpRecord._id.toString()
+                });
+                return {
+                    success: false,
+                    code: 'email_already_verified_elsewhere',
+                    message: 'This email is already verified on another account. Please use a different email address.'
+                };
+            }
+
             otpRecord.verified = true;
             await otpRecord.save();
 

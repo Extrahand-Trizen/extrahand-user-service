@@ -11,19 +11,20 @@ import { Credit } from "../models/Credit";
 export class ReferralService {
   /**
    * Generate unique referral code: First 4 letters of name + 4 random alphanumeric
-   * Example: JOHN2024, SARAHB7K9
+   * Example: JOHN2024, SARAHB7K9. Uses only A-Z letters from name (no spaces) to satisfy schema /^[A-Z]{4}[A-Z0-9]{4}$/
    */
   static generateReferralCode(firstName: string): string {
-    // Get first 4 letters, pad with A's if shorter
-    const namePrefix = firstName.substring(0, 4).toUpperCase().padEnd(4, "A");
-    
+    // Use only letters from name so we never produce spaces (schema requires /^[A-Z]{4}[A-Z0-9]{4}$/)
+    const lettersOnly = (firstName || "").replace(/[^A-Za-z]/g, "");
+    const namePrefix = lettersOnly.substring(0, 4).toUpperCase().padEnd(4, "A");
+
     // Generate 4 random alphanumeric characters
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let randomPart = "";
     for (let i = 0; i < 4; i++) {
       randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    
+
     return namePrefix + randomPart;
   }
 
