@@ -1,10 +1,10 @@
 /**
- * Play Store review / internal demo: optionally treat specific Firebase UIDs or phone
- * numbers as fully verified in API responses (does not write to Mongo).
+ * Play Store review / internal demo: optionally treat specific phone numbers (and optional UIDs)
+ * as fully verified in API responses (does not write to Mongo).
  *
  * Configure (user-service env):
- *   PLAY_REVIEW_BYPASS_UIDS=comma,separated,firebase_uids
- *   PLAY_REVIEW_BYPASS_PHONES=comma,separated (+919876543210 or 9876543210)
+ *   PLAY_REVIEW_BYPASS_PHONES=comma,separated (+919876543210 or 9876543210) — usual for test lines
+ *   PLAY_REVIEW_BYPASS_UIDS=comma,separated,firebase_uids — optional
  */
 
 function parseList(raw: string | undefined): string[] {
