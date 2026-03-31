@@ -8,7 +8,6 @@ export type NotificationCategory =
     | 'reminders'
     | 'system'
     | 'marketing'
-    | 'transactional'
     | 'taskReminders'
     | 'keywordTaskAlerts'
     | 'recommendedTaskAlerts';
