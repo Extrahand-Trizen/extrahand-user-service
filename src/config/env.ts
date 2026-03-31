@@ -66,6 +66,11 @@ const envSchema = z.object({
   // Dev-only: when true, allow dummy signin/signup with fixed Indian number + OTP (no reCAPTCHA)
   LOCAL_TEST: z.string().optional().transform((v) => v === "true" || v === "1"),
 
+  /** Comma-separated Firebase UIDs: GET /profiles/me returns fully verified flags (no DB write). */
+  PLAY_REVIEW_BYPASS_UIDS: z.string().optional(),
+  /** Comma-separated phones (+91… or 10 digits); same effect as UIDs when profile.phone matches. */
+  PLAY_REVIEW_BYPASS_PHONES: z.string().optional(),
+
   // MinIO Configuration
   MINIO_ENDPOINT: z.string().optional(),
   MINIO_PORT: z.string().optional(),

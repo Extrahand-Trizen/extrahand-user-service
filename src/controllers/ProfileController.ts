@@ -7,6 +7,10 @@ import { validateEnv } from '../config/env';
 import EmailVerificationService from '../services/EmailVerificationService';
 import { VerificationBadgeService } from '../services/verificationBadgeService';
 import { VerificationType } from '../types/badge';
+import {
+  isReviewBypassUser,
+  getReviewBypassProfileOverrides,
+} from '../utils/reviewBypass';
 
 export class ProfileController {
   /** 
@@ -152,10 +156,22 @@ export class ProfileController {
           isDefault: addr.isDefault,
           createdAt: addr.createdAt,
         })) : [],
-        workHistory: workHistory  // Include work history
+        workHistory: workHistory, // Include work history
       };
 
-      res.json(serializedProfile);
+      const responseBody =
+        isReviewBypassUser(
+          uid,
+          profile.phone as string | undefined,
+          profile.email as string | undefined
+        )
+          ? {
+              ...serializedProfile,
+              ...getReviewBypassProfileOverrides(),
+            }
+          : serializedProfile;
+
+      res.json(responseBody);
     } catch (error: any) {
       console.error('❌ [ProfileController.getMyProfile] Error:', error);
       res.status(error.statusCode || 500).json({
