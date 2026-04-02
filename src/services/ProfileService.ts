@@ -98,7 +98,7 @@ export class ProfileService {
     try {
       const objectId = new mongoose.Types.ObjectId(profileId);
       const profile = await Profile.findById(objectId)
-        .select('_id uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isBankVerified bankVerifiedAt photoURL location totalTasks completedTasks postedTasks earnedAmount business createdAt isActive')
+        .select('_id uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL location totalTasks completedTasks postedTasks earnedAmount business createdAt isActive')
         .lean();
 
       if (!profile) {
