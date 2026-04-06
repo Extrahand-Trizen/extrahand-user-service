@@ -105,10 +105,6 @@ export async function optionalAuthMiddleware(
   _res: Response,
   next: NextFunction
 ): Promise<void> {
-  const devBypassEnabled =
-    process.env.NODE_ENV === 'development' &&
-    (process.env.ALLOW_DEV_AUTH_BYPASS === 'true' ||
-      process.env.ALLOW_DEV_AUTH_BYPASS === '1');
   // Check for service auth first
   const serviceAuthToken = req.headers['x-service-auth'] as string;
   const userId = req.headers['x-user-id'] as string;
@@ -147,11 +143,6 @@ export async function optionalAuthMiddleware(
     } catch (e) {
       req.user = undefined;
     }
-  } else if (devBypassEnabled) {
-    console.warn('⚠️ Dev auth bypass enabled: injecting dev user (optional auth)');
-    const devUid =
-      process.env.DEV_AUTH_UID || process.env.DEV_USER_UID || 'dev-user';
-    req.user = { uid: devUid, token: null as any };
   } else {
     req.user = undefined;
   }
