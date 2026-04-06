@@ -259,7 +259,6 @@ export class ProfileService {
       const users = await Profile.find({
         roles: { $in: ['tasker', 'both'] },
         isActive: true,
-        isVerified: true,  // Only verified taskers
         $or: [
           { 'skills.primaryCategory': { $in: tokens } },
           { 'skills.list.category': { $in: tokens } },
@@ -281,6 +280,11 @@ export class ProfileService {
         inputCategory: category,
         normalizedCategory: compactCategory,
         searchTokens: tokens,
+        filters: {
+          roles: ['tasker', 'both'],
+          isActive: true,
+          isVerified: 'not-required',
+        },
         count: userIds.length
       });
 
