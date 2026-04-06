@@ -9,6 +9,28 @@ import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 
 export class ProfileService {
+  private static normalizeProfilePrivacy(profilePrivacy: any) {
+    if (!profilePrivacy || typeof profilePrivacy !== 'object') {
+      return null;
+    }
+
+    const visibility =
+      profilePrivacy.profileVisibility === 'public' ||
+      profilePrivacy.profileVisibility === 'registered_users' ||
+      profilePrivacy.profileVisibility === 'connections_only'
+        ? profilePrivacy.profileVisibility
+        : 'registered_users';
+
+    return {
+      profileVisibility: visibility,
+      showEarnings: Boolean(profilePrivacy.showEarnings),
+      showTaskHistory: profilePrivacy.showTaskHistory !== undefined ? Boolean(profilePrivacy.showTaskHistory) : true,
+      showReviews: profilePrivacy.showReviews !== undefined ? Boolean(profilePrivacy.showReviews) : true,
+      locationSharing: profilePrivacy.locationSharing !== undefined ? Boolean(profilePrivacy.locationSharing) : true,
+      analyticsTracking: profilePrivacy.analyticsTracking !== undefined ? Boolean(profilePrivacy.analyticsTracking) : true,
+    };
+  }
+
   /**
    * Check MongoDB connection before operations
    */
@@ -26,7 +48,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus savedAddresses createdAt updatedAt')
+      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses createdAt updatedAt')
       .lean();
 
     if (!profile) {
@@ -98,7 +120,7 @@ export class ProfileService {
     try {
       const objectId = new mongoose.Types.ObjectId(profileId);
       const profile = await Profile.findById(objectId)
-        .select('_id uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL location totalTasks completedTasks postedTasks earnedAmount business createdAt isActive')
+        .select('_id uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy createdAt isActive')
         .lean();
 
       if (!profile) {
@@ -511,6 +533,12 @@ export class ProfileService {
     }
     if (profileData.photoURL !== undefined) payload.photoURL = profileData.photoURL;
     if (profileData.business !== undefined) payload.business = profileData.business;
+    if (profileData.profilePrivacy !== undefined) {
+      const normalizedProfilePrivacy = this.normalizeProfilePrivacy(profileData.profilePrivacy);
+      if (normalizedProfilePrivacy) {
+        payload.profilePrivacy = normalizedProfilePrivacy;
+      }
+    }
     if (profileData.agreeUpdates !== undefined) payload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) payload.agreeTerms = profileData.agreeTerms;
 
@@ -832,6 +860,12 @@ export class ProfileService {
         : [];
     }
     if (profileData.business !== undefined) updatePayload.business = profileData.business;
+    if (profileData.profilePrivacy !== undefined) {
+      const normalizedProfilePrivacy = this.normalizeProfilePrivacy(profileData.profilePrivacy);
+      if (normalizedProfilePrivacy) {
+        updatePayload.profilePrivacy = normalizedProfilePrivacy;
+      }
+    }
     if (profileData.agreeUpdates !== undefined) updatePayload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) updatePayload.agreeTerms = profileData.agreeTerms;
 

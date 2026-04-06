@@ -1,5 +1,5 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
-import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, SavedAddress } from '../types';
+import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, ProfilePrivacy, SavedAddress } from '../types';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 
 export interface IProfile extends Document {
@@ -69,6 +69,7 @@ export interface IProfile extends Document {
   business?: BusinessProfile;
   agreeUpdates?: boolean;
   agreeTerms?: boolean;
+  profilePrivacy?: ProfilePrivacy;
   dataPrivacy?: DataPrivacy;
   savedKeywords?: {
     keywords?: string[];
@@ -451,6 +452,33 @@ const ProfileSchema = new Schema<IProfile>({
   agreeTerms: {
     type: Boolean,
     default: false
+  },
+  profilePrivacy: {
+    profileVisibility: {
+      type: String,
+      enum: ['public', 'registered_users', 'connections_only'],
+      default: 'registered_users'
+    },
+    showEarnings: {
+      type: Boolean,
+      default: false
+    },
+    showTaskHistory: {
+      type: Boolean,
+      default: true
+    },
+    showReviews: {
+      type: Boolean,
+      default: true
+    },
+    locationSharing: {
+      type: Boolean,
+      default: true
+    },
+    analyticsTracking: {
+      type: Boolean,
+      default: true
+    }
   },
   dataPrivacy: {
     deletionRequested: { type: Boolean, default: false },

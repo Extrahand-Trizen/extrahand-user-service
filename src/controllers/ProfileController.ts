@@ -12,6 +12,103 @@ import {
   getReviewBypassProfileOverrides,
 } from '../utils/reviewBypass';
 
+type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only';
+
+function getPrivateProfileMessage(profile: any): string {
+  const visibility = (profile?.profilePrivacy?.profileVisibility || 'registered_users') as ProfileVisibilityLevel;
+
+  if (visibility === 'connections_only') {
+    return 'This profile is private and visible only to connections.';
+  }
+
+  return 'This profile is private and visible only to registered users.';
+}
+
+function extractTasks(response: any): any[] {
+  return response?.data || response?.tasks || response?.items || [];
+}
+
+async function hasWorkedWithTarget(viewerProfile: any, targetProfile: any): Promise<boolean> {
+  try {
+    const env = validateEnv();
+
+    if (!env.TASK_SERVICE_URL || !env.SERVICE_AUTH_TOKEN) {
+      return false;
+    }
+
+    if (!viewerProfile?._id || !targetProfile?._id || !viewerProfile?.uid || !targetProfile?.uid) {
+      return false;
+    }
+
+    const axios = (await import('axios')).default;
+    const headers = {
+      'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+      'X-Service-Name': 'user-service',
+    };
+
+    const [targetAsAssignee, targetAsPoster] = await Promise.allSettled([
+      axios.get(`${env.TASK_SERVICE_URL}/api/v1/tasks`, {
+        params: {
+          assigneeId: targetProfile._id.toString(),
+          posterUid: viewerProfile.uid,
+          status: 'completed',
+          limit: 1,
+        },
+        headers,
+        timeout: 5000,
+      }),
+      axios.get(`${env.TASK_SERVICE_URL}/api/v1/tasks`, {
+        params: {
+          assigneeId: viewerProfile._id.toString(),
+          posterUid: targetProfile.uid,
+          status: 'completed',
+          limit: 1,
+        },
+        headers,
+        timeout: 5000,
+      }),
+    ]);
+
+    if (targetAsAssignee.status === 'fulfilled' && extractTasks(targetAsAssignee.value.data).length > 0) {
+      return true;
+    }
+
+    if (targetAsPoster.status === 'fulfilled' && extractTasks(targetAsPoster.value.data).length > 0) {
+      return true;
+    }
+
+    return false;
+  } catch (error: any) {
+    logger.warn('Failed to evaluate connection-only visibility', {
+      error: error.message,
+    });
+    return false;
+  }
+}
+
+async function canViewProfile(profile: any, viewerUid?: string): Promise<boolean> {
+  const visibility = (profile?.profilePrivacy?.profileVisibility || 'registered_users') as ProfileVisibilityLevel;
+
+  if (visibility === 'public') {
+    return true;
+  }
+
+  if (!viewerUid) {
+    return false;
+  }
+
+  if (viewerUid === profile.uid) {
+    return true;
+  }
+
+  if (visibility === 'registered_users') {
+    return true;
+  }
+
+  const viewerProfile = await ProfileService.getProfileByUid(viewerUid);
+  return hasWorkedWithTarget(viewerProfile, profile);
+}
+
 export class ProfileController {
   /** 
    * GET /api/v1/profiles/me
@@ -311,6 +408,17 @@ export class ProfileController {
     try {
       const { uid } = req.params;
       const profile = await ProfileService.getProfileByUid(uid);
+      const viewerUid = req.user?.uid;
+
+      if (!(await canViewProfile(profile, viewerUid))) {
+        res.status(403).json({
+          success: false,
+          error: 'Profile is private',
+          message: getPrivateProfileMessage(profile),
+          code: 'PROFILE_PRIVATE'
+        });
+        return;
+      }
 
       // Always fetch real-time stats from task-service
       let rating: number | undefined = undefined;
@@ -387,6 +495,17 @@ export class ProfileController {
     try {
       const { uid } = req.params;
       const profile = await ProfileService.getProfileByUid(uid);
+      const viewerUid = req.user?.uid;
+
+      if (!(await canViewProfile(profile, viewerUid))) {
+        res.status(403).json({
+          success: false,
+          error: 'Profile is private',
+          message: getPrivateProfileMessage(profile),
+          code: 'PROFILE_PRIVATE'
+        });
+        return;
+      }
 
       // Always fetch real-time stats from task-service (not from stored profile)
       let realTimeStats: {
@@ -587,6 +706,17 @@ export class ProfileController {
     try {
       const { profileId } = req.params;
       const profile = await ProfileService.getPublicProfileById(profileId);
+      const viewerUid = req.user?.uid;
+
+      if (!(await canViewProfile(profile, viewerUid))) {
+        res.status(403).json({
+          success: false,
+          error: 'Profile is private',
+          message: getPrivateProfileMessage(profile),
+          code: 'PROFILE_PRIVATE'
+        });
+        return;
+      }
 
       // Always fetch real-time stats from task-service (not from stored profile)
       let realTimeStats: {

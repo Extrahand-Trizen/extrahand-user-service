@@ -104,6 +104,17 @@ export interface BusinessProfile {
    updatedAt?: Date;
 }
 
+export type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only';
+
+export interface ProfilePrivacy {
+   profileVisibility: ProfileVisibilityLevel;
+   showEarnings: boolean;
+   showTaskHistory: boolean;
+   showReviews: boolean;
+   locationSharing: boolean;
+   analyticsTracking: boolean;
+}
+
 export interface DataPrivacy {
    deletionRequested?: boolean;
    deletionRequestedAt?: Date;
