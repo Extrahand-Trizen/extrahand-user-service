@@ -222,18 +222,65 @@ export class ProfileService {
     }
 
     try {
+      const normalizedCategory = category.toLowerCase().trim();
+      const compactCategory = normalizedCategory.replace(/[\s-]+/g, '_');
+
+      const categoryAliasMap: Record<string, string[]> = {
+        cleaning: ['cleaning', 'house_cleaning', 'home_cleaning', 'deep_cleaning', 'maid', 'housekeeping', 'car_wash', 'car_washing', 'laundry'],
+        repair: ['repair', 'handyperson', 'handyman', 'plumbing', 'electrical', 'carpentry', 'painting', 'appliances', 'it_support'],
+        delivery: ['delivery', 'courier', 'moving', 'removals', 'driving', 'driver'],
+        assembly: ['assembly', 'furniture_assembly', 'installation', 'mounting'],
+        gardening: ['gardening', 'landscaping', 'lawn_care', 'tree_services'],
+        petcare: ['petcare', 'pet_care', 'pet_services', 'pet_sitting', 'dog_walking', 'pet_grooming'],
+        other: ['other'],
+      };
+
+      const aliasTokens = categoryAliasMap[compactCategory] || [];
+      const rawTokens = [
+        normalizedCategory,
+        compactCategory,
+        compactCategory.replace(/_/g, '-'),
+        compactCategory.replace(/_/g, ' '),
+        ...aliasTokens,
+      ];
+      const tokens = Array.from(
+        new Set(
+          rawTokens
+            .map((token) => token.toLowerCase().trim())
+            .filter((token) => token.length > 0)
+        )
+      );
+
+      const regexTerms = tokens
+        .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .map((token) => token.replace(/_/g, '[\\s_-]'));
+      const tokenRegex = new RegExp(`(${regexTerms.join('|')})`, 'i');
+
       const users = await Profile.find({
         roles: { $in: ['tasker', 'both'] },
         isActive: true,
         isVerified: true,  // Only verified taskers
-        'skills.primaryCategory': category
+        $or: [
+          { 'skills.primaryCategory': { $in: tokens } },
+          { 'skills.list.category': { $in: tokens } },
+          { 'skills.list.name': tokenRegex },
+        ],
       })
-        .select('uid')
+        .select('uid skills.primaryCategory skills.list.name skills.list.category')
         .lean();
 
-      const userIds = users.map((u: any) => u.uid);
+      const userIds = Array.from(
+        new Set(
+          users
+            .map((u: any) => u.uid)
+            .filter((uid): uid is string => typeof uid === 'string' && uid.trim().length > 0)
+        )
+      );
+
       logger.info('ProfileService: Found users by skill category', {
-        category,
+        inputCategory: category,
+        normalizedCategory: compactCategory,
+        searchTokens: tokens,
         count: userIds.length
       });
 
