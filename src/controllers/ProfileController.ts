@@ -463,8 +463,6 @@ export class ProfileController {
         isVerified: profile.isVerified,
         isAadhaarVerified: profile.isAadhaarVerified || false,
         aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
-        isPhoneVerified: profile.phoneVerified || !!profile.phone,
-        phoneVerified: profile.phoneVerified || !!profile.phone,
         isEmailVerified: profile.isEmailVerified || false,
         emailVerifiedAt: profile.emailVerifiedAt || null,
         isPANVerified: profile.isPANVerified || false,
@@ -647,8 +645,6 @@ export class ProfileController {
         isVerified: profile.isVerified,
         isAadhaarVerified: profile.isAadhaarVerified || false,
         aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
-        isPhoneVerified: profile.phoneVerified || !!profile.phone,
-        phoneVerified: profile.phoneVerified || !!profile.phone,
         isEmailVerified: profile.isEmailVerified || false,
         emailVerifiedAt: profile.emailVerifiedAt || null,
         isPANVerified: profile.isPANVerified || false,
@@ -664,24 +660,24 @@ export class ProfileController {
         business: profile.business,
         isActive: profile.isActive,
         createdAt: profile.createdAt,
-        // Include reviews in response - filter out invalid/empty reviews
+        // Include reviews in response with safe fallbacks so valid ratings are not dropped.
         reviews: reviews
-          .filter((review: any) => 
-            review.reviewerName && 
-            review.reviewerName.trim() !== '' &&
-            review.rating > 0
-          )
-          .map((review: any) => ({
-            _id: review._id,
+          .filter((review: any) => Number(review?.rating) > 0)
+          .map((review: any, index: number) => ({
+            _id: review._id || review.id || `${review.taskId || review.reviewerId || 'review'}-${index}`,
             taskId: review.taskId,
-            taskTitle: review.taskTitle || review.title,
-            reviewerId: review.reviewerId || review.reviewerUid,
-            reviewerName: review.reviewerName,
-            reviewerPhoto: review.reviewerPhoto,
-            rating: review.rating,
-            comment: review.comment,
-            createdAt: review.createdAt
-          })),
+            taskTitle: review.taskTitle || review.title || 'Task',
+            reviewerId: review.reviewerId || review.reviewerUid || review.reviewer?.id || 'unknown',
+            reviewerName:
+              (typeof review.reviewerName === 'string' && review.reviewerName.trim()) ||
+              (typeof review.reviewer?.name === 'string' && review.reviewer.name.trim()) ||
+              'Verified user',
+            reviewerPhoto: review.reviewerPhoto || review.reviewer?.photoURL || review.reviewer?.photo,
+            rating: Number(review.rating) || 0,
+            comment: typeof review.comment === 'string' ? review.comment : '',
+            createdAt: review.createdAt || review.updatedAt || new Date().toISOString(),
+          }))
+          .filter((review: any) => review.rating > 0),
         // Include work history in response - filter out invalid entries
         workHistory: workHistory.filter((item: any) => item.title && item.title.trim() !== '')
       };
@@ -865,8 +861,6 @@ export class ProfileController {
         isVerified: profile.isVerified,
         isAadhaarVerified: profile.isAadhaarVerified || false,
         aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
-        isPhoneVerified: profile.phoneVerified || !!profile.phone,
-        phoneVerified: profile.phoneVerified || !!profile.phone,
         isEmailVerified: profile.isEmailVerified || false,
         emailVerifiedAt: profile.emailVerifiedAt || null,
         isPANVerified: profile.isPANVerified || false,
@@ -882,24 +876,24 @@ export class ProfileController {
         business: profile.business,
         isActive: profile.isActive,
         createdAt: profile.createdAt,
-        // Include reviews in response - filter out invalid/empty reviews
+        // Include reviews in response with safe fallbacks so valid ratings are not dropped.
         reviews: reviews
-          .filter((review: any) => 
-            review.reviewerName && 
-            review.reviewerName.trim() !== '' &&
-            review.rating > 0
-          )
-          .map((review: any) => ({
-            _id: review._id,
+          .filter((review: any) => Number(review?.rating) > 0)
+          .map((review: any, index: number) => ({
+            _id: review._id || review.id || `${review.taskId || review.reviewerId || 'review'}-${index}`,
             taskId: review.taskId,
-            taskTitle: review.taskTitle || review.title,
-            reviewerId: review.reviewerId || review.reviewerUid,
-            reviewerName: review.reviewerName,
-            reviewerPhoto: review.reviewerPhoto,
-            rating: review.rating,
-            comment: review.comment,
-            createdAt: review.createdAt
-          })),
+            taskTitle: review.taskTitle || review.title || 'Task',
+            reviewerId: review.reviewerId || review.reviewerUid || review.reviewer?.id || 'unknown',
+            reviewerName:
+              (typeof review.reviewerName === 'string' && review.reviewerName.trim()) ||
+              (typeof review.reviewer?.name === 'string' && review.reviewer.name.trim()) ||
+              'Verified user',
+            reviewerPhoto: review.reviewerPhoto || review.reviewer?.photoURL || review.reviewer?.photo,
+            rating: Number(review.rating) || 0,
+            comment: typeof review.comment === 'string' ? review.comment : '',
+            createdAt: review.createdAt || review.updatedAt || new Date().toISOString(),
+          }))
+          .filter((review: any) => review.rating > 0),
         // Include work history in response - filter out invalid entries
         workHistory: workHistory.filter((item: any) => item.title && item.title.trim() !== '')
       };
