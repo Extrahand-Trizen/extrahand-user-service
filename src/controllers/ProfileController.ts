@@ -14,20 +14,14 @@ import {
 
 type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only';
 
-function getPrivateProfileInfo(profile: any): { message: string; visibility: ProfileVisibilityLevel } {
+function getPrivateProfileMessage(profile: any): string {
   const visibility = (profile?.profilePrivacy?.profileVisibility || 'registered_users') as ProfileVisibilityLevel;
 
   if (visibility === 'connections_only') {
-    return {
-      message: 'This account is private. You can only view this profile if you have worked with them.',
-      visibility: 'connections_only',
-    };
+    return 'This profile is private and visible only to connections.';
   }
 
-  return {
-    message: 'This account is private. Please log in to view this profile.',
-    visibility: 'registered_users',
-  };
+  return 'This profile is private and visible only to registered users.';
 }
 
 function extractTasks(response: any): any[] {
@@ -417,12 +411,10 @@ export class ProfileController {
       const viewerUid = req.user?.uid;
 
       if (!(await canViewProfile(profile, viewerUid))) {
-        const privateInfo = getPrivateProfileInfo(profile);
         res.status(403).json({
           success: false,
           error: 'Profile is private',
-          message: privateInfo.message,
-          visibility: privateInfo.visibility,
+          message: getPrivateProfileMessage(profile),
           code: 'PROFILE_PRIVATE'
         });
         return;
@@ -506,12 +498,10 @@ export class ProfileController {
       const viewerUid = req.user?.uid;
 
       if (!(await canViewProfile(profile, viewerUid))) {
-        const privateInfo = getPrivateProfileInfo(profile);
         res.status(403).json({
           success: false,
           error: 'Profile is private',
-          message: privateInfo.message,
-          visibility: privateInfo.visibility,
+          message: getPrivateProfileMessage(profile),
           code: 'PROFILE_PRIVATE'
         });
         return;
@@ -719,12 +709,10 @@ export class ProfileController {
       const viewerUid = req.user?.uid;
 
       if (!(await canViewProfile(profile, viewerUid))) {
-        const privateInfo = getPrivateProfileInfo(profile);
         res.status(403).json({
           success: false,
           error: 'Profile is private',
-          message: privateInfo.message,
-          visibility: privateInfo.visibility,
+          message: getPrivateProfileMessage(profile),
           code: 'PROFILE_PRIVATE'
         });
         return;
