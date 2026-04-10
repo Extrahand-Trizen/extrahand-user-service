@@ -11,6 +11,9 @@ const router = Router();
 // GET /api/v1/users - List users with filters (admin)
 router.get('/', serviceAuthMiddleware, asyncHandler(UserController.listUsersForAdmin));
 
+// GET /api/v1/users/stats/roles - Role counts from profiles.roles (admin)
+router.get('/stats/roles', serviceAuthMiddleware, asyncHandler(UserController.getRoleCountsForAdmin));
+
 // GET /api/v1/users/:userId - Get user by UID (admin)
 router.get('/:userId', serviceAuthMiddleware, asyncHandler(UserController.getUserForAdmin));
 

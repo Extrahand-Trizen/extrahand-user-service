@@ -11,6 +11,27 @@ interface AuthenticatedRequest extends Request {
 
 export class UserController {
   /**
+   * GET /api/v1/users/stats/roles
+   * Aggregate role counts from profiles collection (admin/service).
+   */
+  static async getRoleCountsForAdmin(_req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const result = await ProfileService.getRoleCountsForAdmin();
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      logger.error('Error in getRoleCountsForAdmin:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to get role counts',
+      });
+    }
+  }
+
+  /**
    * GET /api/v1/users
    * List users with filters (admin)
    */
