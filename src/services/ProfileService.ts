@@ -9,6 +9,64 @@ import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 
 export class ProfileService {
+  private static normalizePortfolio(portfolio: any): any[] {
+    if (!Array.isArray(portfolio)) {
+      return [];
+    }
+
+    const now = new Date();
+
+    return portfolio
+      .map((item: any) => {
+        const title = typeof item?.title === 'string' ? item.title.trim() : '';
+        const description = typeof item?.description === 'string' ? item.description.trim() : '';
+        const url = typeof item?.url === 'string' ? item.url.trim() : '';
+        const images = Array.isArray(item?.images)
+          ? item.images
+              .map((img: any) => (typeof img === 'string' ? img.trim() : ''))
+              .filter(Boolean)
+              .slice(0, 8)
+          : [];
+
+        if (!title) {
+          return null;
+        }
+
+        const hasUrl = !!url;
+        const hasImages = images.length > 0;
+        if (!hasUrl && !hasImages) {
+          return null;
+        }
+
+        let normalizedUrl: string | undefined;
+        if (hasUrl) {
+          try {
+            const parsed = new URL(url);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+              normalizedUrl = parsed.toString();
+            }
+          } catch {
+            normalizedUrl = undefined;
+          }
+        }
+
+        if (!normalizedUrl && !hasImages) {
+          return null;
+        }
+
+        return {
+          title,
+          description: description || undefined,
+          url: normalizedUrl,
+          images,
+          createdAt: item?.createdAt ? new Date(item.createdAt) : now,
+          updatedAt: now,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 10);
+  }
+
   private static normalizeProfilePrivacy(profilePrivacy: any) {
     if (!profilePrivacy || typeof profilePrivacy !== 'object') {
       return null;
@@ -48,7 +106,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses createdAt updatedAt')
+      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses createdAt updatedAt')
       .lean();
 
     if (!profile) {
@@ -120,7 +178,7 @@ export class ProfileService {
     try {
       const objectId = new mongoose.Types.ObjectId(profileId);
       const profile = await Profile.findById(objectId)
-        .select('_id uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL bio location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy createdAt isActive')
+        .select('_id uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL bio portfolio location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy createdAt isActive')
         .lean();
 
       if (!profile) {
@@ -536,6 +594,7 @@ export class ProfileService {
     }
     if (profileData.photoURL !== undefined) payload.photoURL = profileData.photoURL;
     if (profileData.bio !== undefined) payload.bio = profileData.bio;
+    if (profileData.portfolio !== undefined) payload.portfolio = this.normalizePortfolio(profileData.portfolio);
     if (profileData.business !== undefined || profileData.bio !== undefined) {
       const mergedBusiness: any = {
         ...(existingProfile?.business ? (existingProfile.business as any) : {}),
@@ -711,6 +770,7 @@ export class ProfileService {
     if (profileData.roles !== undefined) updatePayload.roles = profileData.roles;
     if (profileData.userType !== undefined) updatePayload.userType = profileData.userType;
     if (profileData.bio !== undefined) updatePayload.bio = profileData.bio;
+    if (profileData.portfolio !== undefined) updatePayload.portfolio = this.normalizePortfolio(profileData.portfolio);
     
     // ✨ LOG: Aadhaar verification fields
     if (profileData.isAadhaarVerified !== undefined) {

@@ -458,6 +458,7 @@ export class ProfileController {
         rating: rating,
         totalReviews: totalReviews,
         skills: profile.skills,
+        portfolio: Array.isArray((profile as any).portfolio) ? (profile as any).portfolio : [],
         photoURL: profile.photoURL || null,
         business: profile.business,
         location: profile.location ? {
@@ -645,6 +646,7 @@ export class ProfileController {
         rating: realTimeStats.rating,
         totalReviews: realTimeStats.totalReviews,
         skills: profile.skills,
+        portfolio: Array.isArray((profile as any).portfolio) ? (profile as any).portfolio : [],
         photoURL: profile.photoURL || null,
         location: profile.location ? {
           city: profile.location.addressDetails?.city,
@@ -865,6 +867,7 @@ export class ProfileController {
         rating: realTimeStats.rating,
         totalReviews: realTimeStats.totalReviews,
         skills: profile.skills,
+        portfolio: Array.isArray((profile as any).portfolio) ? (profile as any).portfolio : [],
         photoURL: profile.photoURL || null,
         location: profile.location ? {
           city: profile.location.addressDetails?.city,
