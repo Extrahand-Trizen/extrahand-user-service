@@ -58,7 +58,17 @@ export interface OnboardingStatus {
    lastStep: "roles" | "profile";
 }
 
+export interface PortfolioItem {
+   title: string;
+   description?: string;
+   url?: string;
+   images?: string[];
+   createdAt?: Date;
+   updatedAt?: Date;
+}
+
 export interface BusinessProfile {
+   description?: string;
    pan?: {
       number?: string;
       isPANVerified?: boolean;

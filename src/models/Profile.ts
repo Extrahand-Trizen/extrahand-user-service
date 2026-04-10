@@ -1,16 +1,19 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
-import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, ProfilePrivacy, SavedAddress } from '../types';
+import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, ProfilePrivacy, SavedAddress, PortfolioItem } from '../types';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 
 export interface IProfile extends Document {
   uid: string;
   name: string;
+  profession?: string;
   email?: string | null;
   isEmailVerified?: boolean;
   emailVerifiedAt?: Date | null;
   phone?: string | null;
   roles: ('tasker' | 'requester' | 'poster' | 'both')[];
   userType: 'individual' | 'business';
+  bio?: string;
+  portfolio?: PortfolioItem[];
   location?: Location | null;
   savedAddresses?: SavedAddress[];
   skills?: {
@@ -131,6 +134,11 @@ const ProfileSchema = new Schema<IProfile>({
     type: String,
     required: true,
     trim: true
+  },
+  profession: {
+    type: String,
+    trim: true,
+    maxlength: 100,
   },
   email: {
     type: String,
@@ -314,6 +322,20 @@ const ProfileSchema = new Schema<IProfile>({
     type: String,
     default: null
   },
+  bio: {
+    type: String,
+    trim: true,
+    maxlength: 500,
+    default: null
+  },
+  portfolio: [{
+    title: { type: String, trim: true, maxlength: 120 },
+    description: { type: String, trim: true, maxlength: 1000 },
+    url: { type: String, trim: true, maxlength: 500 },
+    images: [{ type: String, trim: true }],
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+  }],
   isAdminVerified: {
     type: Boolean,
     default: false,
