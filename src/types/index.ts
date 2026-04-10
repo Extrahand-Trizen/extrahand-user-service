@@ -59,6 +59,7 @@ export interface OnboardingStatus {
 }
 
 export interface BusinessProfile {
+   description?: string;
    pan?: {
       number?: string;
       isPANVerified?: boolean;

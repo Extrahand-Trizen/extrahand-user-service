@@ -48,7 +48,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses createdAt updatedAt')
+      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses createdAt updatedAt')
       .lean();
 
     if (!profile) {
@@ -120,7 +120,7 @@ export class ProfileService {
     try {
       const objectId = new mongoose.Types.ObjectId(profileId);
       const profile = await Profile.findById(objectId)
-        .select('_id uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy createdAt isActive')
+        .select('_id uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL bio location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy createdAt isActive')
         .lean();
 
       if (!profile) {
@@ -220,7 +220,7 @@ export class ProfileService {
     }
 
     const profiles = await Profile.find(searchQuery)
-      .select('uid name email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt location')
+      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt location')
       .limit(limit)
       .lean();
 
@@ -469,7 +469,10 @@ export class ProfileService {
       updatedAt: now
     };
 
+    const existingProfile = await Profile.findOne({ uid }).lean();
+
     if (profileData.name) payload.name = profileData.name;
+    if (profileData.profession !== undefined) payload.profession = profileData.profession;
     if (profileData.email !== undefined) payload.email = profileData.email;
     if (profileData.phone !== undefined) payload.phone = profileData.phone;
     if (profileData.roles) payload.roles = profileData.roles;
@@ -532,7 +535,21 @@ export class ProfileService {
       };
     }
     if (profileData.photoURL !== undefined) payload.photoURL = profileData.photoURL;
-    if (profileData.business !== undefined) payload.business = profileData.business;
+    if (profileData.bio !== undefined) payload.bio = profileData.bio;
+    if (profileData.business !== undefined || profileData.bio !== undefined) {
+      const mergedBusiness: any = {
+        ...(existingProfile?.business ? (existingProfile.business as any) : {}),
+        ...(profileData.business ? (profileData.business as any) : {}),
+      };
+
+      if (profileData.bio !== undefined) {
+        mergedBusiness.description = profileData.bio;
+      }
+
+      if (Object.keys(mergedBusiness).length > 0) {
+        payload.business = mergedBusiness;
+      }
+    }
     if (profileData.profilePrivacy !== undefined) {
       const normalizedProfilePrivacy = this.normalizeProfilePrivacy(profileData.profilePrivacy);
       if (normalizedProfilePrivacy) {
@@ -542,8 +559,6 @@ export class ProfileService {
     if (profileData.agreeUpdates !== undefined) payload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) payload.agreeTerms = profileData.agreeTerms;
 
-    // Check if profile exists
-    const existingProfile = await Profile.findOne({ uid }).lean();
     console.log('🔍 [PROFILE SERVICE] Checking if profile exists', {
       uid,
       exists: !!existingProfile,
@@ -689,11 +704,13 @@ export class ProfileService {
 
     // Update fields
     if (profileData.name !== undefined) updatePayload.name = profileData.name;
+    if (profileData.profession !== undefined) updatePayload.profession = profileData.profession;
     if (profileData.email !== undefined) updatePayload.email = profileData.email;
     if (profileData.phone !== undefined) updatePayload.phone = profileData.phone;
     if (profileData.photoURL !== undefined) updatePayload.photoURL = profileData.photoURL;
     if (profileData.roles !== undefined) updatePayload.roles = profileData.roles;
     if (profileData.userType !== undefined) updatePayload.userType = profileData.userType;
+    if (profileData.bio !== undefined) updatePayload.bio = profileData.bio;
     
     // ✨ LOG: Aadhaar verification fields
     if (profileData.isAadhaarVerified !== undefined) {
@@ -859,7 +876,20 @@ export class ProfileService {
             })
         : [];
     }
-    if (profileData.business !== undefined) updatePayload.business = profileData.business;
+    if (profileData.business !== undefined || profileData.bio !== undefined) {
+      const mergedBusiness: any = {
+        ...(existingProfile.business ? (existingProfile.business as any) : {}),
+        ...(profileData.business ? (profileData.business as any) : {}),
+      };
+
+      if (profileData.bio !== undefined) {
+        mergedBusiness.description = profileData.bio;
+      }
+
+      if (Object.keys(mergedBusiness).length > 0) {
+        updatePayload.business = mergedBusiness;
+      }
+    }
     if (profileData.profilePrivacy !== undefined) {
       const normalizedProfilePrivacy = this.normalizeProfilePrivacy(profileData.profilePrivacy);
       if (normalizedProfilePrivacy) {

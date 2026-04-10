@@ -446,15 +446,20 @@ export class ProfileController {
         });
       }
 
+      const aboutText = (profile as any).bio || (profile.business as any)?.description || null;
+
       const publicProfile = {
         uid: profile.uid,
         name: profile.name,
+        profession: profile.profession,
+        bio: aboutText,
         roles: profile.roles,
         userType: profile.userType,
         rating: rating,
         totalReviews: totalReviews,
         skills: profile.skills,
         photoURL: profile.photoURL || null,
+        business: profile.business,
         location: profile.location ? {
           city: profile.location.addressDetails?.city,
           state: profile.location.addressDetails?.state,
@@ -625,12 +630,16 @@ export class ProfileController {
         });
       }
 
+      const aboutText = (profile as any).bio || (profile.business as any)?.description || null;
+
       const publicProfile = {
         _id: profile._id,
         uid: profile.uid,
         name: profile.name,
+        profession: profile.profession,
         email: profile.email,
         phone: profile.phone,
+        bio: aboutText,
         roles: profile.roles,
         userType: profile.userType,
         rating: realTimeStats.rating,
@@ -848,6 +857,7 @@ export class ProfileController {
         _id: profile._id,
         uid: profile.uid,
         name: profile.name,
+        profession: profile.profession,
         email: profile.email,
         phone: profile.phone,
         roles: profile.roles,

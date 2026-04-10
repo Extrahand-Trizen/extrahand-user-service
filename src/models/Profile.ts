@@ -5,12 +5,14 @@ import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 export interface IProfile extends Document {
   uid: string;
   name: string;
+  profession?: string;
   email?: string | null;
   isEmailVerified?: boolean;
   emailVerifiedAt?: Date | null;
   phone?: string | null;
   roles: ('tasker' | 'requester' | 'poster' | 'both')[];
   userType: 'individual' | 'business';
+  bio?: string;
   location?: Location | null;
   savedAddresses?: SavedAddress[];
   skills?: {
@@ -131,6 +133,11 @@ const ProfileSchema = new Schema<IProfile>({
     type: String,
     required: true,
     trim: true
+  },
+  profession: {
+    type: String,
+    trim: true,
+    maxlength: 100,
   },
   email: {
     type: String,
@@ -312,6 +319,12 @@ const ProfileSchema = new Schema<IProfile>({
   },
   photoURL: {
     type: String,
+    default: null
+  },
+  bio: {
+    type: String,
+    trim: true,
+    maxlength: 500,
     default: null
   },
   isAdminVerified: {
