@@ -129,6 +129,9 @@ export interface DataPrivacy {
    deletionRequested?: boolean;
    deletionRequestedAt?: Date;
    deletionScheduledFor?: Date;
+   accountDeleted?: boolean;
+   accountDeletedAt?: Date;
+   accountDeletionReason?: string;
    lastDataExport?: Date;
    dataRetentionExpiry?: Date;
 }

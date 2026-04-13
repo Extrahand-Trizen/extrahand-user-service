@@ -106,11 +106,15 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses createdAt updatedAt')
+      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses dataPrivacy createdAt updatedAt')
       .lean();
 
     if (!profile) {
       throw new NotFoundError('Profile not found. Please complete the onboarding process.');
+    }
+
+    if ((profile as any).dataPrivacy?.accountDeleted) {
+      throw new BadRequestError('This profile is no longer available');
     }
 
     return profile as unknown as IProfileDocument;
@@ -120,10 +124,14 @@ export class ProfileService {
    * Get profile by UID (public profile)
    */
   static async getProfileByUid(uid: string): Promise<IProfileDocument> {
-    const profile = await Profile.findOne({ uid, isActive: true }).lean();
+    const profile = await Profile.findOne({ uid }).lean();
 
     if (!profile) {
       throw new NotFoundError('Profile not found');
+    }
+
+    if ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false) {
+      throw new NotFoundError('This profile is no longer available');
     }
 
     return profile as unknown as IProfileDocument;
@@ -178,15 +186,15 @@ export class ProfileService {
     try {
       const objectId = new mongoose.Types.ObjectId(profileId);
       const profile = await Profile.findById(objectId)
-        .select('_id uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL bio portfolio location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy createdAt isActive')
+        .select('_id uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL bio portfolio location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy dataPrivacy createdAt isActive')
         .lean();
 
       if (!profile) {
         throw new NotFoundError('Profile not found');
       }
 
-      if (!profile.isActive) {
-        throw new NotFoundError('Profile not found');
+      if ((profile as any).dataPrivacy?.accountDeleted || !profile.isActive) {
+        throw new NotFoundError('This profile is no longer available');
       }
 
       return profile as unknown as IProfileDocument;
@@ -266,6 +274,8 @@ export class ProfileService {
     }
 
     const searchQuery: any = {
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
       $or: [
         { name: { $regex: query.trim(), $options: 'i' } },
         { email: { $regex: query.trim(), $options: 'i' } },

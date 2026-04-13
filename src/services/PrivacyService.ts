@@ -3,8 +3,129 @@ import Consent, { IConsent } from '../models/Consent';
 import { NotFoundError, BadRequestError } from '../errors/AppError';
 import logger from '../config/logger';
 import axios from 'axios';
+import { validateEnv } from '../config/env';
+
+const env = validateEnv();
+const MIN_DELETION_GRACE_HOURS = 24;
+const MAX_DELETION_GRACE_HOURS = 48;
+const DEFAULT_DELETION_GRACE_HOURS = 48;
 
 export class PrivacyService {
+  private static getDeletionGraceHours(): number {
+    const raw = Number(process.env.ACCOUNT_DELETION_GRACE_HOURS || DEFAULT_DELETION_GRACE_HOURS);
+    if (!Number.isFinite(raw)) {
+      return DEFAULT_DELETION_GRACE_HOURS;
+    }
+    return Math.min(MAX_DELETION_GRACE_HOURS, Math.max(MIN_DELETION_GRACE_HOURS, Math.floor(raw)));
+  }
+
+  private static getDeletionAlias(profile: any): string {
+    const roles = Array.isArray(profile?.roles) ? profile.roles : [];
+    if (roles.includes('tasker')) {
+      return 'Tasker (account deleted)';
+    }
+    return 'Customer (account deleted)';
+  }
+
+  private static buildServiceHeaders(userId?: string): Record<string, string> {
+    return {
+      'X-Service-Auth': env.SERVICE_AUTH_TOKEN || '',
+      'X-Service-Name': 'extrahand-user-service',
+      ...(userId ? { 'X-User-Id': userId } : {})
+    };
+  }
+
+  private static async assertNoActiveDeletionBlockers(profile: any): Promise<void> {
+    const blockers: string[] = [];
+    const taskServiceUrl = env.TASK_SERVICE_URL;
+    const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:4003';
+
+    if (!env.SERVICE_AUTH_TOKEN) {
+      throw new BadRequestError('Unable to validate account deletion right now. Please try again shortly.');
+    }
+
+    try {
+      if (taskServiceUrl) {
+        const statuses = 'assigned,started,in_progress,review';
+        const [asPoster, asTasker] = await Promise.all([
+          axios.get(`${taskServiceUrl}/api/v1/tasks`, {
+            params: { posterUid: profile.uid, status: statuses, limit: 1 },
+            headers: this.buildServiceHeaders(),
+            timeout: 7000
+          }),
+          axios.get(`${taskServiceUrl}/api/v1/tasks`, {
+            params: { assigneeId: profile._id?.toString(), status: statuses, limit: 1 },
+            headers: this.buildServiceHeaders(),
+            timeout: 7000
+          })
+        ]);
+
+        const acceptedApplicationsRes = await axios.get(`${taskServiceUrl}/api/v1/applications`, {
+          params: { mine: true, status: 'accepted', limit: 1 },
+          headers: this.buildServiceHeaders(profile.uid),
+          timeout: 7000
+        });
+
+        const posterTasks = asPoster.data?.tasks || asPoster.data?.data || [];
+        const taskerTasks = asTasker.data?.tasks || asTasker.data?.data || [];
+        const acceptedApplications = acceptedApplicationsRes.data?.applications || acceptedApplicationsRes.data?.data || [];
+
+        if (
+          (Array.isArray(posterTasks) && posterTasks.length > 0) ||
+          (Array.isArray(taskerTasks) && taskerTasks.length > 0) ||
+          (Array.isArray(acceptedApplications) && acceptedApplications.length > 0)
+        ) {
+          blockers.push('active tasks (accepted/ongoing)');
+        }
+      }
+    } catch (error: any) {
+      logger.error('Failed to validate active tasks before account deletion', {
+        userId: profile.uid,
+        error: error.message
+      });
+      throw new BadRequestError('Unable to verify active tasks right now. Please try again shortly.');
+    }
+
+    try {
+      const statusesToCheck = ['pending', 'processing', 'held', 'disputed'];
+      let hasPendingPaymentOrDispute = false;
+
+      for (const status of statusesToCheck) {
+        const txResponse = await axios.get(`${paymentServiceUrl}/api/v1/transactions/${profile.uid}`, {
+          params: {
+            status,
+            limit: 5,
+            linkedUserIds: profile._id?.toString()
+          },
+          headers: this.buildServiceHeaders(),
+          timeout: 7000
+        });
+
+        const txs = txResponse.data?.transactions || [];
+        if (Array.isArray(txs) && txs.length > 0) {
+          hasPendingPaymentOrDispute = true;
+          break;
+        }
+      }
+
+      if (hasPendingPaymentOrDispute) {
+        blockers.push('payment pending or dispute in progress');
+      }
+    } catch (error: any) {
+      logger.error('Failed to validate payment/dispute blockers before account deletion', {
+        userId: profile.uid,
+        error: error.message
+      });
+      throw new BadRequestError('Unable to verify payment/dispute status right now. Please try again shortly.');
+    }
+
+    if (blockers.length > 0) {
+      throw new BadRequestError(
+        `Account cannot be deleted while you have ${blockers.join(' and ')}. Complete/cancel active tasks and resolve pending payments/disputes first.`
+      );
+    }
+  }
+
   /**
    * Export all user data
    */
@@ -331,7 +452,7 @@ export class PrivacyService {
         },
         deleteAccount: {
           available: true,
-          gracePeriod: '30 days',
+          gracePeriod: `${this.getDeletionGraceHours()} hours`,
           description: 'Request account deletion',
           endpoint: '/api/v1/privacy/delete-account'
         },
@@ -345,10 +466,14 @@ export class PrivacyService {
         requested: true,
         requestedAt: profile.dataPrivacy.deletionRequestedAt,
         scheduledFor: profile.dataPrivacy.deletionScheduledFor,
-        daysRemaining: profile.dataPrivacy.deletionScheduledFor
-          ? Math.ceil((new Date(profile.dataPrivacy.deletionScheduledFor).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+        hoursRemaining: profile.dataPrivacy.deletionScheduledFor
+          ? Math.max(0, Math.ceil((new Date(profile.dataPrivacy.deletionScheduledFor).getTime() - new Date().getTime()) / (1000 * 60 * 60)))
           : null
-      } : { requested: false }
+      } : {
+        requested: false,
+        accountDeleted: profile?.dataPrivacy?.accountDeleted || false,
+        accountDeletedAt: profile?.dataPrivacy?.accountDeletedAt || null
+      }
     };
 
     return dashboard;
@@ -416,13 +541,20 @@ export class PrivacyService {
       throw new NotFoundError('Profile not found');
     }
 
+    if (profile.dataPrivacy?.accountDeleted) {
+      throw new BadRequestError('This account is already deleted');
+    }
+
     if (profile.dataPrivacy?.deletionRequested) {
       throw new BadRequestError('Account deletion has already been requested');
     }
 
-    // Schedule deletion for 30 days from now
+    await this.assertNoActiveDeletionBlockers(profile);
+
+    // Schedule deletion for 24-48 hours from now (default 48h)
+    const graceHours = this.getDeletionGraceHours();
     const deletionDate = new Date();
-    deletionDate.setDate(deletionDate.getDate() + 30);
+    deletionDate.setHours(deletionDate.getHours() + graceHours);
 
     await Profile.updateOne(
       { uid: userId },
@@ -462,6 +594,10 @@ export class PrivacyService {
    */
   static async cancelAccountDeletion(userId: string, ipAddress: string, userAgent: string): Promise<void> {
     const profile = await Profile.findOne({ uid: userId });
+
+    if (profile?.dataPrivacy?.accountDeleted) {
+      throw new BadRequestError('This account is already deleted');
+    }
 
     if (!profile || !profile.dataPrivacy?.deletionRequested) {
       throw new BadRequestError('There is no pending deletion request for this account');
@@ -521,25 +657,59 @@ export class PrivacyService {
     for (const profile of profilesToDelete) {
       try {
         const userId = profile.uid;
-        
-        // Delete from all collections
-        // Note: Task Service and Messaging Service should handle their own deletions
-        // For now, we only delete from User Service collections
-        await Promise.all([
-          Consent.deleteOne({ userId }),
-          Profile.deleteOne({ uid: userId })
-        ]);
+        const anonymizedName = this.getDeletionAlias(profile);
 
-        // TODO: Call Task Service and Messaging Service to delete user data
-        // This would require service-to-service calls
+        // DPDP-compliant deletion: anonymize personal data, retain legal/audit records.
+        await Promise.all([
+          Profile.updateOne(
+            { uid: userId },
+            {
+              $set: {
+                name: anonymizedName,
+                profession: null,
+                email: null,
+                phone: null,
+                location: null,
+                savedAddresses: [],
+                photoURL: null,
+                bio: null,
+                portfolio: [],
+                business: null,
+                maskedAadhaar: null,
+                maskedPan: null,
+                maskedBankAccount: null,
+                bankAccount: null,
+                isAadhaarVerified: false,
+                aadhaarVerifiedAt: null,
+                isPANVerified: false,
+                panVerifiedAt: null,
+                isBankVerified: false,
+                bankVerifiedAt: null,
+                isEmailVerified: false,
+                emailVerifiedAt: null,
+                phoneVerified: false,
+                isActive: false,
+                status: 'inactive',
+                'dataPrivacy.deletionRequested': false,
+                'dataPrivacy.deletionRequestedAt': null,
+                'dataPrivacy.deletionScheduledFor': null,
+                'dataPrivacy.accountDeleted': true,
+                'dataPrivacy.accountDeletedAt': new Date(),
+                'dataPrivacy.accountDeletionReason': 'User requested account deletion (DPDP)'
+              }
+            }
+          ),
+          Consent.deleteOne({ userId })
+        ]);
 
         deletionResults.push({
           userId,
-          status: 'deleted',
-          deletedAt: new Date()
+          status: 'anonymized',
+          deletedAt: new Date(),
+          replacementName: anonymizedName
         });
 
-        logger.warn('✅ Account permanently deleted', { userId });
+        logger.warn('✅ Account anonymized for DPDP deletion', { userId, replacementName: anonymizedName });
 
       } catch (error: any) {
         deletionResults.push({
@@ -555,7 +725,7 @@ export class PrivacyService {
     }
 
     return {
-      deletedCount: deletionResults.filter(r => r.status === 'deleted').length,
+      deletedCount: deletionResults.filter(r => r.status === 'anonymized').length,
       failedCount: deletionResults.filter(r => r.status === 'failed').length,
       results: deletionResults
     };

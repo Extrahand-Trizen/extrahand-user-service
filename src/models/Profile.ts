@@ -527,6 +527,9 @@ const ProfileSchema = new Schema<IProfile>({
     deletionRequested: { type: Boolean, default: false },
     deletionRequestedAt: Date,
     deletionScheduledFor: Date,
+    accountDeleted: { type: Boolean, default: false },
+    accountDeletedAt: Date,
+    accountDeletionReason: String,
     lastDataExport: Date,
     dataRetentionExpiry: Date
   },

@@ -112,8 +112,8 @@ export class PrivacyController {
       success: true,
       message: 'Account deletion has been scheduled',
       deletionScheduledFor: deletionDate,
-      gracePeriod: '30 days',
-      note: 'You can cancel this request within 30 days by calling POST /api/v1/privacy/cancel-deletion'
+      gracePeriod: '24-48 hours',
+      note: 'You can cancel this request until the scheduled deletion time by calling POST /api/v1/privacy/cancel-deletion'
     });
   }
 
