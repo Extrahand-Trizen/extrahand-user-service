@@ -337,7 +337,7 @@ export class ProfileService {
       const tokenRegex = new RegExp(`(${regexTerms.join('|')})`, 'i');
 
       const users = await Profile.find({
-        roles: { $in: ['tasker', 'both'] },
+        roles: 'tasker',
         isActive: true,
         $or: [
           { 'skills.primaryCategory': { $in: tokens } },
@@ -361,7 +361,7 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          roles: ['tasker', 'both'],
+          roles: ['tasker'],
           isActive: true,
           isVerified: 'not-required',
         },
@@ -1288,9 +1288,9 @@ export class ProfileService {
     // Filter by role
     if (role && role !== 'all') {
       if (role === 'tasker') {
-        andConditions.push({ roles: { $in: ['tasker', 'both'] } });
-      } else if (role === 'poster' || role === 'requester') {
-        andConditions.push({ roles: { $in: ['requester', 'both'] } });
+        andConditions.push({ roles: 'tasker' });
+      } else if (role === 'poster') {
+        andConditions.push({ roles: 'poster' });
       }
     }
 
@@ -1353,7 +1353,11 @@ export class ProfileService {
         name: profile.name || '',
         email: profile.email || '',
         phone: profile.phone || '',
-        role: profile.roles?.includes('both') ? 'both' : profile.roles?.[0] || 'tasker',
+        role: profile.roles?.includes('tasker')
+          ? 'tasker'
+          : profile.roles?.includes('poster')
+            ? 'poster'
+            : 'unknown',
         roles: profile.roles || [],
         userType: profile.userType || 'individual',
         status: userStatus,
@@ -1389,6 +1393,29 @@ export class ProfileService {
   }
 
   /**
+   * Aggregate role counts directly from profiles collection.
+   */
+  static async getRoleCountsForAdmin(): Promise<{
+    posters: number;
+    taskers: number;
+    totalProfiles: number;
+  }> {
+    this.checkConnection();
+
+    const [posters, taskers, totalProfiles] = await Promise.all([
+      Profile.countDocuments({ roles: 'poster' }),
+      Profile.countDocuments({ roles: 'tasker' }),
+      Profile.countDocuments({}),
+    ]);
+
+    return {
+      posters,
+      taskers,
+      totalProfiles,
+    };
+  }
+
+  /**
    * Get user for admin (full profile data)
    */
   static async getUserForAdmin(userId: string): Promise<any> {
@@ -1408,7 +1435,11 @@ export class ProfileService {
     
     // Add admin-friendly fields (these override the spread values)
     result.userId = profile.uid;
-    result.role = profile.roles?.includes('both') ? 'both' : profile.roles?.[0] || 'tasker';
+    result.role = profile.roles?.includes('tasker')
+      ? 'tasker'
+      : profile.roles?.includes('poster')
+        ? 'poster'
+        : 'unknown';
     result.status = profile.status || (profile.isActive ? 'active' : 'inactive');
     if (!result.email) result.email = '';
     if (!result.phone) result.phone = '';
