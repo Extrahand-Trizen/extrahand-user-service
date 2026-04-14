@@ -97,6 +97,14 @@ export class PrivacyService {
           profileId,
           statuses
         });
+
+        logger.info('🔍 Querying task-service for active tasks', {
+          userId: profile.uid,
+          profileId,
+          posterQuery: { posterUid: profile.uid, status: statuses },
+          taskerQuery: { assigneeId: profileId, status: statuses }
+        });
+
         const [asPoster, asTasker] = await Promise.all([
           axios.get(`${taskServiceUrl}/api/v1/tasks`, {
             params: { posterUid: profile.uid, status: statuses, limit: 1 },
@@ -120,10 +128,24 @@ export class PrivacyService {
         const taskerTasks = asTasker.data?.tasks || asTasker.data?.data || [];
         const acceptedApplications = acceptedApplicationsRes.data?.applications || acceptedApplicationsRes.data?.data || [];
 
+        const posterTaskDetails = Array.isArray(posterTasks) ? posterTasks.map(t => ({
+          id: t._id,
+          title: t.title,
+          status: t.status
+        })) : [];
+
+        const taskerTaskDetails = Array.isArray(taskerTasks) ? taskerTasks.map(t => ({
+          id: t._id,
+          title: t.title,
+          status: t.status
+        })) : [];
+
         logger.info('Task/application blocker check completed', {
           userId: profile.uid,
           posterTasksCount: Array.isArray(posterTasks) ? posterTasks.length : 0,
+          posterTasks: posterTaskDetails,
           taskerTasksCount: Array.isArray(taskerTasks) ? taskerTasks.length : 0,
+          taskerTasks: taskerTaskDetails,
           acceptedApplicationsCount: Array.isArray(acceptedApplications) ? acceptedApplications.length : 0
         });
 
