@@ -36,17 +36,111 @@ export class PrivacyService {
     };
   }
 
+  private static extractTasks(response: any): any[] {
+    return response?.data?.tasks || response?.data?.data || response?.tasks || response?.data || [];
+  }
+
+  private static async fetchPostedTasksByStatus(profile: any, status: string): Promise<any[]> {
+    const taskServiceUrl = env.TASK_SERVICE_URL;
+    if (!taskServiceUrl) {
+      return [];
+    }
+
+    const profileId = profile?._id?.toString();
+    const tasks: any[] = [];
+    const pageSize = 50;
+    let page = 1;
+
+    while (true) {
+      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks`, {
+        params: {
+          posterUid: profile.uid,
+          status,
+          limit: pageSize,
+          page
+        },
+        headers: this.buildServiceHeaders(profile.uid, profileId),
+        timeout: 7000
+      });
+
+      const batch = this.extractTasks(response);
+      if (!Array.isArray(batch) || batch.length === 0) {
+        break;
+      }
+
+      tasks.push(...batch);
+
+      if (batch.length < pageSize) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    return tasks;
+  }
+
+  private static async deleteOpenPostedTasks(profile: any): Promise<number> {
+    const taskServiceUrl = env.TASK_SERVICE_URL;
+    if (!taskServiceUrl) {
+      return 0;
+    }
+
+    const profileId = profile?._id?.toString();
+    const openTasks = await this.fetchPostedTasksByStatus(profile, 'open');
+
+    logger.info('Open task cleanup check completed', {
+      userId: profile.uid,
+      openTasksCount: openTasks.length
+    });
+
+    if (openTasks.length === 0) {
+      return 0;
+    }
+
+    logger.info('Deleting open posted tasks before account deletion', {
+      userId: profile.uid,
+      taskIds: openTasks.map((task: any) => String(task._id || task.id)).filter(Boolean)
+    });
+
+    for (const task of openTasks) {
+      const taskId = String(task._id || task.id);
+
+      try {
+        await axios.delete(`${taskServiceUrl}/api/v1/tasks/${taskId}`, {
+          headers: this.buildServiceHeaders(profile.uid, profileId),
+          timeout: 7000
+        });
+      } catch (error: any) {
+        logger.error('Failed to delete open task before account deletion', {
+          userId: profile.uid,
+          taskId,
+          statusCode: error?.response?.status,
+          responseData: error?.response?.data,
+          error: error.message
+        });
+
+        throw new ServiceUnavailableError('Unable to delete your open tasks right now. Please try again shortly.');
+      }
+    }
+
+    logger.info('Open posted tasks deleted successfully', {
+      userId: profile.uid,
+      deletedTaskCount: openTasks.length
+    });
+
+    return openTasks.length;
+  }
+
   private static async assertNoActiveDeletionBlockers(profile: any): Promise<void> {
     const blockers: string[] = [];
     const taskServiceUrl = env.TASK_SERVICE_URL;
-    const paymentServiceUrl = env.PAYMENT_SERVICE_URL || process.env.PAYMENT_SERVICE_URL || 'http://localhost:4009';
     const profileId = profile?._id?.toString();
 
     logger.info('🔎 Running deletion blocker checks', {
       userId: profile?.uid,
       profileId,
-      hasTaskServiceUrl: Boolean(taskServiceUrl),
-      hasPaymentServiceUrl: Boolean(paymentServiceUrl)
+      hasTaskServiceUrl: Boolean(taskServiceUrl)
     });
 
     if (!env.SERVICE_AUTH_TOKEN) {
@@ -110,62 +204,13 @@ export class PrivacyService {
       throw new ServiceUnavailableError('Unable to verify active tasks right now. Please try again shortly.');
     }
 
-    try {
-      const statusesToCheck = ['pending', 'processing', 'held', 'disputed'];
-      let hasPendingPaymentOrDispute = false;
-      const matchedStatuses: string[] = [];
-
-      for (const status of statusesToCheck) {
-        logger.debug('Checking payment/dispute status before deletion', {
-          userId: profile.uid,
-          status
-        });
-        const txResponse = await axios.get(`${paymentServiceUrl}/api/v1/transactions/${profile.uid}`, {
-          params: {
-            status,
-            limit: 5,
-            linkedUserIds: profile._id?.toString()
-          },
-          headers: this.buildServiceHeaders(),
-          timeout: 7000
-        });
-
-        const txs = txResponse.data?.transactions || [];
-        if (Array.isArray(txs) && txs.length > 0) {
-          hasPendingPaymentOrDispute = true;
-          matchedStatuses.push(status);
-          break;
-        }
-      }
-
-      logger.info('Payment/dispute blocker check completed', {
-        userId: profile.uid,
-        hasPendingPaymentOrDispute,
-        matchedStatuses
-      });
-
-      if (hasPendingPaymentOrDispute) {
-        blockers.push('payment pending or dispute in progress');
-      }
-    } catch (error: any) {
-      logger.error('Failed to validate payment/dispute blockers before account deletion', {
-        userId: profile.uid,
-        paymentServiceUrl,
-        error: error.message,
-        statusCode: error?.response?.status,
-        responseData: error?.response?.data,
-        responseUrl: error?.config?.url
-      });
-      throw new ServiceUnavailableError('Unable to verify payment/dispute status right now. Please try again shortly.');
-    }
-
     if (blockers.length > 0) {
       logger.warn('Deletion blocked due to active dependencies', {
         userId: profile.uid,
         blockers
       });
       throw new BadRequestError(
-        `Account cannot be deleted while you have ${blockers.join(' and ')}. Complete/cancel active tasks and resolve pending payments/disputes first.`
+        `Account cannot be deleted while you have ${blockers.join(' and ')}. Complete or cancel your active tasks first.`
       );
     }
 
@@ -602,6 +647,8 @@ export class PrivacyService {
       throw new BadRequestError('Account deletion has already been requested');
     }
 
+    const deletedOpenTaskCount = await this.deleteOpenPostedTasks(profile);
+
     await this.assertNoActiveDeletionBlockers(profile);
 
     // Schedule deletion for 24-48 hours from now (default 48h)
@@ -637,7 +684,8 @@ export class PrivacyService {
     logger.warn('⚠️ Account deletion scheduled', {
       userId,
       scheduledFor: deletionDate,
-      graceHours
+      graceHours,
+      deletedOpenTaskCount
     });
 
     return deletionDate;
