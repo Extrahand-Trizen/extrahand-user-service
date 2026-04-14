@@ -10,6 +10,140 @@ import { auth } from '../config/firebase';
 import { statsService } from './StatsService';
 
 export class ProfileService {
+  static async getCertificateReviewQueue(params: {
+    page: number;
+    limit: number;
+    uid?: string;
+    q?: string;
+    city?: string;
+    status?: 'pending' | 'verified' | 'rejected';
+  }): Promise<{
+    items: any[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> {
+    this.checkConnection();
+
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
+    const skip = (page - 1) * limit;
+    const status = params.status || 'pending';
+    const uid = params.uid?.trim();
+    const q = params.q?.trim();
+    const city = params.city?.trim();
+    const certificateStatusMatch =
+      status === 'pending'
+        ? { $in: ['pending', null] }
+        : status;
+
+    const profileMatch: any = {
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+    };
+    const andFilters: any[] = [];
+
+    if (uid) {
+      andFilters.push({ uid });
+    } else if (q && q.length >= 2) {
+      const searchRegex = new RegExp(q, 'i');
+      andFilters.push({
+        $or: [
+        { uid: searchRegex },
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        ],
+      });
+    }
+
+    if (city) {
+      const cityRegex = new RegExp(city, 'i');
+      andFilters.push({
+        $or: [{ 'location.addressDetails.city': cityRegex }, { city: cityRegex }],
+      });
+    }
+
+    if (andFilters.length > 0) {
+      profileMatch.$and = andFilters;
+    }
+
+    const pipeline: any[] = [
+      { $match: profileMatch },
+      { $unwind: { path: '$skills.list', includeArrayIndex: 'skillIndex' } },
+      { $unwind: { path: '$skills.list.certificates', includeArrayIndex: 'certificateIndex' } },
+      {
+        $match: {
+          'skills.list.certificates.documentUrl': { $exists: true, $nin: [null, ''] },
+          'skills.list.certificates.status': certificateStatusMatch,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          uid: '$uid',
+          name: '$name',
+          email: '$email',
+          phone: '$phone',
+          city: { $ifNull: ['$location.addressDetails.city', '$city'] },
+          skillIndex: '$skillIndex',
+          skillName: '$skills.list.name',
+          certificateIndex: '$certificateIndex',
+          certificate: {
+            title: '$skills.list.certificates.title',
+            issuedBy: '$skills.list.certificates.issuedBy',
+            issuedDate: '$skills.list.certificates.issuedDate',
+            uploadedAt: '$skills.list.certificates.uploadedAt',
+            documentUrl: '$skills.list.certificates.documentUrl',
+            verificationType: '$skills.list.certificates.verificationType',
+            certificateType: '$skills.list.certificates.certificateType',
+            issuingAuthority: '$skills.list.certificates.issuingAuthority',
+            certificateNumber: '$skills.list.certificates.certificateNumber',
+            issueDate: '$skills.list.certificates.issueDate',
+            expiryDate: '$skills.list.certificates.expiryDate',
+            status: '$skills.list.certificates.status',
+            reviewedBy: '$skills.list.certificates.reviewedBy',
+            reviewedAt: '$skills.list.certificates.reviewedAt',
+            rejectionReason: '$skills.list.certificates.rejectionReason',
+            reviewNotes: '$skills.list.certificates.reviewNotes',
+          },
+          sortDate: {
+            $ifNull: [
+              '$skills.list.certificates.uploadedAt',
+              {
+                $ifNull: [
+                  '$skills.list.certificates.issueDate',
+                  {
+                    $ifNull: ['$skills.list.certificates.issuedDate', '$updatedAt'],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      { $sort: { sortDate: -1 } },
+      {
+        $facet: {
+          items: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    const [result] = await Profile.aggregate(pipeline);
+    const items = result?.items || [];
+    const total = result?.totalCount?.[0]?.count || 0;
+
+    return {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   private static normalizePortfolio(portfolio: any): any[] {
     if (!Array.isArray(portfolio)) {
       return [];

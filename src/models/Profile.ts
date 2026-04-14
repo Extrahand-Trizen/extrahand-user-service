@@ -252,6 +252,7 @@ const ProfileSchema = new Schema<IProfile>({
         title: String,
         issuedBy: String,
         issuedDate: Date,
+        uploadedAt: Date,
         documentUrl: String,
         verificationType: {
           type: String,
@@ -266,7 +267,11 @@ const ProfileSchema = new Schema<IProfile>({
           type: String,
           enum: ['pending', 'verified', 'rejected'],
           default: 'pending'
-        }
+        },
+        reviewedBy: String,
+        reviewedAt: Date,
+        rejectionReason: String,
+        reviewNotes: String
       }],
       verified: { type: Boolean, default: false }
     }],
