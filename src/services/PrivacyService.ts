@@ -545,10 +545,18 @@ export class PrivacyService {
       return 0;
     }
 
+    const profile = await Profile.findOne({ uid: userId }).select('_id uid').lean();
+    const profileId = profile?._id?.toString();
+    if (!profileId) {
+      logger.warn('Open tasks count requested but profile not found', { userId });
+      return 0;
+    }
+
     try {
       const response = await axios.get(`${taskServiceUrl}/api/v1/tasks`, {
         params: {
-          posterUid: userId,
+          // requesterId is the canonical owner key used by "My Tasks"
+          requesterId: profileId,
           status: 'open',
           limit: 1,
           page: 1
@@ -556,9 +564,10 @@ export class PrivacyService {
         headers: {
           'X-Service-Auth': serviceAuthToken,
           'X-User-Id': userId,
+          'X-Profile-Id': profileId,
           'X-Service-Name': 'extrahand-user-service'
         },
-        timeout: 7000
+        timeout: 4000
       });
 
       const payload = response.data || {};
