@@ -35,6 +35,37 @@ export class UploadController {
   }
 
   /**
+   * POST /api/v1/uploads/certificate
+   */
+  static async uploadCertificate(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const { uid } = req.user!;
+    const file = (req as any).file;
+
+    if (!file) {
+      res.status(400).json({
+        success: false,
+        error: 'No image file provided'
+      });
+      return;
+    }
+
+    const result = await UploadService.uploadCertificate(
+      uid,
+      file.buffer,
+      file.originalname || 'certificate.jpg',
+      file.mimetype
+    );
+
+    res.json({
+      success: true,
+      data: {
+        url: result.url,
+        key: result.key
+      }
+    });
+  }
+
+  /**
    * DELETE /api/v1/uploads/profile-picture
    */
   static async deleteProfilePicture(req: AuthenticatedRequest, res: Response): Promise<void> {

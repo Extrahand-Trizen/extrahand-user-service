@@ -28,6 +28,13 @@ export interface IProfile extends Document {
         issuedBy: string;
         issuedDate: Date;
         documentUrl: string;
+        verificationType?: 'certified' | 'licensed';
+        certificateType?: string;
+        issuingAuthority?: string;
+        certificateNumber?: string;
+        issueDate?: Date;
+        expiryDate?: Date;
+        status?: 'pending' | 'verified' | 'rejected';
       }>;
       verified?: boolean;
     }>;
@@ -245,7 +252,21 @@ const ProfileSchema = new Schema<IProfile>({
         title: String,
         issuedBy: String,
         issuedDate: Date,
-        documentUrl: String
+        documentUrl: String,
+        verificationType: {
+          type: String,
+          enum: ['certified', 'licensed']
+        },
+        certificateType: String,
+        issuingAuthority: String,
+        certificateNumber: String,
+        issueDate: Date,
+        expiryDate: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'verified', 'rejected'],
+          default: 'pending'
+        }
       }],
       verified: { type: Boolean, default: false }
     }],
@@ -506,6 +527,9 @@ const ProfileSchema = new Schema<IProfile>({
     deletionRequested: { type: Boolean, default: false },
     deletionRequestedAt: Date,
     deletionScheduledFor: Date,
+    accountDeleted: { type: Boolean, default: false },
+    accountDeletedAt: Date,
+    accountDeletionReason: String,
     lastDataExport: Date,
     dataRetentionExpiry: Date
   },

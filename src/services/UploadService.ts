@@ -98,6 +98,45 @@ export class UploadService {
   }
 
   /**
+   * Upload certificate image and return URL/key.
+   * This endpoint is dedicated for verification certificate uploads and must
+   * never update profile photoURL.
+   */
+  static async uploadCertificate(
+    uid: string,
+    fileBuffer: Buffer,
+    filename: string,
+    mimetype: string
+  ): Promise<{ url: string; key: string }> {
+    if (!fileBuffer || !filename) {
+      throw new BadRequestError('No image file provided');
+    }
+
+    const result = await uploadFile(
+      fileBuffer,
+      filename,
+      mimetype,
+      'certificates',
+      {
+        userId: uid,
+        type: 'certificate'
+      }
+    );
+
+    logger.info('Certificate image uploaded', {
+      uid,
+      url: result.url,
+      key: result.key,
+      provider: getStorageType()
+    });
+
+    return {
+      url: result.url,
+      key: result.key
+    };
+  }
+
+  /**
    * Upload generic document (image/pdf) and return URL/key.
    * Caller is responsible for persisting the URL to the appropriate model.
    */

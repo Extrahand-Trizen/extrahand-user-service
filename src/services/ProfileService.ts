@@ -107,11 +107,15 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses createdAt updatedAt')
+      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses dataPrivacy createdAt updatedAt')
       .lean();
 
     if (!profile) {
       throw new NotFoundError('Profile not found. Please complete the onboarding process.');
+    }
+
+    if ((profile as any).dataPrivacy?.accountDeleted) {
+      throw new BadRequestError('This profile is no longer available');
     }
 
     return profile as unknown as IProfileDocument;
@@ -121,10 +125,14 @@ export class ProfileService {
    * Get profile by UID (public profile)
    */
   static async getProfileByUid(uid: string): Promise<IProfileDocument> {
-    const profile = await Profile.findOne({ uid, isActive: true }).lean();
+    const profile = await Profile.findOne({ uid }).lean();
 
     if (!profile) {
       throw new NotFoundError('Profile not found');
+    }
+
+    if ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false) {
+      throw new NotFoundError('This profile is no longer available');
     }
 
     return profile as unknown as IProfileDocument;
@@ -179,15 +187,15 @@ export class ProfileService {
     try {
       const objectId = new mongoose.Types.ObjectId(profileId);
       const profile = await Profile.findById(objectId)
-        .select('_id uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL bio portfolio location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy createdAt isActive')
+        .select('_id uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt photoURL bio portfolio location totalTasks completedTasks postedTasks earnedAmount business profilePrivacy dataPrivacy createdAt isActive')
         .lean();
 
       if (!profile) {
         throw new NotFoundError('Profile not found');
       }
 
-      if (!profile.isActive) {
-        throw new NotFoundError('Profile not found');
+      if ((profile as any).dataPrivacy?.accountDeleted || !profile.isActive) {
+        throw new NotFoundError('This profile is no longer available');
       }
 
       return profile as unknown as IProfileDocument;
@@ -277,6 +285,8 @@ export class ProfileService {
     }
 
     const searchQuery: any = {
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
       $or: [
         { name: { $regex: query.trim(), $options: 'i' } },
         { email: { $regex: query.trim(), $options: 'i' } },
@@ -313,12 +323,20 @@ export class ProfileService {
     }
 
     try {
-      const normalizedCategory = category.toLowerCase().trim();
-      const compactCategory = normalizedCategory.replace(/[\s-]+/g, '_');
+      const sanitizeCategoryText = (value: string): string =>
+        value
+          .toLowerCase()
+          .trim()
+          .replace(/[\|,&]+/g, ' ')
+          .replace(/\s+/g, ' ');
+
+      const normalizedCategory = sanitizeCategoryText(category);
+      const compactCategory = normalizedCategory.replace(/[\s/\-]+/g, '_');
 
       const categoryAliasMap: Record<string, string[]> = {
         cleaning: ['cleaning', 'house_cleaning', 'home_cleaning', 'deep_cleaning', 'maid', 'housekeeping', 'car_wash', 'car_washing', 'laundry'],
-        repair: ['repair', 'handyperson', 'handyman', 'plumbing', 'electrical', 'carpentry', 'painting', 'appliances', 'it_support'],
+        repair: ['repair', 'handyperson', 'handyman', 'plumbing', 'electrical', 'carpentry', 'painting', 'appliances', 'it_support', 'laptop_repair', 'computer_repair', 'device_repair'],
+        it_support: ['it_support', 'tech_support', 'computer_repair', 'laptop_repair', 'software_installation', 'network_setup'],
         delivery: ['delivery', 'courier', 'moving', 'removals', 'driving', 'driver'],
         assembly: ['assembly', 'furniture_assembly', 'installation', 'mounting'],
         gardening: ['gardening', 'landscaping', 'lawn_care', 'tree_services'],
@@ -326,33 +344,54 @@ export class ProfileService {
         other: ['other'],
       };
 
-      const aliasTokens = categoryAliasMap[compactCategory] || [];
+      const slashSegments = normalizedCategory
+        .split(/[\//]+/)
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+      const wordSegments = normalizedCategory
+        .split(/[\s/\-]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 2);
+
+      const aliasSeedTokens = Array.from(new Set([compactCategory, ...slashSegments.map((segment) => segment.replace(/[\s\-]+/g, '_'))]));
+      const aliasTokens = aliasSeedTokens.flatMap((token) => categoryAliasMap[token] || []);
+
       const rawTokens = [
         normalizedCategory,
         compactCategory,
         compactCategory.replace(/_/g, '-'),
         compactCategory.replace(/_/g, ' '),
+        ...slashSegments,
+        ...wordSegments,
         ...aliasTokens,
       ];
       const tokens = Array.from(
         new Set(
           rawTokens
-            .map((token) => token.toLowerCase().trim())
+            .map((token) => token.toLowerCase().trim().replace(/[\s/\-]+/g, '_'))
             .filter((token) => token.length > 0)
         )
       );
 
+      const escapedTokens = tokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      const exactTokenRegexes = escapedTokens.map(
+        (token) => new RegExp(`^${token.replace(/_/g, '[\\s_\\-/]+')}$`, 'i')
+      );
+
       const regexTerms = tokens
         .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-        .map((token) => token.replace(/_/g, '[\\s_-]'));
+        .map((token) => token.replace(/_/g, '[\\s_\\-/]+'));
       const tokenRegex = new RegExp(`(${regexTerms.join('|')})`, 'i');
 
       const users = await Profile.find({
-        roles: 'tasker',
+        roles: { $in: ['tasker', 'both'] },
         isActive: true,
         $or: [
           { 'skills.primaryCategory': { $in: tokens } },
+          { 'skills.primaryCategory': { $in: exactTokenRegexes } },
           { 'skills.list.category': { $in: tokens } },
+          { 'skills.list.category': { $in: exactTokenRegexes } },
           { 'skills.list.name': tokenRegex },
         ],
       })
@@ -372,7 +411,7 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          roles: ['tasker'],
+          roles: ['tasker', 'both'],
           isActive: true,
           isVerified: 'not-required',
         },

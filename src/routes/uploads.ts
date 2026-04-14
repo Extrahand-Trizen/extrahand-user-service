@@ -44,6 +44,9 @@ const handleMulterSingle = (fieldName: string) => (req: any, res: any, next: any
 // POST /api/v1/uploads/profile-picture
 router.post('/profile-picture', handleMulterSingle('image'), asyncHandler(UploadController.uploadProfilePicture));
 
+// POST /api/v1/uploads/certificate
+router.post('/certificate', handleMulterSingle('image'), asyncHandler(UploadController.uploadCertificate));
+
 // DELETE /api/v1/uploads/profile-picture
 router.delete('/profile-picture', asyncHandler(UploadController.deleteProfilePicture));
 

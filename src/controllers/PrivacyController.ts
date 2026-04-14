@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { PrivacyService } from '../services/PrivacyService';
 import { validateEnv } from '../config/env';
+import logger from '../config/logger';
 
 const env = validateEnv();
 
@@ -91,13 +92,37 @@ export class PrivacyController {
   }
 
   /**
+   * GET /api/v1/privacy/open-tasks-count
+   */
+  static async getOpenTasksCount(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user!.uid;
+    const openTasksCount = await PrivacyService.getOpenTasksCount(
+      userId,
+      env.TASK_SERVICE_URL,
+      env.SERVICE_AUTH_TOKEN || ''
+    );
+
+    res.json({
+      success: true,
+      openTasksCount
+    });
+  }
+
+  /**
    * DELETE /api/v1/privacy/delete-account
    */
   static async requestDeletion(req: AuthenticatedRequest, res: Response): Promise<void> {
     const userId = req.user!.uid;
     const { confirm, reason } = req.body;
 
+    logger.info('Delete-account API called', {
+      userId,
+      confirm: Boolean(confirm),
+      hasReason: Boolean(reason && String(reason).trim())
+    });
+
     if (!confirm) {
+      logger.warn('Delete-account API rejected: confirmation missing', { userId });
       res.status(400).json({
         success: false,
         error: 'Confirmation required',
@@ -108,12 +133,17 @@ export class PrivacyController {
 
     const deletionDate = await PrivacyService.requestAccountDeletion(userId, reason);
 
+    logger.info('Delete-account API scheduled deletion successfully', {
+      userId,
+      deletionScheduledFor: deletionDate
+    });
+
     res.json({
       success: true,
       message: 'Account deletion has been scheduled',
       deletionScheduledFor: deletionDate,
-      gracePeriod: '30 days',
-      note: 'You can cancel this request within 30 days by calling POST /api/v1/privacy/cancel-deletion'
+      gracePeriod: '24-48 hours',
+      note: 'Open posted tasks are deleted first. Deletion is blocked only while active tasks or accepted applications exist. You can cancel this request until the scheduled deletion time by calling POST /api/v1/privacy/cancel-deletion.'
     });
   }
 
