@@ -27,11 +27,12 @@ export class PrivacyService {
     return 'Customer (account deleted)';
   }
 
-  private static buildServiceHeaders(userId?: string): Record<string, string> {
+  private static buildServiceHeaders(userId?: string, profileId?: string): Record<string, string> {
     return {
       'X-Service-Auth': env.SERVICE_AUTH_TOKEN || '',
       'X-Service-Name': 'extrahand-user-service',
-      ...(userId ? { 'X-User-Id': userId } : {})
+      ...(userId ? { 'X-User-Id': userId } : {}),
+      ...(profileId ? { 'X-Profile-Id': profileId } : {})
     };
   }
 
@@ -47,22 +48,23 @@ export class PrivacyService {
     try {
       if (taskServiceUrl) {
         const statuses = 'assigned,started,in_progress,review';
+        const profileId = profile._id?.toString();
         const [asPoster, asTasker] = await Promise.all([
           axios.get(`${taskServiceUrl}/api/v1/tasks`, {
             params: { posterUid: profile.uid, status: statuses, limit: 1 },
-            headers: this.buildServiceHeaders(),
+            headers: this.buildServiceHeaders(profile.uid, profileId),
             timeout: 7000
           }),
           axios.get(`${taskServiceUrl}/api/v1/tasks`, {
             params: { assigneeId: profile._id?.toString(), status: statuses, limit: 1 },
-            headers: this.buildServiceHeaders(),
+            headers: this.buildServiceHeaders(profile.uid, profileId),
             timeout: 7000
           })
         ]);
 
         const acceptedApplicationsRes = await axios.get(`${taskServiceUrl}/api/v1/applications`, {
           params: { mine: true, status: 'accepted', limit: 1 },
-          headers: this.buildServiceHeaders(profile.uid),
+          headers: this.buildServiceHeaders(profile.uid, profileId),
           timeout: 7000
         });
 
