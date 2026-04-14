@@ -50,6 +50,7 @@
     "FIREBASE_CLIENT_X509_CERT_URL": "YOUR_FIREBASE_CLIENT_X509_CERT_URL",
     "SERVICE_AUTH_TOKEN": "YOUR_SERVICE_AUTH_TOKEN_HERE",
     "TASK_SERVICE_URL": "http://srv-captain--extrahand-task-service:4002",
+    "PAYMENT_SERVICE_URL": "http://srv-captain--extrahand-payment-service:4009",
     "MESSAGING_SERVICE_URL": "http://srv-captain--extrahand-messaging-service:4006",
     "VERIFICATION_SERVICE_URL": "http://srv-captain--extrahand-user-verification:4004"
   },

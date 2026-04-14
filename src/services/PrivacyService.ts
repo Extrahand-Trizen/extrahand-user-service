@@ -39,7 +39,7 @@ export class PrivacyService {
   private static async assertNoActiveDeletionBlockers(profile: any): Promise<void> {
     const blockers: string[] = [];
     const taskServiceUrl = env.TASK_SERVICE_URL;
-    const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:4003';
+    const paymentServiceUrl = env.PAYMENT_SERVICE_URL || process.env.PAYMENT_SERVICE_URL || 'http://localhost:4009';
 
     if (!env.SERVICE_AUTH_TOKEN) {
       throw new BadRequestError('Unable to validate account deletion right now. Please try again shortly.');
@@ -116,7 +116,11 @@ export class PrivacyService {
     } catch (error: any) {
       logger.error('Failed to validate payment/dispute blockers before account deletion', {
         userId: profile.uid,
-        error: error.message
+        paymentServiceUrl,
+        error: error.message,
+        statusCode: error?.response?.status,
+        responseData: error?.response?.data,
+        responseUrl: error?.config?.url
       });
       throw new BadRequestError('Unable to verify payment/dispute status right now. Please try again shortly.');
     }
