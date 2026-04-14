@@ -1,6 +1,6 @@
 import Profile from '../models/Profile';
 import Consent, { IConsent } from '../models/Consent';
-import { NotFoundError, BadRequestError } from '../errors/AppError';
+import { NotFoundError, BadRequestError, ServiceUnavailableError } from '../errors/AppError';
 import logger from '../config/logger';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
@@ -40,15 +40,30 @@ export class PrivacyService {
     const blockers: string[] = [];
     const taskServiceUrl = env.TASK_SERVICE_URL;
     const paymentServiceUrl = env.PAYMENT_SERVICE_URL || process.env.PAYMENT_SERVICE_URL || 'http://localhost:4009';
+    const profileId = profile?._id?.toString();
+
+    logger.info('🔎 Running deletion blocker checks', {
+      userId: profile?.uid,
+      profileId,
+      hasTaskServiceUrl: Boolean(taskServiceUrl),
+      hasPaymentServiceUrl: Boolean(paymentServiceUrl)
+    });
 
     if (!env.SERVICE_AUTH_TOKEN) {
-      throw new BadRequestError('Unable to validate account deletion right now. Please try again shortly.');
+      logger.error('Deletion blocker checks unavailable: SERVICE_AUTH_TOKEN missing', {
+        userId: profile?.uid
+      });
+      throw new ServiceUnavailableError('Account deletion checks are temporarily unavailable. Please try again shortly.');
     }
 
     try {
       if (taskServiceUrl) {
         const statuses = 'assigned,started,in_progress,review';
-        const profileId = profile._id?.toString();
+        logger.debug('Checking active tasks/applications before deletion', {
+          userId: profile.uid,
+          profileId,
+          statuses
+        });
         const [asPoster, asTasker] = await Promise.all([
           axios.get(`${taskServiceUrl}/api/v1/tasks`, {
             params: { posterUid: profile.uid, status: statuses, limit: 1 },
@@ -72,6 +87,13 @@ export class PrivacyService {
         const taskerTasks = asTasker.data?.tasks || asTasker.data?.data || [];
         const acceptedApplications = acceptedApplicationsRes.data?.applications || acceptedApplicationsRes.data?.data || [];
 
+        logger.info('Task/application blocker check completed', {
+          userId: profile.uid,
+          posterTasksCount: Array.isArray(posterTasks) ? posterTasks.length : 0,
+          taskerTasksCount: Array.isArray(taskerTasks) ? taskerTasks.length : 0,
+          acceptedApplicationsCount: Array.isArray(acceptedApplications) ? acceptedApplications.length : 0
+        });
+
         if (
           (Array.isArray(posterTasks) && posterTasks.length > 0) ||
           (Array.isArray(taskerTasks) && taskerTasks.length > 0) ||
@@ -85,14 +107,19 @@ export class PrivacyService {
         userId: profile.uid,
         error: error.message
       });
-      throw new BadRequestError('Unable to verify active tasks right now. Please try again shortly.');
+      throw new ServiceUnavailableError('Unable to verify active tasks right now. Please try again shortly.');
     }
 
     try {
       const statusesToCheck = ['pending', 'processing', 'held', 'disputed'];
       let hasPendingPaymentOrDispute = false;
+      const matchedStatuses: string[] = [];
 
       for (const status of statusesToCheck) {
+        logger.debug('Checking payment/dispute status before deletion', {
+          userId: profile.uid,
+          status
+        });
         const txResponse = await axios.get(`${paymentServiceUrl}/api/v1/transactions/${profile.uid}`, {
           params: {
             status,
@@ -106,9 +133,16 @@ export class PrivacyService {
         const txs = txResponse.data?.transactions || [];
         if (Array.isArray(txs) && txs.length > 0) {
           hasPendingPaymentOrDispute = true;
+          matchedStatuses.push(status);
           break;
         }
       }
+
+      logger.info('Payment/dispute blocker check completed', {
+        userId: profile.uid,
+        hasPendingPaymentOrDispute,
+        matchedStatuses
+      });
 
       if (hasPendingPaymentOrDispute) {
         blockers.push('payment pending or dispute in progress');
@@ -122,14 +156,22 @@ export class PrivacyService {
         responseData: error?.response?.data,
         responseUrl: error?.config?.url
       });
-      throw new BadRequestError('Unable to verify payment/dispute status right now. Please try again shortly.');
+      throw new ServiceUnavailableError('Unable to verify payment/dispute status right now. Please try again shortly.');
     }
 
     if (blockers.length > 0) {
+      logger.warn('Deletion blocked due to active dependencies', {
+        userId: profile.uid,
+        blockers
+      });
       throw new BadRequestError(
         `Account cannot be deleted while you have ${blockers.join(' and ')}. Complete/cancel active tasks and resolve pending payments/disputes first.`
       );
     }
+
+    logger.info('Deletion blocker checks passed', {
+      userId: profile.uid
+    });
   }
 
   /**
@@ -541,6 +583,11 @@ export class PrivacyService {
    * Request account deletion
    */
   static async requestAccountDeletion(userId: string, reason?: string): Promise<Date> {
+    logger.info('🗑️ Account deletion request started', {
+      userId,
+      hasReason: Boolean(reason && reason.trim())
+    });
+
     const profile = await Profile.findOne({ uid: userId });
 
     if (!profile) {
@@ -589,7 +636,8 @@ export class PrivacyService {
 
     logger.warn('⚠️ Account deletion scheduled', {
       userId,
-      scheduledFor: deletionDate
+      scheduledFor: deletionDate,
+      graceHours
     });
 
     return deletionDate;

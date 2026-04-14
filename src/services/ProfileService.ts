@@ -312,12 +312,20 @@ export class ProfileService {
     }
 
     try {
-      const normalizedCategory = category.toLowerCase().trim();
-      const compactCategory = normalizedCategory.replace(/[\s-]+/g, '_');
+      const sanitizeCategoryText = (value: string): string =>
+        value
+          .toLowerCase()
+          .trim()
+          .replace(/[\|,&]+/g, ' ')
+          .replace(/\s+/g, ' ');
+
+      const normalizedCategory = sanitizeCategoryText(category);
+      const compactCategory = normalizedCategory.replace(/[\s/\-]+/g, '_');
 
       const categoryAliasMap: Record<string, string[]> = {
         cleaning: ['cleaning', 'house_cleaning', 'home_cleaning', 'deep_cleaning', 'maid', 'housekeeping', 'car_wash', 'car_washing', 'laundry'],
-        repair: ['repair', 'handyperson', 'handyman', 'plumbing', 'electrical', 'carpentry', 'painting', 'appliances', 'it_support'],
+        repair: ['repair', 'handyperson', 'handyman', 'plumbing', 'electrical', 'carpentry', 'painting', 'appliances', 'it_support', 'laptop_repair', 'computer_repair', 'device_repair'],
+        it_support: ['it_support', 'tech_support', 'computer_repair', 'laptop_repair', 'software_installation', 'network_setup'],
         delivery: ['delivery', 'courier', 'moving', 'removals', 'driving', 'driver'],
         assembly: ['assembly', 'furniture_assembly', 'installation', 'mounting'],
         gardening: ['gardening', 'landscaping', 'lawn_care', 'tree_services'],
@@ -325,33 +333,54 @@ export class ProfileService {
         other: ['other'],
       };
 
-      const aliasTokens = categoryAliasMap[compactCategory] || [];
+      const slashSegments = normalizedCategory
+        .split(/[\//]+/)
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+      const wordSegments = normalizedCategory
+        .split(/[\s/\-]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 2);
+
+      const aliasSeedTokens = Array.from(new Set([compactCategory, ...slashSegments.map((segment) => segment.replace(/[\s\-]+/g, '_'))]));
+      const aliasTokens = aliasSeedTokens.flatMap((token) => categoryAliasMap[token] || []);
+
       const rawTokens = [
         normalizedCategory,
         compactCategory,
         compactCategory.replace(/_/g, '-'),
         compactCategory.replace(/_/g, ' '),
+        ...slashSegments,
+        ...wordSegments,
         ...aliasTokens,
       ];
       const tokens = Array.from(
         new Set(
           rawTokens
-            .map((token) => token.toLowerCase().trim())
+            .map((token) => token.toLowerCase().trim().replace(/[\s/\-]+/g, '_'))
             .filter((token) => token.length > 0)
         )
       );
 
+      const escapedTokens = tokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      const exactTokenRegexes = escapedTokens.map(
+        (token) => new RegExp(`^${token.replace(/_/g, '[\\s_\\-/]+')}$`, 'i')
+      );
+
       const regexTerms = tokens
         .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-        .map((token) => token.replace(/_/g, '[\\s_-]'));
+        .map((token) => token.replace(/_/g, '[\\s_\\-/]+'));
       const tokenRegex = new RegExp(`(${regexTerms.join('|')})`, 'i');
 
       const users = await Profile.find({
-        roles: 'tasker',
+        roles: { $in: ['tasker', 'both'] },
         isActive: true,
         $or: [
           { 'skills.primaryCategory': { $in: tokens } },
+          { 'skills.primaryCategory': { $in: exactTokenRegexes } },
           { 'skills.list.category': { $in: tokens } },
+          { 'skills.list.category': { $in: exactTokenRegexes } },
           { 'skills.list.name': tokenRegex },
         ],
       })
@@ -371,7 +400,7 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          roles: ['tasker'],
+          roles: ['tasker', 'both'],
           isActive: true,
           isVerified: 'not-required',
         },

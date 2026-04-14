@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { PrivacyService } from '../services/PrivacyService';
 import { validateEnv } from '../config/env';
+import logger from '../config/logger';
 
 const env = validateEnv();
 
@@ -97,7 +98,14 @@ export class PrivacyController {
     const userId = req.user!.uid;
     const { confirm, reason } = req.body;
 
+    logger.info('Delete-account API called', {
+      userId,
+      confirm: Boolean(confirm),
+      hasReason: Boolean(reason && String(reason).trim())
+    });
+
     if (!confirm) {
+      logger.warn('Delete-account API rejected: confirmation missing', { userId });
       res.status(400).json({
         success: false,
         error: 'Confirmation required',
@@ -107,6 +115,11 @@ export class PrivacyController {
     }
 
     const deletionDate = await PrivacyService.requestAccountDeletion(userId, reason);
+
+    logger.info('Delete-account API scheduled deletion successfully', {
+      userId,
+      deletionScheduledFor: deletionDate
+    });
 
     res.json({
       success: true,
