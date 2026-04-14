@@ -20,6 +20,9 @@ router.post('/consent', asyncHandler(PrivacyController.updateConsent));
 // GET /api/v1/privacy/consent
 router.get('/consent', asyncHandler(PrivacyController.getConsent));
 
+// GET /api/v1/privacy/open-tasks-count
+router.get('/open-tasks-count', asyncHandler(PrivacyController.getOpenTasksCount));
+
 // DELETE /api/v1/privacy/delete-account
 router.delete('/delete-account', asyncHandler(PrivacyController.requestDeletion));
 

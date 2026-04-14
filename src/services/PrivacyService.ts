@@ -36,6 +36,41 @@ export class PrivacyService {
     };
   }
 
+  /**
+   * Count open tasks for the user (preflight check before showing deletion confirmation)
+   */
+  static async getOpenTasksCount(userId: string): Promise<number> {
+    const taskServiceUrl = env.TASK_SERVICE_URL;
+    if (!taskServiceUrl) return 0;
+
+    const profile = await Profile.findOne({ uid: userId }).lean();
+    if (!profile) return 0;
+
+    const profileId = (profile as any)._id?.toString();
+
+    try {
+      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks`, {
+        params: { requesterId: profileId, status: 'open', limit: 50 },
+        headers: {
+          'X-Service-Auth': env.SERVICE_AUTH_TOKEN || '',
+          'X-Service-Name': 'extrahand-user-service',
+          'X-User-Id': userId,
+          'X-Profile-Id': profileId,
+        },
+        timeout: 5000,
+      });
+
+      const tasks = response.data?.tasks || response.data?.data || [];
+      return Array.isArray(tasks) ? tasks.length : response.data?.pagination?.total || 0;
+    } catch (error: any) {
+      logger.warn('Failed to fetch open task count for deletion preflight', {
+        userId,
+        error: error.message,
+      });
+      return 0;
+    }
+  }
+
   private static async deleteOpenPostedTasks(profile: any): Promise<number> {
     const taskServiceUrl = env.TASK_SERVICE_URL;
     if (!taskServiceUrl) {
