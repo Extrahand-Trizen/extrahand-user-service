@@ -534,6 +534,53 @@ export class PrivacyService {
   }
 
   /**
+   * Get count of open tasks posted by user
+   */
+  static async getOpenTasksCount(
+    userId: string,
+    taskServiceUrl: string,
+    serviceAuthToken: string
+  ): Promise<number> {
+    if (!taskServiceUrl) {
+      return 0;
+    }
+
+    try {
+      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks`, {
+        params: {
+          posterUid: userId,
+          status: 'open',
+          limit: 1,
+          page: 1
+        },
+        headers: {
+          'X-Service-Auth': serviceAuthToken,
+          'X-User-Id': userId,
+          'X-Service-Name': 'extrahand-user-service'
+        },
+        timeout: 7000
+      });
+
+      const payload = response.data || {};
+      const totalFromMeta = Number(payload?.meta?.pagination?.total);
+      if (Number.isFinite(totalFromMeta)) {
+        return totalFromMeta;
+      }
+
+      const tasksFromData = payload?.data;
+      if (Array.isArray(tasksFromData)) {
+        return tasksFromData.length;
+      }
+
+      const tasks = payload?.tasks;
+      return Array.isArray(tasks) ? tasks.length : 0;
+    } catch (error) {
+      logger.warn('Failed to fetch open tasks count from Task Service:', error);
+      return 0;
+    }
+  }
+
+  /**
    * Update consent
    */
   static async updateConsent(

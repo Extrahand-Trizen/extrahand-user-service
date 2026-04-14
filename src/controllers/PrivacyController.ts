@@ -92,6 +92,23 @@ export class PrivacyController {
   }
 
   /**
+   * GET /api/v1/privacy/open-tasks-count
+   */
+  static async getOpenTasksCount(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user!.uid;
+    const openTasksCount = await PrivacyService.getOpenTasksCount(
+      userId,
+      env.TASK_SERVICE_URL,
+      env.SERVICE_AUTH_TOKEN || ''
+    );
+
+    res.json({
+      success: true,
+      openTasksCount
+    });
+  }
+
+  /**
    * DELETE /api/v1/privacy/delete-account
    */
   static async requestDeletion(req: AuthenticatedRequest, res: Response): Promise<void> {
