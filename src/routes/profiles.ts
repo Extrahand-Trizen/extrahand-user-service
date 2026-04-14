@@ -15,6 +15,11 @@ router.get('/search', authMiddleware, asyncHandler(ProfileController.searchProfi
 // POST /api/v1/profiles/internal/match-users - Service-to-service endpoint for matching users
 // Used by task-service to find taskers when a task is created
 router.post('/internal/match-users', serviceAuthMiddleware, asyncHandler(ProfileController.matchUsers));
+router.get(
+  '/internal/certificates/queue',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.getInternalCertificateQueue)
+);
 
 // Profile Stats Routes - must come before /me to avoid conflicts
 router.use('/me/stats', authMiddleware, profileStatsRoutes);

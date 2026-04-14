@@ -7,8 +7,143 @@ import { getConnectionStatus } from '../config/database';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
+import { statsService } from './StatsService';
 
 export class ProfileService {
+  static async getCertificateReviewQueue(params: {
+    page: number;
+    limit: number;
+    uid?: string;
+    q?: string;
+    city?: string;
+    status?: 'pending' | 'verified' | 'rejected';
+  }): Promise<{
+    items: any[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> {
+    this.checkConnection();
+
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
+    const skip = (page - 1) * limit;
+    const status = params.status || 'pending';
+    const uid = params.uid?.trim();
+    const q = params.q?.trim();
+    const city = params.city?.trim();
+    const certificateStatusMatch =
+      status === 'pending'
+        ? { $in: ['pending', null] }
+        : status;
+
+    const profileMatch: any = {
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+    };
+    const andFilters: any[] = [];
+
+    if (uid) {
+      andFilters.push({ uid });
+    } else if (q && q.length >= 2) {
+      const searchRegex = new RegExp(q, 'i');
+      andFilters.push({
+        $or: [
+        { uid: searchRegex },
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        ],
+      });
+    }
+
+    if (city) {
+      const cityRegex = new RegExp(city, 'i');
+      andFilters.push({
+        $or: [{ 'location.addressDetails.city': cityRegex }, { city: cityRegex }],
+      });
+    }
+
+    if (andFilters.length > 0) {
+      profileMatch.$and = andFilters;
+    }
+
+    const pipeline: any[] = [
+      { $match: profileMatch },
+      { $unwind: { path: '$skills.list', includeArrayIndex: 'skillIndex' } },
+      { $unwind: { path: '$skills.list.certificates', includeArrayIndex: 'certificateIndex' } },
+      {
+        $match: {
+          'skills.list.certificates.documentUrl': { $exists: true, $nin: [null, ''] },
+          'skills.list.certificates.status': certificateStatusMatch,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          uid: '$uid',
+          name: '$name',
+          email: '$email',
+          phone: '$phone',
+          city: { $ifNull: ['$location.addressDetails.city', '$city'] },
+          skillIndex: '$skillIndex',
+          skillName: '$skills.list.name',
+          certificateIndex: '$certificateIndex',
+          certificate: {
+            title: '$skills.list.certificates.title',
+            issuedBy: '$skills.list.certificates.issuedBy',
+            issuedDate: '$skills.list.certificates.issuedDate',
+            uploadedAt: '$skills.list.certificates.uploadedAt',
+            documentUrl: '$skills.list.certificates.documentUrl',
+            verificationType: '$skills.list.certificates.verificationType',
+            certificateType: '$skills.list.certificates.certificateType',
+            issuingAuthority: '$skills.list.certificates.issuingAuthority',
+            certificateNumber: '$skills.list.certificates.certificateNumber',
+            issueDate: '$skills.list.certificates.issueDate',
+            expiryDate: '$skills.list.certificates.expiryDate',
+            status: '$skills.list.certificates.status',
+            reviewedBy: '$skills.list.certificates.reviewedBy',
+            reviewedAt: '$skills.list.certificates.reviewedAt',
+            rejectionReason: '$skills.list.certificates.rejectionReason',
+            reviewNotes: '$skills.list.certificates.reviewNotes',
+          },
+          sortDate: {
+            $ifNull: [
+              '$skills.list.certificates.uploadedAt',
+              {
+                $ifNull: [
+                  '$skills.list.certificates.issueDate',
+                  {
+                    $ifNull: ['$skills.list.certificates.issuedDate', '$updatedAt'],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      { $sort: { sortDate: -1 } },
+      {
+        $facet: {
+          items: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    const [result] = await Profile.aggregate(pipeline);
+    const items = result?.items || [];
+    const total = result?.totalCount?.[0]?.count || 0;
+
+    return {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   private static normalizePortfolio(portfolio: any): any[] {
     if (!Array.isArray(portfolio)) {
       return [];
@@ -220,10 +355,15 @@ export class ProfileService {
    */
   static async getProfilesBatch(profileIds: string[]): Promise<Map<string, {
     _id: mongoose.Types.ObjectId;
+    uid?: string;
     name: string;
     photoURL?: string | null;
     rating?: number;
     totalReviews?: number;
+    isVerified?: boolean;
+    isAadhaarVerified?: boolean;
+    isPANVerified?: boolean;
+    isBankVerified?: boolean;
   }>> {
     this.checkConnection();
 
@@ -243,16 +383,21 @@ export class ProfileService {
       }
 
       const profiles = await Profile.find({ _id: { $in: objectIds } })
-        .select('_id name photoURL rating totalReviews')
+        .select('_id uid name photoURL rating totalReviews isVerified isAadhaarVerified isPANVerified isBankVerified')
         .lean();
 
       profiles.forEach(profile => {
         profileMap.set(profile._id.toString(), {
           _id: profile._id,
+          uid: profile.uid,
           name: profile.name || 'Anonymous',
           photoURL: profile.photoURL || null,
           rating: profile.rating || 0,
           totalReviews: profile.totalReviews || 0,
+          isVerified: profile.isVerified || false,
+          isAadhaarVerified: profile.isAadhaarVerified || false,
+          isPANVerified: profile.isPANVerified || false,
+          isBankVerified: profile.isBankVerified || false,
         });
       });
 
@@ -1479,6 +1624,26 @@ export class ProfileService {
       throw new NotFoundError('User not found');
     }
 
+    // Try to enrich with real-time stats from task/review services.
+    let realTimeStats: {
+      totalTasks?: number;
+      completedTasks?: number;
+      postedTasks?: number;
+      totalReviews?: number;
+      avgRating?: number;
+    } = {};
+    try {
+      realTimeStats = await statsService.calculateAllStats(
+        profile._id.toString(),
+        profile.uid
+      );
+    } catch (error: any) {
+      logger.warn('Failed to fetch real-time stats for getUserForAdmin', {
+        userId,
+        error: error.message,
+      });
+    }
+
     // Return full profile data with admin-friendly format
     // Spread profile first, then override with admin-specific fields
     const result: any = {
@@ -1495,6 +1660,18 @@ export class ProfileService {
     result.status = profile.status || (profile.isActive ? 'active' : 'inactive');
     if (!result.email) result.email = '';
     if (!result.phone) result.phone = '';
+
+    // Prefer real-time values when available.
+    result.totalTasks = Number(realTimeStats.totalTasks ?? profile.totalTasks ?? 0);
+    result.completedTasks = Number(realTimeStats.completedTasks ?? profile.completedTasks ?? 0);
+    result.postedTasks = Number(realTimeStats.postedTasks ?? profile.postedTasks ?? 0);
+    result.totalReviews = Number(realTimeStats.totalReviews ?? profile.totalReviews ?? 0);
+    const liveRating = realTimeStats.avgRating;
+    result.rating = Number(
+      typeof liveRating === 'number' && liveRating > 0
+        ? Math.round(liveRating * 10) / 10
+        : profile.rating ?? 0
+    );
     
     return result;
   }

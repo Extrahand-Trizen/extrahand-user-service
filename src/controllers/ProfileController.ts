@@ -322,6 +322,55 @@ export class ProfileController {
   }
 
   /**
+   * GET /api/v1/profiles/internal/certificates/queue
+   * Service-to-service certificate review queue for admin-service.
+   */
+  static async getInternalCertificateQueue(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uid, q, status, city, page = '1', limit = '20' } = req.query;
+      const normalizedStatus = (status as string | undefined)?.trim() as
+        | 'pending'
+        | 'verified'
+        | 'rejected'
+        | undefined;
+
+      if (normalizedStatus && !['pending', 'verified', 'rejected'].includes(normalizedStatus)) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid status. Allowed: pending, verified, rejected',
+        });
+        return;
+      }
+
+      const queue = await ProfileService.getCertificateReviewQueue({
+        uid: uid as string | undefined,
+        q: q as string | undefined,
+        city: city as string | undefined,
+        status: normalizedStatus,
+        page: parseInt(page as string, 10) || 1,
+        limit: parseInt(limit as string, 10) || 20,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          items: queue.items,
+          pagination: queue.pagination,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Failed to fetch internal certificate queue', {
+        error: error.message,
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch certificate queue',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
    * POST /api/v1/profiles/internal/match-users
    * Service-to-service endpoint for finding matching users
    * Called by task-service when a task is created
