@@ -553,13 +553,9 @@ export class PrivacyService {
     }
 
     try {
-      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks`, {
+      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks/count/open`, {
         params: {
-          // requesterId is the canonical owner key used by "My Tasks"
-          requesterId: profileId,
-          status: 'open',
-          limit: 1,
-          page: 1
+          requesterId: profileId
         },
         headers: {
           'X-Service-Auth': serviceAuthToken,
@@ -567,25 +563,15 @@ export class PrivacyService {
           'X-Profile-Id': profileId,
           'X-Service-Name': 'extrahand-user-service'
         },
-        timeout: 4000
+        timeout: 2500
       });
 
       const payload = response.data || {};
-      const totalFromMeta = Number(payload?.meta?.pagination?.total);
-      if (Number.isFinite(totalFromMeta)) {
-        return totalFromMeta;
-      }
-
-      const tasksFromData = payload?.data;
-      if (Array.isArray(tasksFromData)) {
-        return tasksFromData.length;
-      }
-
-      const tasks = payload?.tasks;
-      return Array.isArray(tasks) ? tasks.length : 0;
+      const count = Number(payload?.openTasksCount);
+      return Number.isFinite(count) && count >= 0 ? count : 0;
     } catch (error) {
       logger.warn('Failed to fetch open tasks count from Task Service:', error);
-      return 0;
+      throw new ServiceUnavailableError('Unable to fetch open tasks count right now. Please try again shortly.');
     }
   }
 
