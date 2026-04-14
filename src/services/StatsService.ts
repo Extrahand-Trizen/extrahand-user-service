@@ -61,11 +61,11 @@ export class StatsService {
         (task: any) => task.status === 'completed'
       ).length;
 
-      // Query tasks where user is poster (using uid)
+      // Query tasks where user is poster (using profileId as requesterId)
       const postedTasksResponse = await axios.get(
         `${this.taskServiceUrl}/api/v1/tasks`,
         {
-          params: { posterUid: uid },
+          params: { requesterId: profileId },
           headers,
           timeout: 5000,
         }

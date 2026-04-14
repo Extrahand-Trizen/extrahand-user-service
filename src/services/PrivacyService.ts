@@ -101,18 +101,18 @@ export class PrivacyService {
         logger.info('🔍 Querying task-service for active tasks', {
           userId: profile.uid,
           profileId,
-          posterQuery: { posterUid: profile.uid, status: statuses },
+          posterQuery: { requesterId: profileId, status: statuses },
           taskerQuery: { assigneeId: profileId, status: statuses }
         });
 
         const [asPoster, asTasker] = await Promise.all([
           axios.get(`${taskServiceUrl}/api/v1/tasks`, {
-            params: { posterUid: profile.uid, status: statuses, limit: 1 },
+            params: { requesterId: profileId, status: statuses, limit: 1 },
             headers: this.buildServiceHeaders(profile.uid, profileId),
             timeout: 7000
           }),
           axios.get(`${taskServiceUrl}/api/v1/tasks`, {
-            params: { assigneeId: profile._id?.toString(), status: statuses, limit: 1 },
+            params: { assigneeId: profileId, status: statuses, limit: 1 },
             headers: this.buildServiceHeaders(profile.uid, profileId),
             timeout: 7000
           })
