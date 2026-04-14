@@ -7,6 +7,7 @@ import { getConnectionStatus } from '../config/database';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
+import { statsService } from './StatsService';
 
 export class ProfileService {
   private static normalizePortfolio(portfolio: any): any[] {
@@ -211,10 +212,15 @@ export class ProfileService {
    */
   static async getProfilesBatch(profileIds: string[]): Promise<Map<string, {
     _id: mongoose.Types.ObjectId;
+    uid?: string;
     name: string;
     photoURL?: string | null;
     rating?: number;
     totalReviews?: number;
+    isVerified?: boolean;
+    isAadhaarVerified?: boolean;
+    isPANVerified?: boolean;
+    isBankVerified?: boolean;
   }>> {
     this.checkConnection();
 
@@ -234,16 +240,21 @@ export class ProfileService {
       }
 
       const profiles = await Profile.find({ _id: { $in: objectIds } })
-        .select('_id name photoURL rating totalReviews')
+        .select('_id uid name photoURL rating totalReviews isVerified isAadhaarVerified isPANVerified isBankVerified')
         .lean();
 
       profiles.forEach(profile => {
         profileMap.set(profile._id.toString(), {
           _id: profile._id,
+          uid: profile.uid,
           name: profile.name || 'Anonymous',
           photoURL: profile.photoURL || null,
           rating: profile.rating || 0,
           totalReviews: profile.totalReviews || 0,
+          isVerified: profile.isVerified || false,
+          isAadhaarVerified: profile.isAadhaarVerified || false,
+          isPANVerified: profile.isPANVerified || false,
+          isBankVerified: profile.isBankVerified || false,
         });
       });
 
@@ -1427,6 +1438,26 @@ export class ProfileService {
       throw new NotFoundError('User not found');
     }
 
+    // Try to enrich with real-time stats from task/review services.
+    let realTimeStats: {
+      totalTasks?: number;
+      completedTasks?: number;
+      postedTasks?: number;
+      totalReviews?: number;
+      avgRating?: number;
+    } = {};
+    try {
+      realTimeStats = await statsService.calculateAllStats(
+        profile._id.toString(),
+        profile.uid
+      );
+    } catch (error: any) {
+      logger.warn('Failed to fetch real-time stats for getUserForAdmin', {
+        userId,
+        error: error.message,
+      });
+    }
+
     // Return full profile data with admin-friendly format
     // Spread profile first, then override with admin-specific fields
     const result: any = {
@@ -1443,6 +1474,18 @@ export class ProfileService {
     result.status = profile.status || (profile.isActive ? 'active' : 'inactive');
     if (!result.email) result.email = '';
     if (!result.phone) result.phone = '';
+
+    // Prefer real-time values when available.
+    result.totalTasks = Number(realTimeStats.totalTasks ?? profile.totalTasks ?? 0);
+    result.completedTasks = Number(realTimeStats.completedTasks ?? profile.completedTasks ?? 0);
+    result.postedTasks = Number(realTimeStats.postedTasks ?? profile.postedTasks ?? 0);
+    result.totalReviews = Number(realTimeStats.totalReviews ?? profile.totalReviews ?? 0);
+    const liveRating = realTimeStats.avgRating;
+    result.rating = Number(
+      typeof liveRating === 'number' && liveRating > 0
+        ? Math.round(liveRating * 10) / 10
+        : profile.rating ?? 0
+    );
     
     return result;
   }

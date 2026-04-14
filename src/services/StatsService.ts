@@ -45,33 +45,18 @@ export class StatsService {
         'x-service-name': 'user-service',
       };
 
-      // Query tasks where user is assignee (using profileId)
-      const assigneeTasksResponse = await axios.get(
-        `${this.taskServiceUrl}/api/v1/tasks`,
+      const statsResponse = await axios.get(
+        `${this.taskServiceUrl}/api/v1/stats/users/${profileId}`,
         {
-          params: { assigneeId: profileId },
+          params: { uid },
           headers,
           timeout: 5000,
         }
       );
 
-      const assigneeTasks = assigneeTasksResponse.data?.data || [];
-      const totalTasks = assigneeTasks.length;
-      const completedTasks = assigneeTasks.filter(
-        (task: any) => task.status === 'completed'
-      ).length;
-
-      // Query tasks where user is poster (using uid)
-      const postedTasksResponse = await axios.get(
-        `${this.taskServiceUrl}/api/v1/tasks`,
-        {
-          params: { posterUid: uid },
-          headers,
-          timeout: 5000,
-        }
-      );
-
-      const postedTasks = postedTasksResponse.data?.data?.length || 0;
+      const totalTasks = Number(statsResponse.data?.data?.totalTasks || 0);
+      const completedTasks = Number(statsResponse.data?.data?.completedTasks || 0);
+      const postedTasks = Number(statsResponse.data?.data?.postedTasks || 0);
 
       console.log(`📊 Calculated task stats for ${uid}:`, {
         totalTasks,
