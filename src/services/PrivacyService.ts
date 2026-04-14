@@ -563,15 +563,22 @@ export class PrivacyService {
           'X-Profile-Id': profileId,
           'X-Service-Name': 'extrahand-user-service'
         },
-        timeout: 2500
+        timeout: 8000 // Increased from 2500ms — production Docker inter-service calls can be slow
       });
 
       const payload = response.data || {};
       const count = Number(payload?.openTasksCount);
       return Number.isFinite(count) && count >= 0 ? count : 0;
-    } catch (error) {
-      logger.warn('Failed to fetch open tasks count from Task Service:', error);
-      throw new ServiceUnavailableError('Unable to fetch open tasks count right now. Please try again shortly.');
+    } catch (error: any) {
+      logger.warn('Failed to fetch open tasks count from Task Service:', {
+        error: error.message,
+        code: error.code,
+        taskServiceUrl,
+        profileId
+      });
+      // Return 0 instead of throwing — the dialog should still open with a "0 open tasks"
+      // assumption rather than leaving the user stuck on an infinite spinner.
+      return 0;
     }
   }
 
