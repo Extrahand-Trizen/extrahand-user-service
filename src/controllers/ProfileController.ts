@@ -12,10 +12,14 @@ import {
   getReviewBypassProfileOverrides,
 } from '../utils/reviewBypass';
 
-type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only';
+type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only' | 'private';
 
 function getPrivateProfileMessage(profile: any): string {
   const visibility = (profile?.profilePrivacy?.profileVisibility || 'registered_users') as ProfileVisibilityLevel;
+
+  if (visibility === 'private') {
+    return "This account is private. You can't view this profile.";
+  }
 
   if (visibility === 'connections_only') {
     return 'This profile is private and visible only to connections.';
@@ -88,6 +92,13 @@ async function hasWorkedWithTarget(viewerProfile: any, targetProfile: any): Prom
 
 async function canViewProfile(profile: any, viewerUid?: string): Promise<boolean> {
   const visibility = (profile?.profilePrivacy?.profileVisibility || 'registered_users') as ProfileVisibilityLevel;
+
+  if (visibility === 'private') {
+    if (!viewerUid) {
+      return false;
+    }
+    return viewerUid === profile.uid;
+  }
 
   if (visibility === 'public') {
     return true;

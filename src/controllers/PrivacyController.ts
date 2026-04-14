@@ -142,7 +142,7 @@ export class PrivacyController {
       success: true,
       message: 'Account deletion has been scheduled',
       deletionScheduledFor: deletionDate,
-      gracePeriod: '24-48 hours',
+      gracePeriod: '24-48 seconds',
       note: 'Open posted tasks are deleted first. Deletion is blocked only while active tasks or accepted applications exist. You can cancel this request until the scheduled deletion time by calling POST /api/v1/privacy/cancel-deletion.'
     });
   }

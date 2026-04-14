@@ -499,7 +499,7 @@ const ProfileSchema = new Schema<IProfile>({
   profilePrivacy: {
     profileVisibility: {
       type: String,
-      enum: ['public', 'registered_users', 'connections_only'],
+      enum: ['public', 'registered_users', 'connections_only', 'private'],
       default: 'registered_users'
     },
     showEarnings: {

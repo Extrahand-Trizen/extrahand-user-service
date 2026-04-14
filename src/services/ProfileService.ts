@@ -75,7 +75,8 @@ export class ProfileService {
     const visibility =
       profilePrivacy.profileVisibility === 'public' ||
       profilePrivacy.profileVisibility === 'registered_users' ||
-      profilePrivacy.profileVisibility === 'connections_only'
+      profilePrivacy.profileVisibility === 'connections_only' ||
+      profilePrivacy.profileVisibility === 'private'
         ? profilePrivacy.profileVisibility
         : 'registered_users';
 
