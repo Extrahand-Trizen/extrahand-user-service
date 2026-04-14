@@ -87,49 +87,32 @@ export class PrivacyService {
     }
 
     const profileId = profile?._id?.toString();
-    const openTasks = await this.fetchPostedTasksByStatus(profile, 'open');
 
-    logger.info('Open task cleanup check completed', {
-      userId: profile.uid,
-      openTasksCount: openTasks.length
-    });
+    try {
+      const response = await axios.delete(`${taskServiceUrl}/api/v1/cascade-delete/user/${profile.uid}/open-tasks`, {
+        headers: this.buildServiceHeaders(profile.uid, profileId),
+        timeout: 7000
+      });
 
-    if (openTasks.length === 0) {
-      return 0;
+      const payload = response.data?.data || response.data || {};
+      const deletedTaskCount = Number(payload.tasksDeleted || 0);
+
+      logger.info('Open posted tasks deleted successfully via task-service', {
+        userId: profile.uid,
+        deletedTaskCount
+      });
+
+      return deletedTaskCount;
+    } catch (error: any) {
+      logger.error('Failed to delete open tasks via task-service before account deletion', {
+        userId: profile.uid,
+        statusCode: error?.response?.status,
+        responseData: error?.response?.data,
+        error: error.message
+      });
+
+      throw new ServiceUnavailableError('Unable to delete your open tasks right now. Please try again shortly.');
     }
-
-    logger.info('Deleting open posted tasks before account deletion', {
-      userId: profile.uid,
-      taskIds: openTasks.map((task: any) => String(task._id || task.id)).filter(Boolean)
-    });
-
-    for (const task of openTasks) {
-      const taskId = String(task._id || task.id);
-
-      try {
-        await axios.delete(`${taskServiceUrl}/api/v1/tasks/${taskId}`, {
-          headers: this.buildServiceHeaders(profile.uid, profileId),
-          timeout: 7000
-        });
-      } catch (error: any) {
-        logger.error('Failed to delete open task before account deletion', {
-          userId: profile.uid,
-          taskId,
-          statusCode: error?.response?.status,
-          responseData: error?.response?.data,
-          error: error.message
-        });
-
-        throw new ServiceUnavailableError('Unable to delete your open tasks right now. Please try again shortly.');
-      }
-    }
-
-    logger.info('Open posted tasks deleted successfully', {
-      userId: profile.uid,
-      deletedTaskCount: openTasks.length
-    });
-
-    return openTasks.length;
   }
 
   private static async assertNoActiveDeletionBlockers(profile: any): Promise<void> {
