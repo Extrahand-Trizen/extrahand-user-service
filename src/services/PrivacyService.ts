@@ -36,50 +36,6 @@ export class PrivacyService {
     };
   }
 
-  private static extractTasks(response: any): any[] {
-    return response?.data?.tasks || response?.data?.data || response?.tasks || response?.data || [];
-  }
-
-  private static async fetchPostedTasksByStatus(profile: any, status: string): Promise<any[]> {
-    const taskServiceUrl = env.TASK_SERVICE_URL;
-    if (!taskServiceUrl) {
-      return [];
-    }
-
-    const profileId = profile?._id?.toString();
-    const tasks: any[] = [];
-    const pageSize = 50;
-    let page = 1;
-
-    while (true) {
-      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks`, {
-        params: {
-          posterUid: profile.uid,
-          status,
-          limit: pageSize,
-          page
-        },
-        headers: this.buildServiceHeaders(profile.uid, profileId),
-        timeout: 7000
-      });
-
-      const batch = this.extractTasks(response);
-      if (!Array.isArray(batch) || batch.length === 0) {
-        break;
-      }
-
-      tasks.push(...batch);
-
-      if (batch.length < pageSize) {
-        break;
-      }
-
-      page += 1;
-    }
-
-    return tasks;
-  }
-
   private static async deleteOpenPostedTasks(profile: any): Promise<number> {
     const taskServiceUrl = env.TASK_SERVICE_URL;
     if (!taskServiceUrl) {
