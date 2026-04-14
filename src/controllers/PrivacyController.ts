@@ -92,17 +92,6 @@ export class PrivacyController {
   }
 
   /**
-   * GET /api/v1/privacy/open-tasks-count
-   * Returns how many open tasks the user currently has.
-   * Used by the frontend to show an informed confirmation dialog before deletion.
-   */
-  static async getOpenTasksCount(req: AuthenticatedRequest, res: Response): Promise<void> {
-    const userId = req.user!.uid;
-    const count = await PrivacyService.getOpenTasksCount(userId);
-    res.json({ success: true, openTasksCount: count });
-  }
-
-  /**
    * DELETE /api/v1/privacy/delete-account
    */
   static async requestDeletion(req: AuthenticatedRequest, res: Response): Promise<void> {
