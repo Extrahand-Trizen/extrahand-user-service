@@ -26,7 +26,7 @@ export class ProfileService {
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
     const skip = (page - 1) * limit;
-    const status = params.status || 'pending';
+    const status = params.status;
     const uid = params.uid?.trim();
     const q = params.q?.trim();
     const city = params.city?.trim();
@@ -73,7 +73,9 @@ export class ProfileService {
       {
         $match: {
           'skills.list.certificates.documentUrl': { $exists: true, $nin: [null, ''] },
-          'skills.list.certificates.status': certificateStatusMatch,
+          ...(certificateStatusMatch
+            ? { 'skills.list.certificates.status': certificateStatusMatch }
+            : {}),
         },
       },
       {

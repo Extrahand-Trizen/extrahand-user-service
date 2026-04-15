@@ -20,6 +20,11 @@ router.get(
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalCertificateQueue)
 );
+router.put(
+  '/internal/:uid',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.updateProfileInternal)
+);
 
 // Profile Stats Routes - must come before /me to avoid conflicts
 router.use('/me/stats', authMiddleware, profileStatsRoutes);

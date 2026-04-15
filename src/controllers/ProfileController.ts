@@ -1174,6 +1174,42 @@ export class ProfileController {
   }
 
   /**
+   * PUT /api/v1/profiles/internal/:uid
+   * Internal service-to-service profile update endpoint.
+   * Currently used by admin-service certificate verification flow.
+   */
+  static async updateProfileInternal(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uid } = req.params;
+      if (!uid) {
+        res.status(400).json({
+          success: false,
+          error: 'uid is required',
+        });
+        return;
+      }
+
+      const profileData: Partial<IProfile> = req.body || {};
+      const updatedProfile = await ProfileService.updateProfile(uid, profileData);
+
+      res.json({
+        success: true,
+        message: 'Profile updated successfully',
+        profile: updatedProfile,
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.updateProfileInternal failed', {
+        uid: req.params?.uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to update profile',
+      });
+    }
+  }
+
+  /**
    * DELETE /api/v1/profiles/me
    */
   static async deleteProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
