@@ -737,6 +737,22 @@ export class PrivacyService {
   }
 
   /**
+   * Find the nearest scheduled account deletion time.
+   */
+  static async getNextScheduledDeletionTime(): Promise<Date | null> {
+    const nextProfile = await Profile.findOne({
+      'dataPrivacy.deletionRequested': true,
+      'dataPrivacy.deletionScheduledFor': { $type: 'date' }
+    })
+      .select('dataPrivacy.deletionScheduledFor')
+      .sort({ 'dataPrivacy.deletionScheduledFor': 1 })
+      .lean();
+
+    const scheduledFor = (nextProfile as { dataPrivacy?: { deletionScheduledFor?: Date } } | null)?.dataPrivacy?.deletionScheduledFor;
+    return scheduledFor ? new Date(scheduledFor) : null;
+  }
+
+  /**
    * Execute scheduled deletions (Internal/Cron job)
    * Actually delete accounts that have passed the grace period
    */
@@ -753,9 +769,13 @@ export class PrivacyService {
       'dataPrivacy.deletionScheduledFor': { $lte: now }
     }).lean();
 
-    logger.warn('🗑️ Executing scheduled deletions', { 
-      count: profilesToDelete.length 
-    });
+    if (profilesToDelete.length > 0) {
+      logger.warn('🗑️ Executing scheduled deletions', {
+        count: profilesToDelete.length
+      });
+    } else {
+      logger.debug('No scheduled deletions due right now');
+    }
 
     const deletionResults = [];
 

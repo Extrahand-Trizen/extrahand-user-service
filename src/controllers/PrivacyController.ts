@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../types';
 import { PrivacyService } from '../services/PrivacyService';
 import { validateEnv } from '../config/env';
 import logger from '../config/logger';
+import { triggerDeletionExecutorWakeup } from '../jobs/scheduledDeletionJob';
 
 const env = validateEnv();
 
@@ -132,6 +133,7 @@ export class PrivacyController {
     }
 
     const deletionDate = await PrivacyService.requestAccountDeletion(userId, reason);
+    triggerDeletionExecutorWakeup();
 
     logger.info('Delete-account API scheduled deletion successfully', {
       userId,
@@ -157,6 +159,7 @@ export class PrivacyController {
       getClientIp(req),
       req.get('user-agent') || ''
     );
+    triggerDeletionExecutorWakeup();
 
     res.json({
       success: true,

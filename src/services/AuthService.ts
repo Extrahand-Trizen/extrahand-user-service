@@ -105,6 +105,8 @@ export class AuthService {
       const uniqueFormats = [...new Set(searchFormats)];
 
       const searchQuery = {
+         'dataPrivacy.accountDeleted': { $ne: true },
+         isActive: { $ne: false },
          $or: uniqueFormats.map((format) => ({ phone: format })),
       };
 
@@ -166,6 +168,8 @@ export class AuthService {
       ];
       const uniqueFormats = [...new Set(searchFormats)];
       let profile = await Profile.findOne({
+         'dataPrivacy.accountDeleted': { $ne: true },
+         isActive: { $ne: false },
          $or: uniqueFormats.map((format) => ({ phone: format })),
       })
          .select("uid name isAadhaarVerified")
@@ -174,6 +178,8 @@ export class AuthService {
       // Fallback 1: match by last 10 digits (regex)
       if (!profile && tenDigitNumber.length === 10) {
          profile = await Profile.findOne({
+            'dataPrivacy.accountDeleted': { $ne: true },
+            isActive: { $ne: false },
             $or: [
                { phone: { $regex: new RegExp(`${tenDigitNumber}$`) } },
                { phone: { $regex: new RegExp(`^\\+?91?\\s*${tenDigitNumber}`) } },
@@ -187,6 +193,8 @@ export class AuthService {
       if (!profile && tenDigitNumber.length === 10) {
          const flexiblePattern = tenDigitNumber.split("").join("\\D*");
          profile = await Profile.findOne({
+            'dataPrivacy.accountDeleted': { $ne: true },
+            isActive: { $ne: false },
             phone: { $regex: new RegExp(flexiblePattern) },
          })
             .select("uid name isAadhaarVerified")
@@ -261,6 +269,37 @@ export class AuthService {
 
          // 3. Get or create profile based on mode
          let profile = await Profile.findOne({ uid }).lean();
+
+         // If this UID belongs to a deleted account, reactivate it for fresh onboarding.
+         if (profile && ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false)) {
+            // Format phone number for profile reuse.
+            const formattedPhone = cleanPhone.startsWith("91")
+               ? `+${cleanPhone}`
+               : `+91${cleanPhone}`;
+
+            const reactivated = await Profile.findOneAndUpdate(
+               { uid },
+               {
+                  $set: {
+                     name: name || "User",
+                     phone: formattedPhone,
+                     isActive: true,
+                     status: "active",
+                     updatedAt: Date.now(),
+                     'dataPrivacy.deletionRequested': false,
+                     'dataPrivacy.deletionRequestedAt': null,
+                     'dataPrivacy.deletionScheduledFor': null,
+                     'dataPrivacy.accountDeleted': false,
+                     'dataPrivacy.accountDeletedAt': null,
+                     'dataPrivacy.accountDeletionReason': null,
+                  },
+               },
+               { new: true }
+            ).lean();
+
+            profile = reactivated as any;
+            logger.info("Reactivated deleted profile during OTP auth", { uid, mode });
+         }
 
          if (mode === "login") {
             // Login mode: Try to get existing profile, create if doesn't exist (zombie user)
