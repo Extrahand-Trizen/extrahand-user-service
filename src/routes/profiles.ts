@@ -20,6 +20,11 @@ router.get(
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalCertificateQueue)
 );
+router.get(
+  '/internal/certificates/analytics',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.getInternalCertificateAnalytics)
+);
 router.put(
   '/internal/:uid',
   serviceAuthMiddleware,
