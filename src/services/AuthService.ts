@@ -460,40 +460,9 @@ export class AuthService {
       const DUMMY_PHONE_E164 = match.phoneE164;
       const DUMMY_DISPLAY_NAME = name || match.displayName;
 
-      let uid: string = "";
-
-      try {
-         const userRecord = await auth.createUser({
-            phoneNumber: DUMMY_PHONE_E164,
-            displayName: name || DUMMY_DISPLAY_NAME,
-         });
-         uid = userRecord.uid;
-         logger.info("Dev dummy Firebase user created", { uid });
-      } catch (err: any) {
-         if (err?.code === "auth/phone-number-already-exists") {
-            let found = false;
-            let pageToken: string | undefined;
-            do {
-               const listResult = await auth.listUsers(1000, pageToken);
-               const byPhone = listResult.users.find(
-                  (u) => u.phoneNumber === DUMMY_PHONE_E164
-               );
-               if (byPhone) {
-                  uid = byPhone.uid;
-                  found = true;
-                  break;
-               }
-               pageToken = listResult.pageToken;
-            } while (pageToken);
-            if (!found || !uid) {
-               logger.error("Dummy phone user exists in Firebase but could not resolve UID");
-               throw new InternalServerError("Could not resolve test user. Try running seed.");
-            }
-            logger.info("Dev dummy Firebase user already exists", { uid });
-         } else {
-            throw err;
-         }
-      }
+      // Keep dev OTP path fully local and deterministic; avoids external Firebase timeouts.
+      const uid = `local-test-${match.phoneLast10}`;
+      logger.info("Dev dummy UID resolved", { uid, phone: DUMMY_PHONE_E164 });
 
       let profile = await Profile.findOne({ uid }).lean();
       const formattedPhone = DUMMY_PHONE_E164;

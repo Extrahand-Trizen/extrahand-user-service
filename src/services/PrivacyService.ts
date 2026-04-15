@@ -6,17 +6,17 @@ import axios from 'axios';
 import { validateEnv } from '../config/env';
 
 const env = validateEnv();
-const MIN_DELETION_GRACE_HOURS = 24;
-const MAX_DELETION_GRACE_HOURS = 48;
-const DEFAULT_DELETION_GRACE_HOURS = 48;
+const MIN_DELETION_GRACE_SECONDS = 24;
+const MAX_DELETION_GRACE_SECONDS = 48;
+const DEFAULT_DELETION_GRACE_SECONDS = 48;
 
 export class PrivacyService {
-  private static getDeletionGraceHours(): number {
-    const raw = Number(process.env.ACCOUNT_DELETION_GRACE_HOURS || DEFAULT_DELETION_GRACE_HOURS);
+  private static getDeletionGraceSeconds(): number {
+    const raw = Number(process.env.ACCOUNT_DELETION_GRACE_SECONDS || DEFAULT_DELETION_GRACE_SECONDS);
     if (!Number.isFinite(raw)) {
-      return DEFAULT_DELETION_GRACE_HOURS;
+      return DEFAULT_DELETION_GRACE_SECONDS;
     }
-    return Math.min(MAX_DELETION_GRACE_HOURS, Math.max(MIN_DELETION_GRACE_HOURS, Math.floor(raw)));
+    return Math.min(MAX_DELETION_GRACE_SECONDS, Math.max(MIN_DELETION_GRACE_SECONDS, Math.floor(raw)));
   }
 
   private static getDeletionAlias(profile: any): string {
@@ -506,7 +506,7 @@ export class PrivacyService {
         },
         deleteAccount: {
           available: true,
-          gracePeriod: `${this.getDeletionGraceHours()} hours`,
+          gracePeriod: `${this.getDeletionGraceSeconds()} seconds`,
           description: 'Request account deletion',
           endpoint: '/api/v1/privacy/delete-account'
         },
@@ -520,8 +520,8 @@ export class PrivacyService {
         requested: true,
         requestedAt: profile.dataPrivacy.deletionRequestedAt,
         scheduledFor: profile.dataPrivacy.deletionScheduledFor,
-        hoursRemaining: profile.dataPrivacy.deletionScheduledFor
-          ? Math.max(0, Math.ceil((new Date(profile.dataPrivacy.deletionScheduledFor).getTime() - new Date().getTime()) / (1000 * 60 * 60)))
+        secondsRemaining: profile.dataPrivacy.deletionScheduledFor
+          ? Math.max(0, Math.ceil((new Date(profile.dataPrivacy.deletionScheduledFor).getTime() - new Date().getTime()) / 1000))
           : null
       } : {
         requested: false,
@@ -545,38 +545,33 @@ export class PrivacyService {
       return 0;
     }
 
+    const profile = await Profile.findOne({ uid: userId }).select('_id uid').lean();
+    const profileId = profile?._id?.toString();
+    if (!profileId) {
+      logger.warn('Open tasks count requested but profile not found', { userId });
+      return 0;
+    }
+
     try {
-      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks`, {
+      const response = await axios.get(`${taskServiceUrl}/api/v1/tasks/count/open`, {
         params: {
-          posterUid: userId,
-          status: 'open',
-          limit: 1,
-          page: 1
+          requesterId: profileId
         },
         headers: {
           'X-Service-Auth': serviceAuthToken,
           'X-User-Id': userId,
+          'X-Profile-Id': profileId,
           'X-Service-Name': 'extrahand-user-service'
         },
-        timeout: 7000
+        timeout: 2500
       });
 
       const payload = response.data || {};
-      const totalFromMeta = Number(payload?.meta?.pagination?.total);
-      if (Number.isFinite(totalFromMeta)) {
-        return totalFromMeta;
-      }
-
-      const tasksFromData = payload?.data;
-      if (Array.isArray(tasksFromData)) {
-        return tasksFromData.length;
-      }
-
-      const tasks = payload?.tasks;
-      return Array.isArray(tasks) ? tasks.length : 0;
+      const count = Number(payload?.openTasksCount);
+      return Number.isFinite(count) && count >= 0 ? count : 0;
     } catch (error) {
       logger.warn('Failed to fetch open tasks count from Task Service:', error);
-      return 0;
+      throw new ServiceUnavailableError('Unable to fetch open tasks count right now. Please try again shortly.');
     }
   }
 
@@ -659,10 +654,10 @@ export class PrivacyService {
 
     await this.assertNoActiveDeletionBlockers(profile);
 
-    // Schedule deletion for 24-48 hours from now (default 48h)
-    const graceHours = this.getDeletionGraceHours();
+    // Schedule deletion for 24-48 seconds from now (default 48s)
+    const graceSeconds = this.getDeletionGraceSeconds();
     const deletionDate = new Date();
-    deletionDate.setHours(deletionDate.getHours() + graceHours);
+    deletionDate.setSeconds(deletionDate.getSeconds() + graceSeconds);
 
     await Profile.updateOne(
       { uid: userId },
@@ -692,7 +687,7 @@ export class PrivacyService {
     logger.warn('⚠️ Account deletion scheduled', {
       userId,
       scheduledFor: deletionDate,
-      graceHours,
+      graceSeconds,
       deletedOpenTaskCount
     });
 

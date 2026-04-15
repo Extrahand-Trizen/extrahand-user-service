@@ -114,7 +114,7 @@ export interface BusinessProfile {
    updatedAt?: Date;
 }
 
-export type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only';
+export type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only' | 'private';
 
 export interface ProfilePrivacy {
    profileVisibility: ProfileVisibilityLevel;

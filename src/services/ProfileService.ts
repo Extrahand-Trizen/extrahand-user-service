@@ -212,7 +212,8 @@ export class ProfileService {
     const visibility =
       profilePrivacy.profileVisibility === 'public' ||
       profilePrivacy.profileVisibility === 'registered_users' ||
-      profilePrivacy.profileVisibility === 'connections_only'
+      profilePrivacy.profileVisibility === 'connections_only' ||
+      profilePrivacy.profileVisibility === 'private'
         ? profilePrivacy.profileVisibility
         : 'registered_users';
 
@@ -521,14 +522,26 @@ export class ProfileService {
       const tokenRegex = new RegExp(`(${regexTerms.join('|')})`, 'i');
 
       const users = await Profile.find({
-        roles: { $in: ['tasker', 'both'] },
         isActive: true,
-        $or: [
-          { 'skills.primaryCategory': { $in: tokens } },
-          { 'skills.primaryCategory': { $in: exactTokenRegexes } },
-          { 'skills.list.category': { $in: tokens } },
-          { 'skills.list.category': { $in: exactTokenRegexes } },
-          { 'skills.list.name': tokenRegex },
+        // Some profiles have skills configured but incomplete role flags.
+        // Keep classic tasker/both matching, and also allow users with skill entries.
+        $and: [
+          {
+            $or: [
+              { roles: { $in: ['tasker', 'both'] } },
+              { 'skills.primaryCategory': { $exists: true, $ne: null } },
+              { 'skills.list.0': { $exists: true } },
+            ],
+          },
+          {
+            $or: [
+              { 'skills.primaryCategory': { $in: tokens } },
+              { 'skills.primaryCategory': { $in: exactTokenRegexes } },
+              { 'skills.list.category': { $in: tokens } },
+              { 'skills.list.category': { $in: exactTokenRegexes } },
+              { 'skills.list.name': tokenRegex },
+            ],
+          },
         ],
       })
         .select('uid skills.primaryCategory skills.list.name skills.list.category')
@@ -547,7 +560,7 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          roles: ['tasker', 'both'],
+          eligibility: 'roles in [tasker,both] OR has skills configured',
           isActive: true,
           isVerified: 'not-required',
         },
