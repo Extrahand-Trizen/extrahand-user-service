@@ -35,6 +35,13 @@ export interface IProfile extends Document {
         issueDate?: Date;
         expiryDate?: Date;
         status?: 'pending' | 'verified' | 'rejected';
+        /** Display name (or email fallback) of the admin/onboarder who reviewed */
+        reviewedBy?: string;
+        /** Stable admin id (e.g. ADM-... or legacy Firebase uid) for analytics */
+        reviewedByUserId?: string;
+        reviewedAt?: Date;
+        rejectionReason?: string;
+        reviewNotes?: string;
       }>;
       verified?: boolean;
     }>;
@@ -269,6 +276,7 @@ const ProfileSchema = new Schema<IProfile>({
           default: 'pending'
         },
         reviewedBy: String,
+        reviewedByUserId: String,
         reviewedAt: Date,
         rejectionReason: String,
         reviewNotes: String

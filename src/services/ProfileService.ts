@@ -26,14 +26,24 @@ export class ProfileService {
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
     const skip = (page - 1) * limit;
-    const status = params.status || 'pending';
+    const rawStatus = params.status?.trim();
+    const status: 'pending' | 'verified' | 'rejected' | undefined =
+      rawStatus === 'pending' || rawStatus === 'verified' || rawStatus === 'rejected'
+        ? rawStatus
+        : undefined;
+
     const uid = params.uid?.trim();
     const q = params.q?.trim();
     const city = params.city?.trim();
+
+    // Only filter by certificate status when explicitly pending | verified | rejected.
+    // Empty string, unknown values, or omitted status must mean "all statuses" (do not add a bogus { status: '' } match).
     const certificateStatusMatch =
       status === 'pending'
         ? { $in: ['pending', null] }
-        : status;
+        : status === 'verified' || status === 'rejected'
+          ? status
+          : undefined;
 
     const profileMatch: any = {
       isActive: true,
@@ -73,7 +83,9 @@ export class ProfileService {
       {
         $match: {
           'skills.list.certificates.documentUrl': { $exists: true, $nin: [null, ''] },
-          'skills.list.certificates.status': certificateStatusMatch,
+          ...(certificateStatusMatch
+            ? { 'skills.list.certificates.status': certificateStatusMatch }
+            : {}),
         },
       },
       {
@@ -101,6 +113,7 @@ export class ProfileService {
             expiryDate: '$skills.list.certificates.expiryDate',
             status: '$skills.list.certificates.status',
             reviewedBy: '$skills.list.certificates.reviewedBy',
+            reviewedByUserId: '$skills.list.certificates.reviewedByUserId',
             reviewedAt: '$skills.list.certificates.reviewedAt',
             rejectionReason: '$skills.list.certificates.rejectionReason',
             reviewNotes: '$skills.list.certificates.reviewNotes',
@@ -141,6 +154,328 @@ export class ProfileService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  /**
+   * Certificate review analytics (admin / operations).
+   * Uses nested skills.list.certificates with documentUrl (same scope as review queue).
+   */
+  static async getCertificateReviewAnalytics(params: {
+    from: Date;
+    to: Date;
+  }): Promise<{
+    period: { from: string; to: string };
+    snapshot: { pendingCount: number };
+    decisionsInPeriod: {
+      verified: number;
+      rejected: number;
+      total: number;
+      rejectRate: number | null;
+    };
+    queueTimeHours: { median: number | null; average: number | null; sampleSize: number };
+    byReviewer: Array<{
+      reviewerKey: string;
+      reviewerDisplayName: string | null;
+      verified: number;
+      rejected: number;
+      total: number;
+    }>;
+    daily: Array<{ date: string; verified: number; rejected: number }>;
+    topRejectionReasons: Array<{ reason: string; count: number }>;
+  }> {
+    this.checkConnection();
+
+    const from = new Date(params.from);
+    const to = new Date(params.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      throw new BadRequestError('Invalid from/to dates');
+    }
+    if (to < from) {
+      throw new BadRequestError('Date range invalid: to must be >= from');
+    }
+
+    const baseProfileMatch: Record<string, unknown> = {
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+    };
+
+    const hasDoc = {
+      'skills.list.certificates.documentUrl': { $exists: true, $nin: [null, ''] },
+    };
+
+    const unwindStages: any[] = [
+      { $match: baseProfileMatch },
+      { $unwind: { path: '$skills.list' } },
+      { $unwind: { path: '$skills.list.certificates' } },
+      { $match: hasDoc },
+    ];
+
+    const [pendingAgg] = await Profile.aggregate([
+      ...unwindStages,
+      {
+        $match: {
+          $or: [
+            { 'skills.list.certificates.status': 'pending' },
+            { 'skills.list.certificates.status': null },
+            { 'skills.list.certificates.status': { $exists: false } },
+          ],
+        },
+      },
+      { $count: 'n' },
+    ]);
+
+    const pendingCount = pendingAgg?.n ?? 0;
+
+    const withReviewDateStages: any[] = [
+      ...unwindStages,
+      {
+        $addFields: {
+          rd: {
+            $convert: {
+              input: '$skills.list.certificates.reviewedAt',
+              to: 'date',
+              onError: null,
+              onNull: null,
+            },
+          },
+          st: '$skills.list.certificates.status',
+        },
+      },
+      {
+        $match: {
+          rd: { $ne: null, $gte: from, $lte: to },
+          st: { $in: ['verified', 'rejected'] },
+        },
+      },
+    ];
+
+    const statusCounts = await Profile.aggregate([
+      ...withReviewDateStages,
+      { $group: { _id: '$st', c: { $sum: 1 } } },
+    ]);
+
+    let verified = 0;
+    let rejected = 0;
+    for (const row of statusCounts) {
+      if (row._id === 'verified') verified = row.c;
+      if (row._id === 'rejected') rejected = row.c;
+    }
+    const totalDecisions = verified + rejected;
+    const rejectRate =
+      totalDecisions > 0 ? Math.round((rejected / totalDecisions) * 10000) / 100 : null;
+
+    const byReviewerRaw = await Profile.aggregate([
+      ...withReviewDateStages,
+      {
+        $group: {
+          _id: {
+            key: {
+              $ifNull: [
+                '$skills.list.certificates.reviewedByUserId',
+                '$skills.list.certificates.reviewedBy',
+              ],
+            },
+            display: '$skills.list.certificates.reviewedBy',
+          },
+          verified: {
+            $sum: { $cond: [{ $eq: ['$st', 'verified'] }, 1, 0] },
+          },
+          rejected: {
+            $sum: { $cond: [{ $eq: ['$st', 'rejected'] }, 1, 0] },
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          reviewerKey: { $toString: '$_id.key' },
+          reviewerDisplayName: {
+            $cond: [{ $eq: ['$_id.display', null] }, '', { $toString: '$_id.display' }],
+          },
+          verified: 1,
+          rejected: 1,
+          total: { $add: ['$verified', '$rejected'] },
+        },
+      },
+      { $sort: { total: -1 } },
+      { $limit: 200 },
+    ]);
+
+    const byReviewer = (byReviewerRaw as any[]).map((r) => ({
+      reviewerKey: String(r.reviewerKey || 'unknown'),
+      reviewerDisplayName: r.reviewerDisplayName ? String(r.reviewerDisplayName) : null,
+      verified: r.verified || 0,
+      rejected: r.rejected || 0,
+      total: r.total || 0,
+    }));
+
+    const dailyRaw = await Profile.aggregate([
+      ...withReviewDateStages,
+      {
+        $group: {
+          _id: {
+            day: {
+              $dateToString: {
+                format: '%Y-%m-%d',
+                date: '$rd',
+                timezone: 'Asia/Kolkata',
+              },
+            },
+            st: '$st',
+          },
+          c: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const dailyMap = new Map<string, { verified: number; rejected: number }>();
+    for (const row of dailyRaw as any[]) {
+      const day = row._id?.day;
+      const st = row._id?.st;
+      if (!day || !st) continue;
+      if (!dailyMap.has(day)) {
+        dailyMap.set(day, { verified: 0, rejected: 0 });
+      }
+      const cur = dailyMap.get(day)!;
+      if (st === 'verified') cur.verified += row.c;
+      if (st === 'rejected') cur.rejected += row.c;
+    }
+    const daily = Array.from(dailyMap.entries())
+      .map(([date, v]) => ({ date, verified: v.verified, rejected: v.rejected }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const topRejectionRaw = await Profile.aggregate([
+      ...withReviewDateStages,
+      { $match: { st: 'rejected' } },
+      {
+        $group: {
+          _id: {
+            $trim: {
+              input: {
+                $ifNull: ['$skills.list.certificates.rejectionReason', ''],
+              },
+            },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $match: { _id: { $ne: '' } } },
+      { $sort: { count: -1 } },
+      { $limit: 15 },
+    ]);
+
+    const topRejectionReasons = (topRejectionRaw as any[]).map((r) => ({
+      reason: String(r._id),
+      count: r.count,
+    }));
+
+    const avgAgg = await Profile.aggregate([
+      ...withReviewDateStages,
+      {
+        $addFields: {
+          uploaded: {
+            $convert: {
+              input: '$skills.list.certificates.uploadedAt',
+              to: 'date',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          uploaded: { $ne: null },
+        },
+      },
+      {
+        $addFields: {
+          durMs: { $subtract: ['$rd', '$uploaded'] },
+        },
+      },
+      {
+        $match: {
+          durMs: { $gte: 0, $lte: 1000 * 3600 * 24 * 90 },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          avgMs: { $avg: '$durMs' },
+          n: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const avgRow = avgAgg[0] as { avgMs?: number; n?: number } | undefined;
+    const queueSample = await Profile.aggregate([
+      ...withReviewDateStages,
+      {
+        $addFields: {
+          uploaded: {
+            $convert: {
+              input: '$skills.list.certificates.uploadedAt',
+              to: 'date',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          uploaded: { $ne: null },
+        },
+      },
+      {
+        $addFields: {
+          durMs: { $subtract: ['$rd', '$uploaded'] },
+        },
+      },
+      {
+        $match: {
+          durMs: { $gte: 0, $lte: 1000 * 3600 * 24 * 90 },
+        },
+      },
+      { $project: { _id: 0, durMs: 1 } },
+      { $sample: { size: 12000 } },
+    ]);
+
+    const durations = (queueSample as { durMs: number }[]).map((x) => x.durMs).filter((n) => Number.isFinite(n));
+    durations.sort((a, b) => a - b);
+    let medianMs: number | null = null;
+    if (durations.length > 0) {
+      const mid = Math.floor(durations.length / 2);
+      medianMs =
+        durations.length % 2 === 1
+          ? durations[mid]
+          : (durations[mid - 1] + durations[mid]) / 2;
+    }
+
+    const avgMs = avgRow?.avgMs;
+    const msPerHour = 1000 * 3600;
+
+    return {
+      period: { from: from.toISOString(), to: to.toISOString() },
+      snapshot: { pendingCount },
+      decisionsInPeriod: {
+        verified,
+        rejected,
+        total: totalDecisions,
+        rejectRate,
+      },
+      queueTimeHours: {
+        median: medianMs != null ? Math.round((medianMs / msPerHour) * 100) / 100 : null,
+        average:
+          avgMs != null && Number.isFinite(avgMs)
+            ? Math.round((avgMs / msPerHour) * 100) / 100
+            : null,
+        sampleSize: avgRow?.n ?? 0,
+      },
+      byReviewer,
+      daily,
+      topRejectionReasons,
     };
   }
 

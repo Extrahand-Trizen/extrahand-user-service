@@ -328,13 +328,15 @@ export class ProfileController {
   static async getInternalCertificateQueue(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { uid, q, status, city, page = '1', limit = '20' } = req.query;
-      const normalizedStatus = (status as string | undefined)?.trim() as
-        | 'pending'
-        | 'verified'
-        | 'rejected'
-        | undefined;
+      const statusTrimmed = (status as string | undefined)?.trim();
+      const normalizedStatus =
+        statusTrimmed === 'pending' ||
+        statusTrimmed === 'verified' ||
+        statusTrimmed === 'rejected'
+          ? statusTrimmed
+          : undefined;
 
-      if (normalizedStatus && !['pending', 'verified', 'rejected'].includes(normalizedStatus)) {
+      if (statusTrimmed && !normalizedStatus) {
         res.status(400).json({
           success: false,
           error: 'Invalid status. Allowed: pending, verified, rejected',
@@ -365,6 +367,41 @@ export class ProfileController {
       res.status(500).json({
         success: false,
         error: 'Failed to fetch certificate queue',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/internal/certificates/analytics
+   * Aggregated certificate review metrics for admin-service (service auth).
+   */
+  static async getInternalCertificateAnalytics(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { from, to } = req.query;
+      const defaultTo = new Date();
+      const defaultFrom = new Date(defaultTo.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      const fromDate = from ? new Date(String(from)) : defaultFrom;
+      const toDate = to ? new Date(String(to)) : defaultTo;
+
+      const analytics = await ProfileService.getCertificateReviewAnalytics({
+        from: fromDate,
+        to: toDate,
+      });
+
+      res.json({
+        success: true,
+        data: analytics,
+      });
+    } catch (error: any) {
+      logger.error('Failed to fetch certificate analytics', {
+        error: error.message,
+      });
+      const status = error.statusCode || 500;
+      res.status(status).json({
+        success: false,
+        error: 'Failed to fetch certificate analytics',
         message: error.message,
       });
     }
@@ -1181,6 +1218,42 @@ export class ProfileController {
 
       // Re-throw to be handled by error handler middleware
       throw error;
+    }
+  }
+
+  /**
+   * PUT /api/v1/profiles/internal/:uid
+   * Internal service-to-service profile update endpoint.
+   * Currently used by admin-service certificate verification flow.
+   */
+  static async updateProfileInternal(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uid } = req.params;
+      if (!uid) {
+        res.status(400).json({
+          success: false,
+          error: 'uid is required',
+        });
+        return;
+      }
+
+      const profileData: Partial<IProfile> = req.body || {};
+      const updatedProfile = await ProfileService.updateProfile(uid, profileData);
+
+      res.json({
+        success: true,
+        message: 'Profile updated successfully',
+        profile: updatedProfile,
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.updateProfileInternal failed', {
+        uid: req.params?.uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to update profile',
+      });
     }
   }
 
