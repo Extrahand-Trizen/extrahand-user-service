@@ -86,6 +86,8 @@ export interface IProfile extends Document {
   business?: BusinessProfile;
   agreeUpdates?: boolean;
   agreeTerms?: boolean;
+  myOperatorContactId?: string | null;
+  myOperatorContactCreatedAt?: Date | null;
   profilePrivacy?: ProfilePrivacy;
   dataPrivacy?: DataPrivacy;
   savedKeywords?: {
@@ -508,6 +510,15 @@ const ProfileSchema = new Schema<IProfile>({
   agreeTerms: {
     type: Boolean,
     default: false
+  },
+  // MyOperator contact tracking (publicapi.myoperator.co)
+  myOperatorContactId: {
+    type: String,
+    default: null,
+  },
+  myOperatorContactCreatedAt: {
+    type: Date,
+    default: null,
   },
   profilePrivacy: {
     profileVisibility: {

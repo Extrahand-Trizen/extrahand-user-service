@@ -91,6 +91,12 @@ const envSchema = z.object({
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
   AWS_S3_BUCKET_NAME: z.string().default('extrahand-images'),
   AWS_CLOUDFRONT_DOMAIN: z.string().optional(),
+
+  // MyOperator contact creation (optional; only used during signup)
+  MYOPERATOR_CONTACTS_URL: z.string().url().default('https://publicapi.myoperator.co/contacts'),
+  MYOPERATOR_BEARER_TOKEN: z.string().optional(),
+  MYOPERATOR_COMPANY_ID: z.string().optional(),
+  MYOPERATOR_COUNTRY_CODE: z.string().default('91'),
 });
 
 // Extend global type for CORS config logging
