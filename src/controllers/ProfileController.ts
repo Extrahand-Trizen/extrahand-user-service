@@ -327,7 +327,17 @@ export class ProfileController {
    */
   static async getInternalCertificateQueue(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { uid, q, status, city, page = '1', limit = '20' } = req.query;
+      const {
+        uid,
+        q,
+        status,
+        city,
+        page = '1',
+        limit = '20',
+        onlyOwnReviewedDecisions,
+        reviewerUserId,
+        reviewerIdentities,
+      } = req.query;
       const statusTrimmed = (status as string | undefined)?.trim();
       const normalizedStatus =
         statusTrimmed === 'pending' ||
@@ -335,6 +345,14 @@ export class ProfileController {
         statusTrimmed === 'rejected'
           ? statusTrimmed
           : undefined;
+      const onlyOwnReviewed =
+        String(onlyOwnReviewedDecisions || '').toLowerCase() === 'true';
+      const normalizedReviewerUserId =
+        (reviewerUserId as string | undefined)?.trim() || undefined;
+      const normalizedReviewerIdentities = ((reviewerIdentities as string | undefined) || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
 
       if (statusTrimmed && !normalizedStatus) {
         res.status(400).json({
@@ -351,6 +369,12 @@ export class ProfileController {
         status: normalizedStatus,
         page: parseInt(page as string, 10) || 1,
         limit: parseInt(limit as string, 10) || 20,
+        onlyOwnReviewedDecisions: onlyOwnReviewed,
+        reviewerUserId: normalizedReviewerUserId,
+        reviewerIdentities:
+          normalizedReviewerIdentities.length > 0
+            ? normalizedReviewerIdentities
+            : undefined,
       });
 
       res.json({

@@ -10,7 +10,7 @@ export interface IProfile extends Document {
   isEmailVerified?: boolean;
   emailVerifiedAt?: Date | null;
   phone?: string | null;
-  roles: ('tasker' | 'requester' | 'poster' | 'both')[];
+  roles: ('tasker' | 'poster')[];
   userType: 'individual' | 'business';
   bio?: string;
   portfolio?: PortfolioItem[];
@@ -175,8 +175,8 @@ const ProfileSchema = new Schema<IProfile>({
   },
   roles: {
     type: [String],
-    enum: ['tasker', 'requester', 'poster', 'both'],
-    default: ['both']
+    enum: ['tasker', 'poster'],
+    default: []
   },
   userType: {
     type: String,

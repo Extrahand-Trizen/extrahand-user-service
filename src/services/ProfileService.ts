@@ -9,6 +9,29 @@ import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 import { statsService } from './StatsService';
 
+type CanonicalRole = 'tasker' | 'poster';
+
+function normalizeRoles(roles: unknown): CanonicalRole[] {
+  if (!Array.isArray(roles)) return [];
+  const normalized = new Set<CanonicalRole>();
+  for (const rawRole of roles) {
+    const role = String(rawRole || '').trim().toLowerCase();
+    if (role === 'tasker') normalized.add('tasker');
+    if (role === 'poster' || role === 'requester') normalized.add('poster');
+    if (role === 'both') {
+      normalized.add('tasker');
+      normalized.add('poster');
+    }
+  }
+  return Array.from(normalized);
+}
+
+function derivePrimaryRole(roles: CanonicalRole[]): 'tasker' | 'poster' | 'unknown' {
+  if (roles.includes('tasker')) return 'tasker';
+  if (roles.includes('poster')) return 'poster';
+  return 'unknown';
+}
+
 export class ProfileService {
   static async getCertificateReviewQueue(params: {
     page: number;
@@ -17,6 +40,9 @@ export class ProfileService {
     q?: string;
     city?: string;
     status?: 'pending' | 'verified' | 'rejected';
+    onlyOwnReviewedDecisions?: boolean;
+    reviewerUserId?: string;
+    reviewerIdentities?: string[];
   }): Promise<{
     items: any[];
     pagination: { page: number; limit: number; total: number; totalPages: number };
@@ -35,6 +61,10 @@ export class ProfileService {
     const uid = params.uid?.trim();
     const q = params.q?.trim();
     const city = params.city?.trim();
+    const reviewerUserId = params.reviewerUserId?.trim();
+    const reviewerIdentities = (params.reviewerIdentities || [])
+      .map((value) => value.trim())
+      .filter(Boolean);
 
     // Only filter by certificate status when explicitly pending | verified | rejected.
     // Empty string, unknown values, or omitted status must mean "all statuses" (do not add a bogus { status: '' } match).
@@ -44,6 +74,41 @@ export class ProfileService {
         : status === 'verified' || status === 'rejected'
           ? status
           : undefined;
+    const ownReviewedClauses: Record<string, unknown>[] = [];
+    if (reviewerUserId) {
+      ownReviewedClauses.push({
+        'skills.list.certificates.reviewedByUserId': reviewerUserId,
+      });
+    }
+    if (reviewerIdentities.length > 0) {
+      ownReviewedClauses.push({
+        'skills.list.certificates.reviewedBy': { $in: reviewerIdentities },
+      });
+    }
+    const ownReviewedFilter =
+      ownReviewedClauses.length === 0
+        ? undefined
+        : ownReviewedClauses.length === 1
+          ? ownReviewedClauses[0]
+          : { $or: ownReviewedClauses };
+    let reviewedAccessMatch: Record<string, unknown> | undefined;
+    if (params.onlyOwnReviewedDecisions && ownReviewedFilter) {
+      if (status === 'verified' || status === 'rejected') {
+        reviewedAccessMatch = ownReviewedFilter;
+      } else if (!status) {
+        reviewedAccessMatch = {
+          $or: [
+            { 'skills.list.certificates.status': { $in: ['pending', null] } },
+            {
+              $and: [
+                { 'skills.list.certificates.status': { $in: ['verified', 'rejected'] } },
+                ownReviewedFilter,
+              ],
+            },
+          ],
+        };
+      }
+    }
 
     const profileMatch: any = {
       isActive: true,
@@ -86,6 +151,7 @@ export class ProfileService {
           ...(certificateStatusMatch
             ? { 'skills.list.certificates.status': certificateStatusMatch }
             : {}),
+          ...(reviewedAccessMatch || {}),
         },
       },
       {
@@ -857,7 +923,7 @@ export class ProfileService {
       const users = await Profile.find({
         isActive: true,
         // Some profiles have skills configured but incomplete role flags.
-        // Keep classic tasker/both matching, and also allow users with skill entries.
+        // Keep legacy "both" compatibility while standardizing to tasker/poster.
         $and: [
           {
             $or: [
@@ -893,7 +959,7 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          eligibility: 'roles in [tasker,both] OR has skills configured',
+          eligibility: 'roles in [tasker,both(legacy)] OR has skills configured',
           isActive: true,
           isVerified: 'not-required',
         },
@@ -1820,9 +1886,9 @@ export class ProfileService {
     // Filter by role
     if (role && role !== 'all') {
       if (role === 'tasker') {
-        andConditions.push({ roles: 'tasker' });
+        andConditions.push({ roles: { $in: ['tasker', 'both'] } });
       } else if (role === 'poster') {
-        andConditions.push({ roles: 'poster' });
+        andConditions.push({ roles: { $in: ['poster', 'requester', 'both'] } });
       }
     }
 
@@ -1878,6 +1944,7 @@ export class ProfileService {
     const data = profiles.map((profile: any) => {
       // Determine status: use status field if exists, otherwise derive from isActive
       const userStatus = profile.status || (profile.isActive !== false ? 'active' : 'inactive');
+      const normalizedRoles = normalizeRoles(profile.roles);
       
       return {
         userId: profile.uid,
@@ -1885,12 +1952,8 @@ export class ProfileService {
         name: profile.name || '',
         email: profile.email || '',
         phone: profile.phone || '',
-        role: profile.roles?.includes('tasker')
-          ? 'tasker'
-          : profile.roles?.includes('poster')
-            ? 'poster'
-            : 'unknown',
-        roles: profile.roles || [],
+        role: derivePrimaryRole(normalizedRoles),
+        roles: normalizedRoles,
         userType: profile.userType || 'individual',
         status: userStatus,
         isVerified: profile.isVerified || false,
@@ -1987,11 +2050,9 @@ export class ProfileService {
     
     // Add admin-friendly fields (these override the spread values)
     result.userId = profile.uid;
-    result.role = profile.roles?.includes('tasker')
-      ? 'tasker'
-      : profile.roles?.includes('poster')
-        ? 'poster'
-        : 'unknown';
+    const normalizedRoles = normalizeRoles(profile.roles);
+    result.role = derivePrimaryRole(normalizedRoles);
+    result.roles = normalizedRoles;
     result.status = profile.status || (profile.isActive ? 'active' : 'inactive');
     if (!result.email) result.email = '';
     if (!result.phone) result.phone = '';
