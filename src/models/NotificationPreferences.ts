@@ -28,6 +28,17 @@ export interface INotificationPreferences extends Document {
         taskUpdates: boolean;
         payments: boolean;
     };
+    whatsapp: {
+        enabled: boolean;
+        taskUpdates: boolean;
+        payments: boolean;
+        promotions: boolean;
+        system: boolean;
+        marketing: boolean;
+        taskReminders: boolean;
+        keywordTaskAlerts: boolean;
+        recommendedTaskAlerts: boolean;
+    };
     preferredChannel: 'email' | 'sms' | 'push' | 'whatsapp';
     frequency: {
         dailyDigest: boolean;
@@ -76,6 +87,17 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             enabled: { type: Boolean, default: true },
             taskUpdates: { type: Boolean, default: true },
             payments: { type: Boolean, default: true },
+        },
+        whatsapp: {
+            enabled: { type: Boolean, default: true },
+            taskUpdates: { type: Boolean, default: true },
+            payments: { type: Boolean, default: true },
+            promotions: { type: Boolean, default: true },
+            system: { type: Boolean, default: true },
+            marketing: { type: Boolean, default: true },
+            taskReminders: { type: Boolean, default: true },
+            keywordTaskAlerts: { type: Boolean, default: true },
+            recommendedTaskAlerts: { type: Boolean, default: true },
         },
         preferredChannel: {
             type: String,

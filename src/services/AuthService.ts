@@ -3,8 +3,48 @@ import Profile from "../models/Profile";
 import { BadRequestError, InternalServerError } from "../errors/AppError";
 import logger from "../config/logger";
 import { EmailServiceClient } from "../clients/EmailServiceClient";
+import { MyOperatorClient } from "../clients/MyOperatorClient";
+import NotificationPreferencesService from "./NotificationPreferencesService";
 
 export class AuthService {
+   private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
+      enabled: true,
+      taskUpdates: true,
+      payments: true,
+      promotions: true,
+      system: true,
+      marketing: true,
+      taskReminders: true,
+      keywordTaskAlerts: true,
+      recommendedTaskAlerts: true,
+   };
+
+   /**
+    * Signup-only initialization:
+    * ensure notification-preferences doc exists and has whatsapp defaults.
+    * Does not alter existing non-whatsapp preferences.
+    */
+   private static async ensureSignupNotificationDefaults(uid: string): Promise<void> {
+      try {
+         const prefs = await NotificationPreferencesService.getPreferences(uid);
+         const hasWhatsappEnabled =
+            prefs &&
+            (prefs as any).whatsapp &&
+            typeof (prefs as any).whatsapp.enabled === "boolean";
+
+         if (!hasWhatsappEnabled) {
+            await NotificationPreferencesService.updatePreferences(uid, {
+               whatsapp: { ...AuthService.SIGNUP_WHATSAPP_DEFAULTS },
+            } as any);
+            logger.info("Initialized whatsapp notification defaults on signup", { uid });
+         }
+      } catch (error: any) {
+         logger.warn("Failed to initialize whatsapp notification defaults (non-blocking)", {
+            uid,
+            error: error?.message || error,
+         });
+      }
+   }
    /**
     * Sync profile data based on Firebase UID (from session token)
     */
@@ -105,6 +145,8 @@ export class AuthService {
       const uniqueFormats = [...new Set(searchFormats)];
 
       const searchQuery = {
+         'dataPrivacy.accountDeleted': { $ne: true },
+         isActive: { $ne: false },
          $or: uniqueFormats.map((format) => ({ phone: format })),
       };
 
@@ -166,6 +208,8 @@ export class AuthService {
       ];
       const uniqueFormats = [...new Set(searchFormats)];
       let profile = await Profile.findOne({
+         'dataPrivacy.accountDeleted': { $ne: true },
+         isActive: { $ne: false },
          $or: uniqueFormats.map((format) => ({ phone: format })),
       })
          .select("uid name isAadhaarVerified")
@@ -174,6 +218,8 @@ export class AuthService {
       // Fallback 1: match by last 10 digits (regex)
       if (!profile && tenDigitNumber.length === 10) {
          profile = await Profile.findOne({
+            'dataPrivacy.accountDeleted': { $ne: true },
+            isActive: { $ne: false },
             $or: [
                { phone: { $regex: new RegExp(`${tenDigitNumber}$`) } },
                { phone: { $regex: new RegExp(`^\\+?91?\\s*${tenDigitNumber}`) } },
@@ -187,6 +233,8 @@ export class AuthService {
       if (!profile && tenDigitNumber.length === 10) {
          const flexiblePattern = tenDigitNumber.split("").join("\\D*");
          profile = await Profile.findOne({
+            'dataPrivacy.accountDeleted': { $ne: true },
+            isActive: { $ne: false },
             phone: { $regex: new RegExp(flexiblePattern) },
          })
             .select("uid name isAadhaarVerified")
@@ -238,6 +286,7 @@ export class AuthService {
 
          const uid = decodedToken.uid;
          const firebasePhone = decodedToken.phone_number;
+         const firebaseEmail = (decodedToken as any)?.email || "";
 
          // 2. Validate phone match
          const cleanPhone = phone.replace(/\D/g, "");
@@ -261,6 +310,37 @@ export class AuthService {
 
          // 3. Get or create profile based on mode
          let profile = await Profile.findOne({ uid }).lean();
+
+         // If this UID belongs to a deleted account, reactivate it for fresh onboarding.
+         if (profile && ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false)) {
+            // Format phone number for profile reuse.
+            const formattedPhone = cleanPhone.startsWith("91")
+               ? `+${cleanPhone}`
+               : `+91${cleanPhone}`;
+
+            const reactivated = await Profile.findOneAndUpdate(
+               { uid },
+               {
+                  $set: {
+                     name: name || "User",
+                     phone: formattedPhone,
+                     isActive: true,
+                     status: "active",
+                     updatedAt: Date.now(),
+                     'dataPrivacy.deletionRequested': false,
+                     'dataPrivacy.deletionRequestedAt': null,
+                     'dataPrivacy.deletionScheduledFor': null,
+                     'dataPrivacy.accountDeleted': false,
+                     'dataPrivacy.accountDeletedAt': null,
+                     'dataPrivacy.accountDeletionReason': null,
+                  },
+               },
+               { new: true }
+            ).lean();
+
+            profile = reactivated as any;
+            logger.info("Reactivated deleted profile during OTP auth", { uid, mode });
+         }
 
          if (mode === "login") {
             // Login mode: Try to get existing profile, create if doesn't exist (zombie user)
@@ -316,6 +396,49 @@ export class AuthService {
             // Signup mode: Create new profile
             if (profile) {
                logger.warn("Profile already exists for signup", { uid });
+
+               // If user retries signup or profile was created before this feature,
+               // still create MyOperator contact if we haven't yet.
+               if (!(profile as any).myOperatorContactId) {
+                  const nameForContact = name || profile.name || "User";
+                  const countryCode = process.env.MYOPERATOR_COUNTRY_CODE || "91";
+                  const phoneForContact = phoneLast10 || "";
+                  const emailForContact = firebaseEmail || "";
+                  const marketingOptIn = true;
+
+                  logger.info("Triggering MyOperator contact creation for existing signup profile", {
+                     uid,
+                     phoneForContact,
+                     emailForContact,
+                  });
+
+                  void MyOperatorClient.createContact({
+                     name: String(nameForContact),
+                     countryCode,
+                     phoneNumber: phoneForContact,
+                     emailId: String(emailForContact),
+                     marketingOptIn,
+                  })
+                     .then(async (result) => {
+                        if (!result) return;
+                        const update: any = {
+                           myOperatorContactCreatedAt: new Date(),
+                        };
+                        if (result.contactId) {
+                           update.myOperatorContactId = result.contactId;
+                        }
+                        await Profile.updateOne({ uid }, { $set: update });
+                     })
+                     .catch((error) => {
+                        logger.warn("MyOperator contact creation failed (non-blocking)", {
+                           uid,
+                           error: error instanceof Error ? error.message : error,
+                        });
+                     });
+               }
+
+               await AuthService.ensureSignupNotificationDefaults(uid);
+
                // Return existing profile instead of creating duplicate
                return {
                   success: true,
@@ -368,6 +491,53 @@ export class AuthService {
                   }
                }
             }
+         }
+
+         if (mode === "signup") {
+            await AuthService.ensureSignupNotificationDefaults(uid);
+         }
+
+         // MyOperator contact creation (signup only)
+         // Non-blocking: failures should not break OTP signup/login/profile creation.
+         if (mode === "signup" && profile && !(profile as any).myOperatorContactId) {
+            const nameForContact = name || profile.name || "User";
+            const countryCode = process.env.MYOPERATOR_COUNTRY_CODE || "91";
+            const phoneForContact = phoneLast10 || "";
+            const emailForContact = firebaseEmail || "";
+            const marketingOptIn = true;
+
+            logger.info("Triggering MyOperator contact creation for new signup profile", {
+               uid,
+               phoneForContact,
+               emailForContact,
+            });
+
+            void MyOperatorClient.createContact({
+               name: String(nameForContact),
+               countryCode,
+               phoneNumber: phoneForContact,
+               emailId: String(emailForContact),
+               marketingOptIn,
+            })
+               .then(async (result) => {
+                  if (!result) return;
+
+                  const update: any = {
+                     myOperatorContactCreatedAt: new Date(),
+                  };
+
+                  if (result.contactId) {
+                     update.myOperatorContactId = result.contactId;
+                  }
+
+                  await Profile.updateOne({ uid }, { $set: update });
+               })
+               .catch((error) => {
+                  logger.warn("MyOperator contact creation failed (non-blocking)", {
+                     uid,
+                     error: error instanceof Error ? error.message : error,
+                  });
+               });
          }
 
          logger.info("OTP auth completed successfully", {

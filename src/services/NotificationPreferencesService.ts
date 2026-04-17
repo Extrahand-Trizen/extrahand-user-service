@@ -11,7 +11,7 @@ export type NotificationCategory =
     | 'taskReminders'
     | 'keywordTaskAlerts'
     | 'recommendedTaskAlerts';
-export type NotificationChannel = 'push' | 'email' | 'sms';
+export type NotificationChannel = 'push' | 'email' | 'sms' | 'whatsapp';
 
 export class NotificationPreferencesService {
     /**

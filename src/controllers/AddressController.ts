@@ -3,8 +3,26 @@ import { AuthenticatedRequest, SavedAddress } from '../types';
 import { ProfileService } from '../services/ProfileService';
 import logger from '../config/logger';
 import mongoose from 'mongoose';
+import { AppError } from '../errors/AppError';
 
 export class AddressController {
+  private static handleAddressError(error: any, res: Response, action: string): void {
+    logger.error(`Error ${action}:`, error);
+
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error?.message || `Failed to ${action}`,
+    });
+  }
+
   // GET /api/v1/profiles/me/addresses
   static async getAddresses(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
@@ -28,11 +46,7 @@ export class AddressController {
         data: addresses
       });
     } catch (error: any) {
-      logger.error('Error getting addresses:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || 'Failed to get addresses'
-      });
+      this.handleAddressError(error, res, 'getting addresses');
     }
   }
 
@@ -124,11 +138,7 @@ export class AddressController {
         message
       });
     } catch (error: any) {
-      logger.error('Error adding address:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || 'Failed to add address'
-      });
+      this.handleAddressError(error, res, 'adding address');
     }
   }
 
@@ -190,11 +200,7 @@ export class AddressController {
         message: 'Address updated successfully'
       });
     } catch (error: any) {
-      logger.error('Error updating address:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || 'Failed to update address'
-      });
+      this.handleAddressError(error, res, 'updating address');
     }
   }
 
@@ -235,11 +241,7 @@ export class AddressController {
         message: 'Address deleted successfully'
       });
     } catch (error: any) {
-      logger.error('Error deleting address:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || 'Failed to delete address'
-      });
+      this.handleAddressError(error, res, 'deleting address');
     }
   }
 
@@ -286,11 +288,7 @@ export class AddressController {
         message: 'Default address updated successfully'
       });
     } catch (error: any) {
-      logger.error('Error setting default address:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || 'Failed to set default address'
-      });
+      this.handleAddressError(error, res, 'setting default address');
     }
   }
 }
