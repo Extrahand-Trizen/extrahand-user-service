@@ -10,7 +10,7 @@ export interface IProfile extends Document {
   isEmailVerified?: boolean;
   emailVerifiedAt?: Date | null;
   phone?: string | null;
-  roles: ('tasker' | 'requester' | 'poster' | 'both')[];
+  roles: ('tasker' | 'poster')[];
   userType: 'individual' | 'business';
   bio?: string;
   portfolio?: PortfolioItem[];
@@ -86,6 +86,8 @@ export interface IProfile extends Document {
   business?: BusinessProfile;
   agreeUpdates?: boolean;
   agreeTerms?: boolean;
+  myOperatorContactId?: string | null;
+  myOperatorContactCreatedAt?: Date | null;
   profilePrivacy?: ProfilePrivacy;
   dataPrivacy?: DataPrivacy;
   savedKeywords?: {
@@ -175,8 +177,8 @@ const ProfileSchema = new Schema<IProfile>({
   },
   roles: {
     type: [String],
-    enum: ['tasker', 'requester', 'poster', 'both'],
-    default: ['both']
+    enum: ['tasker', 'poster'],
+    default: []
   },
   userType: {
     type: String,
@@ -508,6 +510,15 @@ const ProfileSchema = new Schema<IProfile>({
   agreeTerms: {
     type: Boolean,
     default: false
+  },
+  // MyOperator contact tracking (publicapi.myoperator.co)
+  myOperatorContactId: {
+    type: String,
+    default: null,
+  },
+  myOperatorContactCreatedAt: {
+    type: Date,
+    default: null,
   },
   profilePrivacy: {
     profileVisibility: {

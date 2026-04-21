@@ -24,7 +24,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -87,7 +87,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -159,7 +159,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -344,7 +344,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -396,7 +396,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -449,7 +449,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -482,7 +482,7 @@ export class ReferralController {
         fromProfile = await Profile.create({
           uid: fromUid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -534,7 +534,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
@@ -617,7 +617,7 @@ export class ReferralController {
         profile = await Profile.create({
           uid,
           name: 'User',
-          roles: ['both'],
+          roles: [],
           userType: 'individual',
           isActive: true,
         });
