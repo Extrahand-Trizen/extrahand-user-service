@@ -6,17 +6,22 @@ import axios from 'axios';
 import { validateEnv } from '../config/env';
 
 const env = validateEnv();
-const MIN_DELETION_GRACE_SECONDS = 24;
-const MAX_DELETION_GRACE_SECONDS = 48;
-const DEFAULT_DELETION_GRACE_SECONDS = 48;
+const MIN_DELETION_GRACE_HOURS = 24;
+const MAX_DELETION_GRACE_HOURS = 48;
+const DEFAULT_DELETION_GRACE_HOURS = 48;
 
 export class PrivacyService {
-  private static getDeletionGraceSeconds(): number {
-    const raw = Number(process.env.ACCOUNT_DELETION_GRACE_SECONDS || DEFAULT_DELETION_GRACE_SECONDS);
+  private static getDeletionGraceHours(): number {
+    // Prefer the new hours env var, but keep legacy var for backward compatibility.
+    const raw = Number(
+      process.env.ACCOUNT_DELETION_GRACE_HOURS
+      || process.env.ACCOUNT_DELETION_GRACE_SECONDS
+      || DEFAULT_DELETION_GRACE_HOURS
+    );
     if (!Number.isFinite(raw)) {
-      return DEFAULT_DELETION_GRACE_SECONDS;
+      return DEFAULT_DELETION_GRACE_HOURS;
     }
-    return Math.min(MAX_DELETION_GRACE_SECONDS, Math.max(MIN_DELETION_GRACE_SECONDS, Math.floor(raw)));
+    return Math.min(MAX_DELETION_GRACE_HOURS, Math.max(MIN_DELETION_GRACE_HOURS, Math.floor(raw)));
   }
 
   private static getDeletionAlias(profile: any): string {
@@ -506,7 +511,7 @@ export class PrivacyService {
         },
         deleteAccount: {
           available: true,
-          gracePeriod: `${this.getDeletionGraceSeconds()} seconds`,
+          gracePeriod: `${this.getDeletionGraceHours()} hours`,
           description: 'Request account deletion',
           endpoint: '/api/v1/privacy/delete-account'
         },
@@ -520,6 +525,9 @@ export class PrivacyService {
         requested: true,
         requestedAt: profile.dataPrivacy.deletionRequestedAt,
         scheduledFor: profile.dataPrivacy.deletionScheduledFor,
+        hoursRemaining: profile.dataPrivacy.deletionScheduledFor
+          ? Math.max(0, Math.ceil((new Date(profile.dataPrivacy.deletionScheduledFor).getTime() - new Date().getTime()) / (1000 * 60 * 60)))
+          : null,
         secondsRemaining: profile.dataPrivacy.deletionScheduledFor
           ? Math.max(0, Math.ceil((new Date(profile.dataPrivacy.deletionScheduledFor).getTime() - new Date().getTime()) / 1000))
           : null
@@ -654,10 +662,10 @@ export class PrivacyService {
 
     await this.assertNoActiveDeletionBlockers(profile);
 
-    // Schedule deletion for 24-48 seconds from now (default 48s)
-    const graceSeconds = this.getDeletionGraceSeconds();
+    // Schedule deletion for 24-48 hours from now (default 48h)
+    const graceHours = this.getDeletionGraceHours();
     const deletionDate = new Date();
-    deletionDate.setSeconds(deletionDate.getSeconds() + graceSeconds);
+    deletionDate.setHours(deletionDate.getHours() + graceHours);
 
     await Profile.updateOne(
       { uid: userId },
@@ -687,7 +695,7 @@ export class PrivacyService {
     logger.warn('⚠️ Account deletion scheduled', {
       userId,
       scheduledFor: deletionDate,
-      graceSeconds,
+      graceHours,
       deletedOpenTaskCount
     });
 
