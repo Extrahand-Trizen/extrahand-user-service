@@ -33,6 +33,17 @@ function derivePrimaryRole(roles: CanonicalRole[]): 'tasker' | 'poster' | 'unkno
 }
 
 export class ProfileService {
+  static async getTaskerAadhaarVerifiedCount(): Promise<number> {
+    this.checkConnection();
+
+    return Profile.countDocuments({
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+      isAadhaarVerified: true,
+      roles: { $in: ['tasker', 'both'] },
+    });
+  }
+
   static async getCertificateReviewQueue(params: {
     page: number;
     limit: number;
@@ -1997,10 +2008,21 @@ export class ProfileService {
   }> {
     this.checkConnection();
 
+    const baseFilter = {
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+    };
+
     const [posters, taskers, totalProfiles] = await Promise.all([
-      Profile.countDocuments({ roles: 'poster' }),
-      Profile.countDocuments({ roles: 'tasker' }),
-      Profile.countDocuments({}),
+      Profile.countDocuments({
+        ...baseFilter,
+        roles: { $in: ['poster', 'requester', 'both'] },
+      }),
+      Profile.countDocuments({
+        ...baseFilter,
+        roles: { $in: ['tasker', 'both'] },
+      }),
+      Profile.countDocuments(baseFilter),
     ]);
 
     return {

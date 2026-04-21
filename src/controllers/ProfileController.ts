@@ -397,6 +397,34 @@ export class ProfileController {
   }
 
   /**
+   * GET /api/v1/profiles/internal/stats/taskers/aadhaar-verified
+   * Service-to-service stats for admin dashboard.
+   */
+  static async getInternalTaskerAadhaarVerifiedCount(
+    _req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const count = await ProfileService.getTaskerAadhaarVerifiedCount();
+      res.json({
+        success: true,
+        data: {
+          taskersAadhaarVerified: count,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Failed to fetch tasker Aadhaar verified count', {
+        error: error.message,
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch tasker Aadhaar verified count',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
    * GET /api/v1/profiles/internal/certificates/analytics
    * Aggregated certificate review metrics for admin-service (service auth).
    */
