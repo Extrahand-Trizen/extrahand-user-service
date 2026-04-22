@@ -43,9 +43,21 @@ export class UserController {
         search,
         status,
         role,
+        isAadhaarVerified,
+        createdFrom,
+        createdTo,
         sortBy = 'createdAt',
         sortOrder = 'desc',
       } = req.query;
+
+      const parsedAadhaarVerified =
+        typeof isAadhaarVerified === 'string'
+          ? isAadhaarVerified === 'true'
+            ? true
+            : isAadhaarVerified === 'false'
+              ? false
+              : undefined
+          : undefined;
 
       const result = await ProfileService.listUsersForAdmin({
         page: parseInt(page as string),
@@ -53,6 +65,9 @@ export class UserController {
         search: search as string,
         status: status as string,
         role: role as string,
+        isAadhaarVerified: parsedAadhaarVerified,
+        createdFrom: createdFrom as string,
+        createdTo: createdTo as string,
         sortBy: sortBy as string,
         sortOrder: sortOrder as 'asc' | 'desc',
       });

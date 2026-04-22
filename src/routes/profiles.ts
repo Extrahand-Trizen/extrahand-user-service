@@ -25,6 +25,11 @@ router.get(
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalCertificateAnalytics)
 );
+router.get(
+  '/internal/stats/taskers/aadhaar-verified',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.getInternalTaskerAadhaarVerifiedCount)
+);
 router.put(
   '/internal/:uid',
   serviceAuthMiddleware,
