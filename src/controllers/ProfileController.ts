@@ -569,24 +569,106 @@ export class ProfileController {
         return;
       }
 
-      // Always fetch real-time stats from task-service
-      let rating: number | undefined = undefined;
-      let totalReviews: number | undefined = undefined;
+      // Always fetch real-time stats from task-service (not from stored profile)
+      let realTimeStats: {
+        totalTasks: number | undefined;
+        completedTasks: number | undefined;
+        postedTasks: number | undefined;
+        totalReviews: number | undefined;
+        rating: number | undefined;
+        ratingBreakdowns: any;
+      } = {
+        totalTasks: undefined,
+        completedTasks: undefined,
+        postedTasks: undefined,
+        totalReviews: undefined,
+        rating: undefined,
+        ratingBreakdowns: undefined
+      };
+      let reviews: any[] = [];
+      let workHistory: any[] = [];
 
       try {
         const env = validateEnv();
         if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN && profile._id) {
           const { statsService } = await import('../services/StatsService');
-          const stats = await statsService.calculateReviewStats(profile._id.toString());
+          const stats = await statsService.calculateAllStats(profile._id.toString(), profile.uid);
           
-          rating = stats.avgRating > 0 ? Math.round(stats.avgRating * 10) / 10 : undefined;
-          totalReviews = stats.totalReviews > 0 ? stats.totalReviews : undefined;
+          realTimeStats = {
+            totalTasks: stats.totalTasks,
+            completedTasks: stats.completedTasks,
+            postedTasks: stats.postedTasks,
+            totalReviews: stats.totalReviews,
+            rating: stats.avgRating > 0 ? Math.round(stats.avgRating * 10) / 10 : undefined,
+            ratingBreakdowns: stats.ratingBreakdowns
+          };
           
           logger.info('✅ Fetched real-time rating/reviews for public profile', {
             uid,
-            rating,
-            totalReviews
+            stats: realTimeStats
           });
+
+          const axios = (await import('axios')).default;
+
+          if (stats.totalReviews && stats.totalReviews > 0) {
+            try {
+              const reviewsResponse = await axios.get(
+                `${env.TASK_SERVICE_URL}/api/v1/reviews/user/${profile._id.toString()}`,
+                {
+                  headers: {
+                    'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                    'X-User-Id': profile.uid,
+                    'X-Service-Name': 'user-service'
+                  },
+                  timeout: 5000
+                }
+              );
+
+              reviews = reviewsResponse.data?.data || reviewsResponse.data?.reviews || [];
+            } catch (error: any) {
+              logger.warn('Failed to fetch reviews for public profile', {
+                uid,
+                error: error.message
+              });
+            }
+          }
+
+          if (stats.completedTasks && stats.completedTasks > 0) {
+            try {
+              const tasksResponse = await axios.get(
+                `${env.TASK_SERVICE_URL}/api/v1/tasks`,
+                {
+                  params: {
+                    assigneeId: profile._id.toString(),
+                    status: 'completed',
+                    limit: 10,
+                    sort: '-completedAt'
+                  },
+                  headers: {
+                    'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+                    'X-Service-Name': 'user-service'
+                  },
+                  timeout: 5000
+                }
+              );
+
+              const tasks = tasksResponse.data?.tasks || tasksResponse.data?.data || [];
+              workHistory = tasks
+                .filter((task: any) => task.completedAt && task.status === 'completed')
+                .map((task: any) => ({
+                  _id: task._id,
+                  title: task.title,
+                  category: task.category,
+                  completedAt: task.completedAt,
+                  budget: task.budget?.amount || 0
+                }));
+            } catch (error: any) {
+              logger.warn('Failed to fetch work history for public profile', {
+                uid,
+                error: error.message
+              });
+            }
+          }
         }
       } catch (error: any) {
         logger.warn('Failed to fetch real-time stats for public profile', {
@@ -598,14 +680,15 @@ export class ProfileController {
       const aboutText = (profile as any).bio || (profile.business as any)?.description || null;
 
       const publicProfile = {
+        _id: profile._id,
         uid: profile.uid,
         name: profile.name,
         profession: profile.profession,
         bio: aboutText,
         roles: profile.roles,
         userType: profile.userType,
-        rating: rating,
-        totalReviews: totalReviews,
+        rating: realTimeStats.rating,
+        totalReviews: realTimeStats.totalReviews,
         skills: profile.skills,
         portfolio: Array.isArray((profile as any).portfolio) ? (profile as any).portfolio : [],
         photoURL: profile.photoURL || null,
@@ -624,8 +707,32 @@ export class ProfileController {
         isPanVerified: profile.isPANVerified || false,
         panVerifiedAt: profile.panVerifiedAt || null,
         maskedPan: profile.maskedPan || null,
+        isBankVerified: profile.isBankVerified || false,
+        bankVerifiedAt: profile.bankVerifiedAt || null,
+        totalTasks: realTimeStats.totalTasks,
+        completedTasks: realTimeStats.completedTasks,
+        postedTasks: realTimeStats.postedTasks,
+        earnedAmount: profile.earnedAmount,
         isActive: profile.isActive,
-        createdAt: profile.createdAt
+        createdAt: profile.createdAt,
+        reviews: reviews
+          .filter((review: any) => Number(review?.rating) > 0)
+          .map((review: any, index: number) => ({
+            _id: review._id || review.id || `${review.taskId || review.reviewerId || 'review'}-${index}`,
+            taskId: review.taskId,
+            taskTitle: review.taskTitle || review.title || 'Task',
+            reviewerId: review.reviewerId || review.reviewerUid || review.reviewer?.id || 'unknown',
+            reviewerName:
+              (typeof review.reviewerName === 'string' && review.reviewerName.trim()) ||
+              (typeof review.reviewer?.name === 'string' && review.reviewer.name.trim()) ||
+              'Verified user',
+            reviewerPhoto: review.reviewerPhoto || review.reviewer?.photoURL || review.reviewer?.photo,
+            rating: Number(review.rating) || 0,
+            comment: typeof review.comment === 'string' ? review.comment : '',
+            createdAt: review.createdAt || review.updatedAt || new Date().toISOString(),
+          }))
+          .filter((review: any) => review.rating > 0),
+        workHistory: workHistory.filter((item: any) => item.title && item.title.trim() !== '')
       };
 
       res.json({
@@ -709,7 +816,7 @@ export class ProfileController {
           if (stats.totalReviews && stats.totalReviews > 0) {
             try {
               const reviewsResponse = await axios.get(
-                `${env.TASK_SERVICE_URL}/api/v1/reviews/user/${profile.uid}`,
+                `${env.TASK_SERVICE_URL}/api/v1/reviews/user/${profile._id.toString()}`,
                 {
                   headers: {
                     'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
@@ -929,7 +1036,7 @@ export class ProfileController {
           if (stats.totalReviews && stats.totalReviews > 0) {
             try {
               const reviewsResponse = await axios.get(
-                `${env.TASK_SERVICE_URL}/api/v1/reviews/user/${profile.uid}`,
+                `${env.TASK_SERVICE_URL}/api/v1/reviews/user/${profile._id.toString()}`,
                 {
                   headers: {
                     'X-Service-Auth': env.SERVICE_AUTH_TOKEN,

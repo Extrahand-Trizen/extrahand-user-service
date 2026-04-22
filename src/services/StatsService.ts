@@ -45,18 +45,46 @@ export class StatsService {
         'x-service-name': 'user-service',
       };
 
-      const statsResponse = await axios.get(
-        `${this.taskServiceUrl}/api/v1/stats/users/${profileId}`,
-        {
-          params: { uid },
-          headers,
-          timeout: 5000,
-        }
-      );
+      const [assignedTasksResponse, completedTasksResponse, postedTasksResponse] =
+        await Promise.all([
+          axios.get(`${this.taskServiceUrl}/api/v1/tasks`, {
+            params: { assigneeId: profileId, limit: 1 },
+            headers,
+            timeout: 5000,
+          }),
+          axios.get(`${this.taskServiceUrl}/api/v1/tasks`, {
+            params: { assigneeId: profileId, status: 'completed', limit: 1 },
+            headers,
+            timeout: 5000,
+          }),
+          axios.get(`${this.taskServiceUrl}/api/v1/tasks`, {
+            params: { posterUid: uid, limit: 1 },
+            headers,
+            timeout: 5000,
+          }),
+        ]);
 
-      const totalTasks = Number(statsResponse.data?.data?.totalTasks || 0);
-      const completedTasks = Number(statsResponse.data?.data?.completedTasks || 0);
-      const postedTasks = Number(statsResponse.data?.data?.postedTasks || 0);
+      const totalTasks = Number(
+        assignedTasksResponse.data?.meta?.pagination?.total ??
+        assignedTasksResponse.data?.pagination?.total ??
+        assignedTasksResponse.data?.data?.length ??
+        assignedTasksResponse.data?.tasks?.length ??
+        0
+      );
+      const completedTasks = Number(
+        completedTasksResponse.data?.meta?.pagination?.total ??
+        completedTasksResponse.data?.pagination?.total ??
+        completedTasksResponse.data?.data?.length ??
+        completedTasksResponse.data?.tasks?.length ??
+        0
+      );
+      const postedTasks = Number(
+        postedTasksResponse.data?.meta?.pagination?.total ??
+        postedTasksResponse.data?.pagination?.total ??
+        postedTasksResponse.data?.data?.length ??
+        postedTasksResponse.data?.tasks?.length ??
+        0
+      );
 
       console.log(`📊 Calculated task stats for ${uid}:`, {
         totalTasks,
