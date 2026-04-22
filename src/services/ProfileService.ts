@@ -1841,6 +1841,9 @@ export class ProfileService {
     search?: string;
     status?: string;
     role?: string;
+    isAadhaarVerified?: boolean;
+    createdFrom?: string;
+    createdTo?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   }): Promise<{
@@ -1856,7 +1859,18 @@ export class ProfileService {
 
     const MAX_LIMIT = 50;
     const MAX_PAGE = 100;
-    const { page, limit, search, status, role, sortBy = 'createdAt', sortOrder = 'desc' } = params;
+    const {
+      page,
+      limit,
+      search,
+      status,
+      role,
+      isAadhaarVerified,
+      createdFrom,
+      createdTo,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+    } = params;
     const effectiveLimit = Math.min(Math.max(1, Number(limit) || 20), MAX_LIMIT);
     const effectivePage = Math.min(Math.max(1, Number(page) || 1), MAX_PAGE);
     const skip = (effectivePage - 1) * effectiveLimit;
@@ -1903,6 +1917,31 @@ export class ProfileService {
       }
     }
 
+    if (typeof isAadhaarVerified === 'boolean') {
+      andConditions.push({ isAadhaarVerified });
+    }
+
+    if (createdFrom || createdTo) {
+      const createdAt: any = {};
+      if (createdFrom) {
+        const fromDate = new Date(createdFrom);
+        if (!Number.isNaN(fromDate.getTime())) {
+          createdAt.$gte = fromDate;
+        }
+      }
+      if (createdTo) {
+        const toDate = new Date(createdTo);
+        if (!Number.isNaN(toDate.getTime())) {
+          // Include full day for date-only inputs
+          toDate.setHours(23, 59, 59, 999);
+          createdAt.$lte = toDate;
+        }
+      }
+      if (Object.keys(createdAt).length > 0) {
+        andConditions.push({ createdAt });
+      }
+    }
+
     // Combine all conditions
     if (andConditions.length > 0) {
       if (andConditions.length === 1) {
@@ -1920,7 +1959,19 @@ export class ProfileService {
 
     // Log query for debugging
     logger.info('ListUsersForAdmin - Query:', JSON.stringify(query, null, 2));
-    logger.info('ListUsersForAdmin - Params:', { page: effectivePage, limit: effectiveLimit, skip, sortBy, sortOrder, search, status, role });
+    logger.info('ListUsersForAdmin - Params:', {
+      page: effectivePage,
+      limit: effectiveLimit,
+      skip,
+      sortBy,
+      sortOrder,
+      search,
+      status,
+      role,
+      isAadhaarVerified,
+      createdFrom,
+      createdTo,
+    });
 
     // First check total profiles in database (for debugging)
     const totalProfilesInDb = await Profile.countDocuments({});
