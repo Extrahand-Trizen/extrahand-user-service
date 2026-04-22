@@ -96,12 +96,12 @@ export class PrivacyService {
 
     try {
       if (taskServiceUrl) {
+        // Check active tasks as POSTER (tasks the user posted that are now assigned/in-progress)
+        // and as TASKER (tasks assigned to the user that are in-progress).
+        // Note: we do NOT separately check accepted applications because an accepted application
+        // always results in the task being flipped to 'assigned' status — so the asTasker
+        // query (assigneeId + status=assigned,...) already covers that case correctly.
         const statuses = 'assigned,started,in_progress,review';
-        logger.debug('Checking active tasks/applications before deletion', {
-          userId: profile.uid,
-          profileId,
-          statuses
-        });
 
         logger.info('🔍 Querying task-service for active tasks', {
           userId: profile.uid,
@@ -123,41 +123,32 @@ export class PrivacyService {
           })
         ]);
 
-        const acceptedApplicationsRes = await axios.get(`${taskServiceUrl}/api/v1/applications`, {
-          params: { mine: true, status: 'accepted', limit: 1 },
-          headers: this.buildServiceHeaders(profile.uid, profileId),
-          timeout: 7000
-        });
-
         const posterTasks = asPoster.data?.tasks || asPoster.data?.data || [];
         const taskerTasks = asTasker.data?.tasks || asTasker.data?.data || [];
-        const acceptedApplications = acceptedApplicationsRes.data?.applications || acceptedApplicationsRes.data?.data || [];
 
-        const posterTaskDetails = Array.isArray(posterTasks) ? posterTasks.map(t => ({
+        const posterTaskDetails = Array.isArray(posterTasks) ? posterTasks.map((t: any) => ({
           id: t._id,
           title: t.title,
           status: t.status
         })) : [];
 
-        const taskerTaskDetails = Array.isArray(taskerTasks) ? taskerTasks.map(t => ({
+        const taskerTaskDetails = Array.isArray(taskerTasks) ? taskerTasks.map((t: any) => ({
           id: t._id,
           title: t.title,
           status: t.status
         })) : [];
 
-        logger.info('Task/application blocker check completed', {
+        logger.info('Task blocker check completed', {
           userId: profile.uid,
           posterTasksCount: Array.isArray(posterTasks) ? posterTasks.length : 0,
           posterTasks: posterTaskDetails,
           taskerTasksCount: Array.isArray(taskerTasks) ? taskerTasks.length : 0,
-          taskerTasks: taskerTaskDetails,
-          acceptedApplicationsCount: Array.isArray(acceptedApplications) ? acceptedApplications.length : 0
+          taskerTasks: taskerTaskDetails
         });
 
         if (
           (Array.isArray(posterTasks) && posterTasks.length > 0) ||
-          (Array.isArray(taskerTasks) && taskerTasks.length > 0) ||
-          (Array.isArray(acceptedApplications) && acceptedApplications.length > 0)
+          (Array.isArray(taskerTasks) && taskerTasks.length > 0)
         ) {
           blockers.push('active tasks (accepted/ongoing)');
         }
