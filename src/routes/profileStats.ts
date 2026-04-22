@@ -228,4 +228,60 @@ router.patch('/:profileId/internal/stats', async (req: Request, res: Response) =
   }
 });
 
+/**
+ * Internal service-to-service endpoint: Atomically increment stats after task completion
+ * PATCH /api/v1/profiles/:profileId/internal/stats-increment
+ * Called by task-service after approving task completion
+ */
+router.patch('/:profileId/internal/stats-increment', async (req: Request, res: Response) => {
+  try {
+    const serviceAuth = req.headers['x-service-auth'];
+    const serviceName = req.headers['x-service-name'];
+
+    if (!serviceAuth || serviceAuth !== process.env.SERVICE_AUTH_SECRET) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized: Invalid service authentication',
+      });
+    }
+
+    const { profileId } = req.params;
+    const increment: Record<string, number> = {};
+
+    if (typeof req.body.completedTasks === 'number' && req.body.completedTasks !== 0) {
+      increment.completedTasks = req.body.completedTasks;
+    }
+    if (typeof req.body.totalTasks === 'number' && req.body.totalTasks !== 0) {
+      increment.totalTasks = req.body.totalTasks;
+    }
+    if (typeof req.body.postedTasks === 'number' && req.body.postedTasks !== 0) {
+      increment.postedTasks = req.body.postedTasks;
+    }
+
+    if (Object.keys(increment).length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid increment values provided' });
+    }
+
+    console.log(`📊 Stats increment from ${serviceName} for profile ${profileId}:`, increment);
+
+    await Profile.findByIdAndUpdate(
+      profileId,
+      { $inc: increment, $set: { updatedAt: new Date() } },
+      { new: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile statistics incremented successfully',
+    });
+  } catch (error: any) {
+    console.error('Error incrementing profile stats:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to increment statistics',
+      details: error.message,
+    });
+  }
+});
+
 export default router;
