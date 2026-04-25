@@ -791,8 +791,6 @@ export class PrivacyService {
               $set: {
                 name: anonymizedName,
                 profession: null,
-                email: null,
-                phone: null,
                 location: null,
                 savedAddresses: [],
                 photoURL: null,
@@ -820,7 +818,13 @@ export class PrivacyService {
                 'dataPrivacy.accountDeleted': true,
                 'dataPrivacy.accountDeletedAt': new Date(),
                 'dataPrivacy.accountDeletionReason': 'User requested account deletion (DPDP)'
-              }
+              },
+              // Unset unique sparse fields instead of setting null.
+              // This avoids duplicate-key collisions like phone_1 dup key: { phone: null }.
+              $unset: {
+                email: '',
+                phone: ''
+              },
             }
           ),
           Consent.deleteOne({ userId })
