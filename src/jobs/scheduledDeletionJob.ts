@@ -2,25 +2,24 @@ import logger from '../config/logger';
 import { validateEnv } from '../config/env';
 import { PrivacyService } from '../services/PrivacyService';
 
-const DEFAULT_IDLE_CHECK_SECONDS = 300;
-const MIN_IDLE_CHECK_SECONDS = 30;
-const MAX_IDLE_CHECK_SECONDS = 3600;
 const OVERLAP_RETRY_SECONDS = 2;
+const DAILY_RUN_HOUR = 2;
+const DAILY_RUN_MINUTE = 0;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 let isRunning = false;
 let scheduledTimer: NodeJS.Timeout | null = null;
 const env = validateEnv();
 
-function getIdleCheckIntervalMs(): number {
-  const rawValue = Number(process.env.ACCOUNT_DELETION_IDLE_CHECK_SECONDS);
-  const boundedSeconds = Number.isFinite(rawValue)
-    ? Math.min(
-        MAX_IDLE_CHECK_SECONDS,
-        Math.max(MIN_IDLE_CHECK_SECONDS, Math.floor(rawValue))
-      )
-    : DEFAULT_IDLE_CHECK_SECONDS;
+function getNextDailyRunAt(now: Date = new Date()): Date {
+  const nextRun = new Date(now);
+  nextRun.setHours(DAILY_RUN_HOUR, DAILY_RUN_MINUTE, 0, 0);
 
-  return boundedSeconds * 1000;
+  if (nextRun.getTime() <= now.getTime()) {
+    nextRun.setDate(nextRun.getDate() + 1);
+  }
+
+  return nextRun;
 }
 
 function scheduleNextRun(delayMs: number): void {
@@ -36,31 +35,20 @@ function scheduleNextRun(delayMs: number): void {
 }
 
 async function planNextRun(): Promise<void> {
-  const idleCheckIntervalMs = getIdleCheckIntervalMs();
-
   try {
-    const nextScheduledDeletion = await PrivacyService.getNextScheduledDeletionTime();
-
-    if (!nextScheduledDeletion) {
-      scheduleNextRun(idleCheckIntervalMs);
-      logger.debug('No pending account deletions. Sleeping executor.', {
-        nextRunInSeconds: Math.floor(idleCheckIntervalMs / 1000),
-      });
-      return;
-    }
-
-    const delayMs = nextScheduledDeletion.getTime() - Date.now();
+    const nextRunAt = getNextDailyRunAt();
+    const delayMs = nextRunAt.getTime() - Date.now();
     scheduleNextRun(delayMs);
 
-    logger.debug('Planned next scheduled deletion executor run', {
-      nextScheduledFor: nextScheduledDeletion,
+    logger.debug('Planned next daily scheduled deletion executor run', {
+      nextRunAt,
       nextRunInSeconds: Math.max(0, Math.floor(delayMs / 1000)),
     });
   } catch (error: any) {
-    scheduleNextRun(idleCheckIntervalMs);
+    scheduleNextRun(ONE_DAY_MS);
     logger.error('Failed to plan next scheduled deletion executor run', {
       error: error?.message || String(error),
-      fallbackNextRunInSeconds: Math.floor(idleCheckIntervalMs / 1000),
+      fallbackNextRunInSeconds: Math.floor(ONE_DAY_MS / 1000),
     });
   }
 }
@@ -101,10 +89,10 @@ export function triggerDeletionExecutorWakeup(): void {
 }
 
 export function scheduleDeletionExecutorJob(): void {
-  triggerDeletionExecutorWakeup();
+  void planNextRun();
 
   logger.info('Scheduled account deletion executor enabled', {
-    idleCheckIntervalSeconds: Math.floor(getIdleCheckIntervalMs() / 1000),
-    mode: 'adaptive',
+    dailyRunTime: `${String(DAILY_RUN_HOUR).padStart(2, '0')}:${String(DAILY_RUN_MINUTE).padStart(2, '0')}`,
+    mode: 'daily',
   });
 }

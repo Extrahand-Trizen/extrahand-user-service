@@ -1903,7 +1903,9 @@ export class ProfileController {
       } else {
         const statusCode = result.code === 'email_already_verified' || result.code === 'email_already_verified_elsewhere'
           ? 409
-          : 400;
+          : result.code === 'email_send_failed'
+            ? 502
+            : 400;
 
         res.status(statusCode).json({
           success: false,
@@ -2003,7 +2005,9 @@ export class ProfileController {
           }
         });
       } else {
-        res.status(400).json({
+        const statusCode = result.code === 'email_send_failed' ? 502 : 400;
+
+        res.status(statusCode).json({
           success: false,
           error: result.message
         });

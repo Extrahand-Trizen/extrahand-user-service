@@ -761,11 +761,16 @@ export class PrivacyService {
     _serviceAuthToken: string
   ): Promise<any> {
     const now = new Date();
+    const deletionRequestedBefore = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     
-    // Find profiles scheduled for deletion
+    // Find profiles scheduled for deletion and requested at least 24 hours ago.
     const profilesToDelete = await Profile.find({
       'dataPrivacy.deletionRequested': true,
-      'dataPrivacy.deletionScheduledFor': { $lte: now }
+      'dataPrivacy.deletionScheduledFor': { $lte: now },
+      'dataPrivacy.deletionRequestedAt': {
+        $type: 'date',
+        $lte: deletionRequestedBefore,
+      }
     }).lean();
 
     if (profilesToDelete.length > 0) {
@@ -791,8 +796,6 @@ export class PrivacyService {
               $set: {
                 name: anonymizedName,
                 profession: null,
-                email: null,
-                phone: null,
                 location: null,
                 savedAddresses: [],
                 photoURL: null,
@@ -820,7 +823,13 @@ export class PrivacyService {
                 'dataPrivacy.accountDeleted': true,
                 'dataPrivacy.accountDeletedAt': new Date(),
                 'dataPrivacy.accountDeletionReason': 'User requested account deletion (DPDP)'
-              }
+              },
+              // Unset unique sparse fields instead of setting null.
+              // This avoids duplicate-key collisions like phone_1 dup key: { phone: null }.
+              $unset: {
+                email: '',
+                phone: ''
+              },
             }
           ),
           Consent.deleteOne({ userId })

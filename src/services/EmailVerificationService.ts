@@ -139,10 +139,16 @@ export class EmailVerificationService {
             );
 
             if (!emailSent) {
-                logger.warn('Failed to send OTP email', { uid, email: normalizedEmail });
+                logger.error('Failed to send OTP email - EmailServiceClient returned false', {
+                    uid,
+                    email: normalizedEmail,
+                    emailServiceURL: process.env.EMAIL_SERVICE_URL || 'http://localhost:4007',
+                    hint: 'Check if email-service is running and SERVICE_AUTH_TOKEN matches'
+                });
                 return {
                     success: false,
-                    message: 'Failed to send verification email. Please try again.'
+                    message: 'Failed to send verification email. Please try again.',
+                    code: 'email_send_failed'
                 };
             }
 
@@ -362,6 +368,7 @@ export class EmailVerificationService {
         uid: string
     ): Promise<{
         success: boolean;
+        code?: string;
         verificationId?: string;
         expiresInMinutes?: number;
         message?: string;
