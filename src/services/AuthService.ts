@@ -5,6 +5,11 @@ import logger from "../config/logger";
 import { EmailServiceClient } from "../clients/EmailServiceClient";
 import { MyOperatorClient } from "../clients/MyOperatorClient";
 import NotificationPreferencesService from "./NotificationPreferencesService";
+import {
+   findActiveProfileByUidOrPhone,
+   normalizePhoneToLast10,
+   reconcileProfileUidByPhone,
+} from "../utils/identityReconciliation";
 
 export class AuthService {
    private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
@@ -59,21 +64,32 @@ export class AuthService {
       const { name, phone } = data;
 
       try {
-         // Find existing profile by Firebase UID
-         let profile = await Profile.findOne({ uid });
+         // Find existing profile by Firebase UID or matching phone (reconciliation-safe).
+         let profile = await findActiveProfileByUidOrPhone({ uid, phone: data.phone });
 
          if (profile) {
+            // Auto-heal historical drift where same phone profile points to older/different UID.
+            if (profile.uid !== uid) {
+               logger.warn("syncProfile: UID mismatch detected, healing profile UID by phone", {
+                  requestedUid: uid,
+                  profileUid: profile.uid,
+                  profileId: String((profile as any)._id),
+               });
+               profile.uid = uid;
+            }
+
             logger.info("🔄 Updating existing profile during sync", { uid });
 
             // Update fields if provided and different
             const updates: any = {};
             if (name && profile.name !== name) updates.name = name;
             if (phone && profile.phone !== phone) updates.phone = phone;
+            if (profile.uid !== uid) updates.uid = uid;
 
         if (Object.keys(updates).length > 0) {
           updates.updatedAt = Date.now();
           profile = await Profile.findOneAndUpdate(
-            { uid },
+            { _id: (profile as any)._id },
             { $set: updates },
             { new: true }
           );
@@ -310,14 +326,25 @@ export class AuthService {
 
          // 3. Get or create profile based on mode
          let profile = await Profile.findOne({ uid }).lean();
+         const formattedPhone = cleanPhone.startsWith("91")
+            ? `+${cleanPhone}`
+            : `+91${cleanPhone}`;
+
+         // Auto-heal: if profile was deleted/recreated and UID drifted, rebind by phone.
+         if (!profile) {
+            const reconciled = await reconcileProfileUidByPhone({
+               firebaseUid: uid,
+               phone: formattedPhone,
+               preferredName: name || "User",
+               applyChanges: true,
+            });
+            if (reconciled.resolved && reconciled.profile) {
+               profile = (await Profile.findById((reconciled.profile as any)._id).lean()) as any;
+            }
+         }
 
          // If this UID belongs to a deleted account, reactivate it for fresh onboarding.
          if (profile && ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false)) {
-            // Format phone number for profile reuse.
-            const formattedPhone = cleanPhone.startsWith("91")
-               ? `+${cleanPhone}`
-               : `+91${cleanPhone}`;
-
             const reactivated = await Profile.findOneAndUpdate(
                { uid },
                {
@@ -350,11 +377,6 @@ export class AuthService {
                   phone,
                });
 
-               // Format phone number
-               const formattedPhone = cleanPhone.startsWith("91")
-                  ? `+${cleanPhone}`
-                  : `+91${cleanPhone}`;
-
                const now = Date.now();
                
                try {
@@ -383,6 +405,17 @@ export class AuthService {
                   if (error.code === 11000) {
                      logger.warn("Profile created by concurrent request, fetching existing profile", { uid, phone });
                      profile = await Profile.findOne({ uid }).lean();
+                     if (!profile) {
+                        // Try phone-based fallback healing for historical drift.
+                        const byPhone = await findActiveProfileByUidOrPhone({ phone: formattedPhone });
+                        if (byPhone) {
+                           await Profile.updateOne(
+                              { _id: (byPhone as any)._id },
+                              { $set: { uid, updatedAt: Date.now() } }
+                           );
+                           profile = await Profile.findById((byPhone as any)._id).lean();
+                        }
+                     }
                      
                      if (!profile) {
                         throw new InternalServerError("Profile creation failed and unable to retrieve existing profile");
@@ -449,11 +482,6 @@ export class AuthService {
                   },
                };
             } else {
-               // Format phone number
-               const formattedPhone = cleanPhone.startsWith("91")
-                  ? `+${cleanPhone}`
-                  : `+91${cleanPhone}`;
-
                const now = Date.now();
                
                try {
@@ -482,6 +510,16 @@ export class AuthService {
                   if (error.code === 11000) {
                      logger.warn("Profile created by concurrent request, fetching existing profile", { uid, phone });
                      profile = await Profile.findOne({ uid }).lean();
+                     if (!profile) {
+                        const byPhone = await findActiveProfileByUidOrPhone({ phone: formattedPhone });
+                        if (byPhone) {
+                           await Profile.updateOne(
+                              { _id: (byPhone as any)._id },
+                              { $set: { uid, updatedAt: Date.now() } }
+                           );
+                           profile = await Profile.findById((byPhone as any)._id).lean();
+                        }
+                     }
                      
                      if (!profile) {
                         throw new InternalServerError("Profile creation failed and unable to retrieve existing profile");
@@ -544,6 +582,7 @@ export class AuthService {
             uid,
             mode,
             profileExists: !!profile,
+            phoneLast10: normalizePhoneToLast10(formattedPhone),
          });
 
          // Send email notifications based on mode (non-blocking)
