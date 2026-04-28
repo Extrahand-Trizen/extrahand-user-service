@@ -8,6 +8,7 @@ import { WithdrawalRequest } from '../models/WithdrawalRequest';
 import Profile from '../models/Profile';
 import { ReferralService, CreditService } from '../services/referralService';
 import { CreditTransactionType, ReferralStatus } from '../types/referral';
+import { PaymentServiceClient } from '../clients/PaymentServiceClient';
 
 export class ReferralController {
   /**
@@ -120,6 +121,15 @@ export class ReferralController {
         referralCode.toUpperCase()
       );
 
+      // Award ExtraCoins: referrer gets ₹25 (125 coins), referee gets ₹15 (75 coins)
+      // Fire-and-forget — coins failure should not block signup
+      PaymentServiceClient.awardReferralCoins({
+        type: 'signup',
+        referrerUid: referrerCode.userId.toString(),
+        refereeUid: uid,
+        referralCode: referralCode.toUpperCase(),
+      }).catch((err) => logger.warn('[Referral] ExtraCoins award failed (signup)', { err }));
+
       logger.info('✅ Referral code applied successfully', {
         refereeId: profile._id,
         referrerId: referrerCode.userId,
@@ -128,12 +138,14 @@ export class ReferralController {
 
       res.json({
         success: true,
-        message: 'Referral code applied successfully! Complete a task worth ₹500+ to unlock rewards.',
+        message: 'Referral code applied! Your welcome bonus of ₹15 ExtraCoins will be credited shortly.',
         data: {
           referralCode: referralRecord.referralCode,
           status: referralRecord.status,
           expiresAt: referralRecord.expiresAt,
-          potentialReward: referralRecord.refereeRewardAmount
+          potentialReward: referralRecord.refereeRewardAmount,
+          welcomeCoins: 75,
+          welcomeRupees: 15,
         }
       });
     } catch (error: any) {
@@ -290,7 +302,7 @@ export class ReferralController {
         }
       );
 
-      // Issue credits to referrer
+      // Legacy Credit system (MongoDB) — keep for backwards compat
       await CreditService.addCredit(
         referralRecord.referrerId.toString(),
         100,
@@ -298,7 +310,6 @@ export class ReferralController {
         `Referral bonus - User completed ₹${taskAmount} task`
       );
 
-      // Issue credits to referee
       await CreditService.addCredit(
         refereeId,
         50,
@@ -306,11 +317,24 @@ export class ReferralController {
         `Welcome bonus for signing up with referral code ${referralCode}`
       );
 
+      // Award referrer ExtraCoins: 20% of platform fee (payment-service)
+      // platformFee = taskAmount × 5%
+      const platformFeeRupees = Math.round(taskAmount * 0.05 * 100) / 100;
+      PaymentServiceClient.awardReferralCoins({
+        type: 'task_bonus',
+        referrerUid: referralRecord.referrerId.toString(),
+        refereeUid: refereeId,
+        referralCode,
+        taskId,
+        platformFeeRupees,
+      }).catch((err) => logger.warn('[Referral] ExtraCoins task bonus failed', { err }));
+
       logger.info('✅ Referral qualified', {
         referralCode,
         referrerId: referralRecord.referrerId.toString(),
         refereeId,
-        taskId
+        taskId,
+        platformFeeRupees,
       });
 
       res.json({
@@ -320,6 +344,7 @@ export class ReferralController {
           status: ReferralStatus.QUALIFIED,
           referrerCredit: 100,
           refereeCredit: 50,
+          referrerExtraCoins: Math.round(platformFeeRupees * 0.20 / 0.20),
           feeReduction: 3,
           creditsIssuedAt: now
         }
