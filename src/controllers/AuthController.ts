@@ -174,10 +174,11 @@ export class AuthController {
 
    /**
     * POST /api/v1/auth/otp/complete-dev
-      * Dev-only: dummy signin/signup. Allowed:
-      * +91 9876543210 with OTP 654321 or 123456;
-      * +91 9876543211 with OTP 654321 or 123456.
-    * Enabled when LOCAL_TEST=true or NODE_ENV=development. Creates Firebase + MongoDB user if needed.
+    * Dev-only: dummy signin/signup. Allowed:
+    * +91 9999999999 with OTP 123456;
+    * +91 9876543210 with OTP 654321 or 123456;
+    * +91 9876543211 with OTP 654321 or 123456.
+    * Enabled only when LOCAL_TEST=true or LOCAL_TEST=1.
     */
    static async completeOTPDev(
       req: Request,
@@ -186,8 +187,7 @@ export class AuthController {
       try {
          const allowDev =
             process.env.LOCAL_TEST === "true" ||
-            process.env.LOCAL_TEST === "1" ||
-            process.env.NODE_ENV === "development";
+            process.env.LOCAL_TEST === "1";
          if (!allowDev) {
             res.status(404).json({ success: false, error: "Not found" });
             return;

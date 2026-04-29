@@ -628,8 +628,11 @@ export class AuthService {
 
    /**
     * Dev-only: complete OTP auth with fixed Indian dummy numbers + OTP.
-    * When LOCAL_TEST=true: get or create Firebase user and MongoDB profile, return profile for session.
-   * Allowed: +91 9876543210 / OTP 654321 or 123456; +91 9876543211 / OTP 654321 or 123456.
+    * Enabled only when LOCAL_TEST=true or LOCAL_TEST=1.
+    * Allowed test credentials:
+    * - +91 9999999999 / OTP 123456
+    * - +91 9876543210 / OTP 654321 or 123456
+    * - +91 9876543211 / OTP 654321 or 123456
     */
    private static readonly DEV_DUMMY_USERS: Array<{
       phoneLast10: string;
@@ -637,6 +640,7 @@ export class AuthService {
       otps: string[];
       displayName: string;
    }> = [
+      { phoneLast10: "9999999999", phoneE164: "+919999999999", otps: ["123456"], displayName: "Local Test User" },
       { phoneLast10: "9876543210", phoneE164: "+919876543210", otps: ["654321", "123456"], displayName: "Local Test User" },
       { phoneLast10: "9876543211", phoneE164: "+919876543211", otps: ["654321", "123456"], displayName: "Local Test User 2" },
    ];
@@ -652,7 +656,9 @@ export class AuthService {
       user?: { uid: string; phone: string | null };
       error?: string;
    }> {
-      if (!process.env.LOCAL_TEST) {
+      const localTestEnabled =
+         process.env.LOCAL_TEST === "true" || process.env.LOCAL_TEST === "1";
+      if (!localTestEnabled) {
          throw new BadRequestError("Local test auth not enabled");
       }
 
