@@ -295,6 +295,13 @@ export class AuthService {
             decodedToken = await auth.verifyIdToken(idToken);
          } catch (error: any) {
             logger.error("Invalid ID token:", error);
+            const msg = error?.message || String(error);
+            // Typical when mobile google-services.json ≠ server Firebase Admin credentials
+            if (/audience|"aud"/i.test(msg) && /incorrect|expected|mismatch/i.test(msg)) {
+               throw new BadRequestError(
+                  "Firebase project mismatch: the app ID token and this server use different Firebase projects. Use the same project in ADPT4EH (google-services.json / firebase config) as extrahand-user-service (service account / GOOGLE_APPLICATION_CREDENTIALS)."
+               );
+            }
             throw new BadRequestError(
                "Invalid or expired authentication token"
             );
