@@ -58,7 +58,7 @@ export class StatsService {
             timeout: 5000,
           }),
           axios.get(`${this.taskServiceUrl}/api/v1/tasks`, {
-            params: { posterUid: uid, limit: 1 },
+            params: { requesterId: profileId, limit: 1 },
             headers,
             timeout: 5000,
           }),

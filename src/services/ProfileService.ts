@@ -37,7 +37,6 @@ export class ProfileService {
     this.checkConnection();
 
     return Profile.countDocuments({
-      isActive: true,
       'dataPrivacy.accountDeleted': { $ne: true },
       isAadhaarVerified: true,
       roles: { $in: ['tasker', 'both'] },
@@ -1876,7 +1875,10 @@ export class ProfileService {
     const skip = (effectivePage - 1) * effectiveLimit;
 
     // Build query using $and to properly combine conditions
-    const query: any = {};
+    // Default: exclude deleted accounts
+    const query: any = {
+      'dataPrivacy.accountDeleted': { $ne: true }
+    };
     const andConditions: any[] = [];
 
     // Search by name, email, or phone
@@ -2060,7 +2062,6 @@ export class ProfileService {
     this.checkConnection();
 
     const baseFilter = {
-      isActive: true,
       'dataPrivacy.accountDeleted': { $ne: true },
     };
 
