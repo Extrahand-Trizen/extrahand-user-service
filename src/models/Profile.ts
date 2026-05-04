@@ -10,7 +10,7 @@ export interface IProfile extends Document {
   isEmailVerified?: boolean;
   emailVerifiedAt?: Date | null;
   phone?: string | null;
-  roles: ('tasker' | 'poster' | 'requester' | 'both')[];
+  roles: ('tasker' | 'poster')[];
   userType: 'individual' | 'business';
   bio?: string;
   portfolio?: PortfolioItem[];
@@ -177,7 +177,7 @@ const ProfileSchema = new Schema<IProfile>({
   },
   roles: {
     type: [String],
-    enum: ['tasker', 'poster', 'requester', 'both'],
+    enum: ['tasker', 'poster'],
     default: []
   },
   userType: {
@@ -613,6 +613,54 @@ const ProfileSchema = new Schema<IProfile>({
   }
 }, {
   timestamps: true
+});
+
+function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster'> {
+  if (!Array.isArray(roles)) return [];
+  const normalized = new Set<'tasker' | 'poster'>();
+  for (const rawRole of roles) {
+    const role = String(rawRole || '').trim().toLowerCase();
+    if (role === 'poster' || role === 'requester') normalized.add('poster');
+    if (role === 'tasker' || role === 'performer') normalized.add('tasker');
+    if (role === 'both') {
+      normalized.add('poster');
+      normalized.add('tasker');
+    }
+  }
+  return Array.from(normalized).sort() as Array<'tasker' | 'poster'>;
+}
+
+function normalizeRolesInUpdate(update: Record<string, any> | null | undefined): void {
+  if (!update || typeof update !== 'object') return;
+
+  if (Object.prototype.hasOwnProperty.call(update, 'roles')) {
+    update.roles = normalizePersistedRoles(update.roles);
+  }
+  if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'roles')) {
+    update.$set.roles = normalizePersistedRoles(update.$set.roles);
+  }
+}
+
+ProfileSchema.pre('save', function(next) {
+  if (this.isModified('roles')) {
+    this.roles = normalizePersistedRoles(this.roles) as any;
+  }
+  next();
+});
+
+ProfileSchema.pre('updateOne', function(next) {
+  normalizeRolesInUpdate(this.getUpdate() as any);
+  next();
+});
+
+ProfileSchema.pre('findOneAndUpdate', function(next) {
+  normalizeRolesInUpdate(this.getUpdate() as any);
+  next();
+});
+
+ProfileSchema.pre('updateMany', function(next) {
+  normalizeRolesInUpdate(this.getUpdate() as any);
+  next();
 });
 
 // Index for geospatial queries

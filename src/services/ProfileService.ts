@@ -32,6 +32,31 @@ function derivePrimaryRole(roles: CanonicalRole[]): 'tasker' | 'poster' | 'unkno
   return 'unknown';
 }
 
+/** Values allowed on the Profile schema (no legacy `requester` or `both` tokens in storage). */
+type PersistedRole = 'tasker' | 'poster';
+
+/**
+ * Normalizes client/legacy role labels into stored roles: poster and/or tasker only.
+ * Maps legacy `requester` → poster, `performer` → tasker, legacy `both` → poster+tasker.
+ * Dual capability is represented as `['poster', 'tasker']`, never a `both` string.
+ */
+function persistRoles(roles: unknown): PersistedRole[] {
+  if (!Array.isArray(roles)) return [];
+  const norm = new Set<'tasker' | 'poster'>();
+  for (const raw of roles) {
+    const role = String(raw || '').trim().toLowerCase();
+    if (role === 'requester' || role === 'poster') {
+      norm.add('poster');
+    } else if (role === 'tasker' || role === 'performer') {
+      norm.add('tasker');
+    } else if (role === 'both') {
+      norm.add('tasker');
+      norm.add('poster');
+    }
+  }
+  return Array.from(norm).sort() as PersistedRole[];
+}
+
 export class ProfileService {
   static async getTaskerAadhaarVerifiedCount(): Promise<number> {
     this.checkConnection();
@@ -39,7 +64,7 @@ export class ProfileService {
     return Profile.countDocuments({
       'dataPrivacy.accountDeleted': { $ne: true },
       isAadhaarVerified: true,
-      roles: { $in: ['tasker', 'both'] },
+      roles: 'tasker',
     });
   }
 
@@ -933,11 +958,10 @@ export class ProfileService {
       const users = await Profile.find({
         isActive: true,
         // Some profiles have skills configured but incomplete role flags.
-        // Keep legacy "both" compatibility while standardizing to tasker/poster.
         $and: [
           {
             $or: [
-              { roles: { $in: ['tasker', 'both'] } },
+              { roles: 'tasker' },
               { 'skills.primaryCategory': { $exists: true, $ne: null } },
               { 'skills.list.0': { $exists: true } },
             ],
@@ -969,7 +993,7 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          eligibility: 'roles in [tasker,both(legacy)] OR has skills configured',
+          eligibility: "roles contains 'tasker' OR has skills configured",
           isActive: true,
           isVerified: 'not-required',
         },
@@ -1141,7 +1165,9 @@ export class ProfileService {
     if (profileData.profession !== undefined) payload.profession = profileData.profession;
     if (profileData.email !== undefined) payload.email = profileData.email;
     if (profileData.phone !== undefined) payload.phone = profileData.phone;
-    if (profileData.roles) payload.roles = profileData.roles;
+    if (profileData.roles !== undefined) {
+      payload.roles = persistRoles(profileData.roles);
+    }
     if (profileData.userType) payload.userType = profileData.userType;
     if (processedLocation) payload.location = processedLocation;
     if (profileData.savedAddresses !== undefined) {
@@ -1261,7 +1287,8 @@ export class ProfileService {
     } else {
       // No onboardingStatus provided - calculate it based on data
       // ✨ REMOVED: Location check - location is completely removed from onboarding
-      const hasRoles = Array.isArray(profileData.roles) && profileData.roles.length > 0;
+      const hasRoles =
+        profileData.roles !== undefined && persistRoles(profileData.roles).length > 0;
       const hasName = !!profileData.name;
       const hasEmail = !!profileData.email;
 
@@ -1375,7 +1402,9 @@ export class ProfileService {
     if (profileData.email !== undefined) updatePayload.email = profileData.email;
     if (profileData.phone !== undefined) updatePayload.phone = profileData.phone;
     if (profileData.photoURL !== undefined) updatePayload.photoURL = profileData.photoURL;
-    if (profileData.roles !== undefined) updatePayload.roles = profileData.roles;
+    if (profileData.roles !== undefined) {
+      updatePayload.roles = persistRoles(profileData.roles);
+    }
     if (profileData.userType !== undefined) updatePayload.userType = profileData.userType;
     if (profileData.bio !== undefined) updatePayload.bio = profileData.bio;
     if (profileData.portfolio !== undefined) updatePayload.portfolio = this.normalizePortfolio(profileData.portfolio);
@@ -1569,7 +1598,10 @@ export class ProfileService {
 
     // Update onboarding status
     // ✨ REMOVED: Location check - location is completely removed from onboarding
-    const hasRoles = (profileData.roles && Array.isArray(profileData.roles) && profileData.roles.length > 0) || existingProfile.roles;
+    const hasRoles =
+      (profileData.roles !== undefined &&
+        persistRoles(profileData.roles).length > 0) ||
+      (!!existingProfile.roles && existingProfile.roles.length > 0);
     const hasName = !!((profileData.name !== undefined && profileData.name) || existingProfile.name);
     const hasEmail = !!((profileData.email !== undefined && profileData.email) || existingProfile.email);
 
@@ -1913,9 +1945,9 @@ export class ProfileService {
     // Filter by role
     if (role && role !== 'all') {
       if (role === 'tasker') {
-        andConditions.push({ roles: { $in: ['tasker', 'both'] } });
+        andConditions.push({ roles: 'tasker' });
       } else if (role === 'poster') {
-        andConditions.push({ roles: { $in: ['poster', 'requester', 'both'] } });
+        andConditions.push({ roles: { $in: ['poster', 'requester'] } });
       }
     }
 
@@ -2068,11 +2100,11 @@ export class ProfileService {
     const [posters, taskers, totalProfiles] = await Promise.all([
       Profile.countDocuments({
         ...baseFilter,
-        roles: { $in: ['poster', 'requester', 'both'] },
+        roles: { $in: ['poster', 'requester'] },
       }),
       Profile.countDocuments({
         ...baseFilter,
-        roles: { $in: ['tasker', 'both'] },
+        roles: 'tasker',
       }),
       Profile.countDocuments(baseFilter),
     ]);
