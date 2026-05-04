@@ -10,6 +10,7 @@ export interface IProfile extends Document {
   isEmailVerified?: boolean;
   emailVerifiedAt?: Date | null;
   phone?: string | null;
+  client_type?: 'web' | 'mobile';
   roles: ('tasker' | 'poster')[];
   userType: 'individual' | 'business';
   bio?: string;
@@ -174,6 +175,12 @@ const ProfileSchema = new Schema<IProfile>({
     unique: true,
     sparse: true, // Allows null/undefined values but enforces uniqueness for non-null values
     index: true
+  },
+  client_type: {
+    type: String,
+    enum: ['web', 'mobile'],
+    default: 'web',
+    index: true,
   },
   roles: {
     type: [String],
