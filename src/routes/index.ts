@@ -10,6 +10,7 @@ import verificationRoutes from "./verification";
 import notificationPreferencesRoutes from "./notificationPreferences";
 import referralRoutes from "./referral";
 import badgeRoutes from "./badge";
+import inquiriesRoutes from "./inquiries";
 import { gatewayAuthMiddleware } from "../middleware/gatewayAuth";
 
 const router = Router();
@@ -39,5 +40,6 @@ router.use("/verification", verificationRoutes);
 router.use("/notification-preferences", notificationPreferencesRoutes);
 router.use("/user", referralRoutes);
 router.use("/user", badgeRoutes);
+router.use("/inquiries", inquiriesRoutes);
 
 export default router;
