@@ -305,6 +305,8 @@ export class ProfileController {
     res.json({
       success: true,
       users: profiles.map(profile => ({
+        _id: profile._id,
+        profileId: profile._id,
         uid: profile.uid,
         name: profile.name,
         email: profile.email,

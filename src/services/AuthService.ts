@@ -281,7 +281,8 @@ export class AuthService {
       idToken: string,
       mode: "login" | "signup",
       phone: string,
-      name?: string
+      name?: string,
+      clientType: "web" | "mobile" = "web"
    ): Promise<{
       success: boolean;
       profile?: any;
@@ -384,6 +385,7 @@ export class AuthService {
                      uid,
                      name: name || "User",
                      phone: formattedPhone,
+                     client_type: clientType,
                      roles: [],
                      userType: "individual",
                      rating: 0,
@@ -430,10 +432,16 @@ export class AuthService {
             if (profile) {
                logger.warn("Profile already exists for signup", { uid });
 
+               // Backfill registration source for older profiles created before client_type existed.
+               if (!(profile as any).client_type) {
+                  await Profile.updateOne({ uid }, { $set: { client_type: clientType } });
+                  profile = await Profile.findOne({ uid }).lean();
+               }
+
                // If user retries signup or profile was created before this feature,
                // still create MyOperator contact if we haven't yet.
-               if (!(profile as any).myOperatorContactId) {
-                  const nameForContact = name || profile.name || "User";
+               if (profile && !(profile as any).myOperatorContactId) {
+                  const nameForContact = name || profile?.name || "User";
                   const countryCode = process.env.MYOPERATOR_COUNTRY_CODE || "91";
                   const phoneForContact = phoneLast10 || "";
                   const emailForContact = firebaseEmail || "";
@@ -489,6 +497,7 @@ export class AuthService {
                      uid,
                      name: name || "User",
                      phone: formattedPhone,
+                     client_type: clientType,
                      roles: [],
                      userType: "individual",
                      rating: 0,
@@ -649,7 +658,8 @@ export class AuthService {
       phone: string,
       otp: string,
       mode: "login" | "signup",
-      name?: string
+      name?: string,
+      clientType: "web" | "mobile" = "web"
    ): Promise<{
       success: boolean;
       profile?: any;
@@ -691,6 +701,7 @@ export class AuthService {
                   uid,
                   name: displayName,
                   phone: formattedPhone,
+                  client_type: clientType,
                   roles: [],
                   userType: "individual",
                   rating: 0,
@@ -722,12 +733,17 @@ export class AuthService {
       } else {
          if (profile) {
             logger.info("Dev dummy signup: profile already exists", { uid });
+            if (!(profile as any).client_type) {
+              await Profile.updateOne({ uid }, { $set: { client_type: clientType } });
+              profile = await Profile.findOne({ uid }).lean();
+            }
          } else {
             try {
                const created = await Profile.create({
                   uid,
                   name: displayName,
                   phone: formattedPhone,
+                  client_type: clientType,
                   roles: [],
                   userType: "individual",
                   rating: 0,

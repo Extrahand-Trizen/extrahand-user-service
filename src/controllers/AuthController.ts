@@ -103,11 +103,15 @@ export class AuthController {
             return;
          }
 
+         const normalizedClient: ClientType =
+            clientType === "mobile" ? "mobile" : "web";
+
          const result = await AuthService.completeOTPAuth(
             idToken,
             mode,
             phone,
-            name
+            name,
+            normalizedClient
          );
 
          // Use Firebase UID (profile.uid) for session, NOT MongoDB _id
@@ -121,8 +125,6 @@ export class AuthController {
             return;
          }
 
-         const normalizedClient: ClientType =
-            clientType === "mobile" ? "mobile" : "web";
          const tokens = await SessionService.createSession({
             uid: firebaseUid,  // Use Firebase UID, not MongoDB _id
             clientType: normalizedClient,
@@ -209,7 +211,16 @@ export class AuthController {
             return;
          }
 
-         const result = await AuthService.completeOTPDevAuth(phone, otp, mode, name);
+         const normalizedClient: ClientType =
+            clientType === "mobile" ? "mobile" : "web";
+
+         const result = await AuthService.completeOTPDevAuth(
+            phone,
+            otp,
+            mode,
+            name,
+            normalizedClient
+         );
          const firebaseUid = result.profile?.uid;
          if (!firebaseUid) {
             res.status(500).json({
@@ -219,8 +230,6 @@ export class AuthController {
             return;
          }
 
-         const normalizedClient: ClientType =
-            clientType === "mobile" ? "mobile" : "web";
          const tokens = await SessionService.createSession({
             uid: firebaseUid,
             clientType: normalizedClient,
