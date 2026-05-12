@@ -2401,7 +2401,20 @@ export class ProfileService {
   static async getUserForAdmin(userId: string): Promise<any> {
     this.checkConnection();
 
-    const profile = await Profile.findOne({ uid: userId }).lean();
+    const trimmedUserId = String(userId || '').trim();
+    if (!trimmedUserId) {
+      throw new BadRequestError('User ID is required');
+    }
+
+    // Task service often stores Mongo profile _id; list UI uses Firebase uid. Support both.
+    const looksLikeObjectIdHex = /^[0-9a-fA-F]{24}$/.test(trimmedUserId);
+    let profile: any = null;
+    if (looksLikeObjectIdHex) {
+      profile = await Profile.findById(trimmedUserId).lean();
+    }
+    if (!profile) {
+      profile = await Profile.findOne({ uid: trimmedUserId }).lean();
+    }
 
     if (!profile) {
       throw new NotFoundError('User not found');
