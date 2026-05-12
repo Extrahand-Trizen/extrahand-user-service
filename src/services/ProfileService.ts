@@ -2131,10 +2131,8 @@ export class ProfileService {
       } else if (normalizedRole === 'customer' || normalizedRole === 'poster' || normalizedRole === 'requester') {
         // Customer = poster/requester in legacy, also stored as 'customer' in some records
         andConditions.push({ roles: { $in: ['poster', 'requester', 'both', 'customer'] } });
-      if (role === 'tasker') {
-        andConditions.push({ roles: 'tasker' });
-      } else if (role === 'poster') {
-        andConditions.push({ roles: { $in: ['poster', 'requester'] } });
+      } else if (normalizedRole === 'both') {
+        andConditions.push({ roles: 'both' });
       }
     }
 
@@ -2288,11 +2286,6 @@ export class ProfileService {
       Profile.countDocuments({
         ...baseFilter,
         roles: { $in: ['tasker', 'both', 'helper'] },
-        roles: { $in: ['poster', 'requester'] },
-      }),
-      Profile.countDocuments({
-        ...baseFilter,
-        roles: 'tasker',
       }),
       Profile.countDocuments(baseFilter),
     ]);

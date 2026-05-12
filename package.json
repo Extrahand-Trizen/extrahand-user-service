@@ -12,7 +12,10 @@
     "lint": "eslint src --ext .ts",
     "health": "curl -f http://localhost:4001/api/v1/health || exit 1",
     "seed": "npx ts-node --require dotenv/config scripts/seed-test-user.ts",
-    "migrate:drop-credits-tx-index": "npx ts-node --require dotenv/config scripts/drop-credits-transactionId-index.ts"
+    "migrate:drop-credits-tx-index": "npx ts-node --require dotenv/config scripts/drop-credits-transactionId-index.ts",
+    "migrate:roles-requester-to-poster": "npx ts-node --require dotenv/config scripts/migrate-roles-requester-to-poster.ts",
+    "migrate:profile-both-token-to-dual-roles": "npx ts-node --require dotenv/config scripts/migrate-profile-both-token-to-dual-roles.ts",
+    "migrate:profile-client-type-from-sessions": "npx ts-node --require dotenv/config scripts/migrate-profile-client-type-from-sessions.ts"
   },
   "engines": {
     "node": ">=18"
