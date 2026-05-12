@@ -425,6 +425,35 @@ export class ProfileController {
   }
 
   /**
+   * GET /api/v1/profiles/internal/stats/taskers/category-counts
+   * Service-to-service helper counts grouped by category from skills.
+   */
+  static async getInternalTaskerCategoryCounts(
+    _req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const categoryCounts = await ProfileService.getTaskerCategoryCountsForAdmin();
+      res.json({
+        success: true,
+        data: {
+          categories: categoryCounts.categories,
+          summary: categoryCounts.summary,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Failed to fetch tasker category counts', {
+        error: error.message,
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch tasker category counts',
+        message: error.message,
+      });
+    }
+  }
+
+  /**
    * GET /api/v1/profiles/internal/certificates/analytics
    * Aggregated certificate review metrics for admin-service (service auth).
    */
@@ -1263,6 +1292,48 @@ export class ProfileController {
       });
     } catch (error: any) {
       logger.error('Error in getProfilesBatch', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch profiles',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/profiles/batch/uids
+   * Get multiple profiles by Firebase UIDs (for enrichment - minimal fields)
+   * Body: { uids: ["uid1", "uid2", ...] }
+   */
+  static async getProfilesBatchByUids(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uids } = req.body;
+
+      if (!Array.isArray(uids) || uids.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'uids array is required',
+        });
+        return;
+      }
+
+      // Limit batch size
+      const limitedUids = uids.slice(0, 100);
+
+      const profileMap = await ProfileService.getProfilesBatchByUids(limitedUids);
+
+      // Convert Map to array
+      const profiles = Array.from(profileMap.values());
+
+      res.json({
+        success: true,
+        profiles,
+        count: profiles.length,
+      });
+    } catch (error: any) {
+      logger.error('Error in getProfilesBatchByUids', {
         error: error.message,
         stack: error.stack,
       });

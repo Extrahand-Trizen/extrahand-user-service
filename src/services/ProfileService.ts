@@ -9,26 +9,28 @@ import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 import { statsService } from './StatsService';
 
-type CanonicalRole = 'tasker' | 'poster';
+type CanonicalRole = 'helper' | 'customer';
 
 function normalizeRoles(roles: unknown): CanonicalRole[] {
   if (!Array.isArray(roles)) return [];
   const normalized = new Set<CanonicalRole>();
   for (const rawRole of roles) {
     const role = String(rawRole || '').trim().toLowerCase();
-    if (role === 'tasker') normalized.add('tasker');
-    if (role === 'poster' || role === 'requester') normalized.add('poster');
+    // Map all legacy "helper/tasker" variants
+    if (role === 'tasker' || role === 'helper') normalized.add('helper');
+    // Map all legacy "customer/poster/requester" variants
+    if (role === 'poster' || role === 'requester' || role === 'customer') normalized.add('customer');
     if (role === 'both') {
-      normalized.add('tasker');
-      normalized.add('poster');
+      normalized.add('helper');
+      normalized.add('customer');
     }
   }
   return Array.from(normalized);
 }
 
-function derivePrimaryRole(roles: CanonicalRole[]): 'tasker' | 'poster' | 'unknown' {
-  if (roles.includes('tasker')) return 'tasker';
-  if (roles.includes('poster')) return 'poster';
+function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'unknown' {
+  if (roles.includes('helper')) return 'helper';
+  if (roles.includes('customer')) return 'customer';
   return 'unknown';
 }
 
@@ -41,6 +43,140 @@ export class ProfileService {
       isAadhaarVerified: true,
       roles: { $in: ['tasker', 'both'] },
     });
+  }
+
+  static async getTaskerCategoryCountsForAdmin(): Promise<{
+    categories: Array<{ category: string; helperCount: number }>;
+    summary: {
+      totalHelpers: number;
+      categorizedHelpers: number;
+      uncategorizedHelpers: number;
+    };
+  }> {
+    this.checkConnection();
+
+    const baseMatch = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      roles: { $in: ['tasker', 'both'] },
+    };
+
+    const [totalHelpers, categorizedHelpersAgg, rows] = await Promise.all([
+      Profile.countDocuments(baseMatch),
+      Profile.aggregate([
+        { $match: baseMatch },
+        {
+          $project: {
+            categories: {
+              $setUnion: [
+                [
+                  {
+                    $trim: {
+                      input: {
+                        $toLower: { $ifNull: ['$skills.primaryCategory', ''] },
+                      },
+                    },
+                  },
+                ],
+                {
+                  $map: {
+                    input: { $ifNull: ['$skills.list', []] },
+                    as: 'skill',
+                    in: {
+                      $trim: {
+                        input: {
+                          $toLower: { $ifNull: ['$$skill.category', ''] },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          $project: {
+            hasCategory: {
+              $gt: [
+                {
+                  $size: {
+                    $filter: {
+                      input: '$categories',
+                      as: 'c',
+                      cond: { $gt: [{ $strLenCP: '$$c' }, 0] },
+                    },
+                  },
+                },
+                0,
+              ],
+            },
+          },
+        },
+        { $match: { hasCategory: true } },
+        { $count: 'count' },
+      ]),
+      Profile.aggregate([
+      {
+        $match: baseMatch,
+      },
+      {
+        $project: {
+          categories: {
+            $setUnion: [
+              [
+                {
+                  $trim: {
+                    input: {
+                      $toLower: { $ifNull: ['$skills.primaryCategory', ''] },
+                    },
+                  },
+                },
+              ],
+              {
+                $map: {
+                  input: { $ifNull: ['$skills.list', []] },
+                  as: 'skill',
+                  in: {
+                    $trim: {
+                      input: {
+                        $toLower: { $ifNull: ['$$skill.category', ''] },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        $project: {
+          categories: {
+            $filter: {
+              input: '$categories',
+              as: 'c',
+              cond: { $gt: [{ $strLenCP: '$$c' }, 0] },
+            },
+          },
+        },
+      },
+      { $unwind: '$categories' },
+      { $group: { _id: '$categories', helperCount: { $sum: 1 } } },
+      { $match: { helperCount: { $gt: 0 } } },
+      { $sort: { helperCount: -1, _id: 1 } },
+      { $project: { _id: 0, category: '$_id', helperCount: 1 } },
+    ]),
+    ]);
+
+    const categorizedHelpers = Number(categorizedHelpersAgg?.[0]?.count || 0);
+    return {
+      categories: rows,
+      summary: {
+        totalHelpers,
+        categorizedHelpers,
+        uncategorizedHelpers: Math.max(0, totalHelpers - categorizedHelpers),
+      },
+    };
   }
 
   static async getCertificateReviewQueue(params: {
@@ -816,6 +952,48 @@ export class ProfileService {
     } catch (error: any) {
       logger.error('Error batch fetching profiles by ObjectId', {
         profileIdsCount: profileIds.length,
+        error: error.message,
+      });
+      return profileMap;
+    }
+  }
+
+  /**
+   * Get multiple profiles by Firebase UIDs (batch - for enrichment)
+   * Returns minimal fields: _id, uid, name, photoURL
+   */
+  static async getProfilesBatchByUids(uids: string[]): Promise<Map<string, {
+    _id: mongoose.Types.ObjectId;
+    uid: string;
+    name: string;
+    photoURL?: string | null;
+  }>> {
+    this.checkConnection();
+
+    const profileMap = new Map();
+
+    if (!uids || uids.length === 0) {
+      return profileMap;
+    }
+
+    try {
+      const profiles = await Profile.find({ uid: { $in: uids } })
+        .select('_id uid name photoURL')
+        .lean();
+
+      profiles.forEach(profile => {
+        profileMap.set(profile.uid, {
+          _id: profile._id,
+          uid: profile.uid,
+          name: profile.name || 'Anonymous',
+          photoURL: profile.photoURL || null,
+        });
+      });
+
+      return profileMap;
+    } catch (error: any) {
+      logger.error('Error batch fetching profiles by UIDs', {
+        uidsCount: uids.length,
         error: error.message,
       });
       return profileMap;
@@ -1911,11 +2089,16 @@ export class ProfileService {
     }
 
     // Filter by role
+    // Dashboard sends: 'helper' or 'customer' (new terminology)
+    // DB stores: 'tasker', 'poster', 'requester', 'both' (legacy) OR 'helper', 'customer' (new)
     if (role && role !== 'all') {
-      if (role === 'tasker') {
-        andConditions.push({ roles: { $in: ['tasker', 'both'] } });
-      } else if (role === 'poster') {
-        andConditions.push({ roles: { $in: ['poster', 'requester', 'both'] } });
+      const normalizedRole = role.trim().toLowerCase();
+      if (normalizedRole === 'helper' || normalizedRole === 'tasker') {
+        // Helper = tasker in legacy, also stored as 'helper' in some records
+        andConditions.push({ roles: { $in: ['tasker', 'both', 'helper'] } });
+      } else if (normalizedRole === 'customer' || normalizedRole === 'poster' || normalizedRole === 'requester') {
+        // Customer = poster/requester in legacy, also stored as 'customer' in some records
+        andConditions.push({ roles: { $in: ['poster', 'requester', 'both', 'customer'] } });
       }
     }
 
@@ -2055,8 +2238,8 @@ export class ProfileService {
    * Aggregate role counts directly from profiles collection.
    */
   static async getRoleCountsForAdmin(): Promise<{
-    posters: number;
-    taskers: number;
+    customers: number;
+    helpers: number;
     totalProfiles: number;
   }> {
     this.checkConnection();
@@ -2065,23 +2248,117 @@ export class ProfileService {
       'dataPrivacy.accountDeleted': { $ne: true },
     };
 
-    const [posters, taskers, totalProfiles] = await Promise.all([
+    const [helpers, totalProfiles] = await Promise.all([
       Profile.countDocuments({
         ...baseFilter,
-        roles: { $in: ['poster', 'requester', 'both'] },
-      }),
-      Profile.countDocuments({
-        ...baseFilter,
-        roles: { $in: ['tasker', 'both'] },
+        roles: { $in: ['tasker', 'both', 'helper'] },
       }),
       Profile.countDocuments(baseFilter),
     ]);
+    // Make role buckets mutually exclusive so customers + helpers matches total users.
+    // "both" users are counted under helpers.
+    const customers = Math.max(0, totalProfiles - helpers);
 
     return {
-      posters,
-      taskers,
+      customers,
+      helpers,
       totalProfiles,
     };
+  }
+
+  /**
+   * Find users whose roles field is empty/missing (never completed role selection).
+   * Returns a preview list. Set dryRun=false to actually delete them.
+   * Deletion is fully cascaded: Task Service data → MongoDB profile → Firebase account.
+   */
+  static async cleanupUsersWithoutRoles(dryRun = true): Promise<{
+    dryRun: boolean;
+    count: number;
+    users: Array<{ uid: string; name: string; email: string; createdAt: any }>;
+    deletedCount?: number;
+  }> {
+    this.checkConnection();
+
+    // Query: roles field is missing, null, or an empty array
+    const noRoleQuery = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      $or: [
+        { roles: { $exists: false } },
+        { roles: null },
+        { roles: { $size: 0 } },
+      ],
+    };
+
+    const profiles = await Profile.find(noRoleQuery)
+      .select('uid name email createdAt')
+      .lean();
+
+    const users = profiles.map((p: any) => ({
+      uid: p.uid,
+      name: p.name || '',
+      email: p.email || '',
+      createdAt: p.createdAt,
+    }));
+
+    if (dryRun) {
+      logger.info(`[cleanupUsersWithoutRoles] DRY RUN — ${users.length} users with no role found`, {
+        sample: users.slice(0, 5),
+      });
+      return { dryRun: true, count: users.length, users };
+    }
+
+    // Perform actual deletion with full cascade
+    let deletedCount = 0;
+    const env = validateEnv();
+
+    for (const user of users) {
+      try {
+        // 1. Cascade delete in Task Service
+        if (env.TASK_SERVICE_URL && env.SERVICE_AUTH_TOKEN) {
+          try {
+            const profile = await Profile.findOne({ uid: user.uid }).select('_id').lean();
+            const profileId = (profile as any)?._id?.toString();
+            const headers: Record<string, string> = {
+              'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+              'X-Service-Name': 'user-service',
+              'X-User-Id': user.uid,
+            };
+            if (profileId) headers['X-Profile-Id'] = profileId;
+
+            await axios.delete(`${env.TASK_SERVICE_URL}/api/v1/cascade-delete/user/${user.uid}`, {
+              headers,
+              timeout: 15000,
+            });
+          } catch (err: any) {
+            // Non-fatal — log and continue
+            logger.warn(`[cleanup] Task Service cascade failed for ${user.uid}:`, err.message);
+          }
+        }
+
+        // 2. Delete MongoDB profile
+        const del = await Profile.deleteOne({ uid: user.uid });
+
+        // 3. Delete Firebase account
+        try {
+          await auth.deleteUser(user.uid);
+        } catch (fbErr: any) {
+          if (fbErr.code !== 'auth/user-not-found') {
+            logger.warn(`[cleanup] Firebase delete failed for ${user.uid}:`, fbErr.message);
+          }
+        }
+
+        if (del.deletedCount > 0) {
+          deletedCount++;
+          logger.info(`[cleanup] Deleted no-role user: ${user.uid} (${user.email})`);
+        }
+      } catch (err: any) {
+        logger.error(`[cleanup] Failed to delete user ${user.uid}:`, err.message);
+      }
+    }
+
+    logger.info(`[cleanupUsersWithoutRoles] DONE — deleted ${deletedCount} of ${users.length} no-role users`);
+
+    return { dryRun: false, count: users.length, users, deletedCount };
   }
 
   /**

@@ -14,6 +14,12 @@ router.get('/', serviceAuthMiddleware, asyncHandler(UserController.listUsersForA
 // GET /api/v1/users/stats/roles - Role counts from profiles.roles (admin)
 router.get('/stats/roles', serviceAuthMiddleware, asyncHandler(UserController.getRoleCountsForAdmin));
 
+// GET /api/v1/users/cleanup/no-role - Preview users with no role (dry run)
+router.get('/cleanup/no-role', serviceAuthMiddleware, asyncHandler(UserController.cleanupUsersWithoutRoles));
+
+// POST /api/v1/users/cleanup/no-role - Actually delete users with no role (dry_run=false)
+router.post('/cleanup/no-role', serviceAuthMiddleware, asyncHandler(UserController.cleanupUsersWithoutRoles));
+
 // GET /api/v1/users/:userId - Get user by UID (admin)
 router.get('/:userId', serviceAuthMiddleware, asyncHandler(UserController.getUserForAdmin));
 

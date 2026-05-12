@@ -32,6 +32,39 @@ export class UserController {
   }
 
   /**
+   * POST /api/v1/users/cleanup/no-role
+   * Preview (dry_run=true, default) or delete users with no saved role.
+   * Pass ?dry_run=false in body/query to actually delete.
+   */
+  static async cleanupUsersWithoutRoles(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      // Support both query param and body to allow GET-style dry-run checks
+      const dryRunParam = req.query.dry_run ?? (req.body && req.body.dry_run);
+      const dryRun = dryRunParam === undefined ? true : String(dryRunParam) !== 'false';
+
+      logger.info(`[cleanupUsersWithoutRoles] Called — dryRun=${dryRun}`, {
+        adminId: req.admin?.userId,
+      });
+
+      const result = await ProfileService.cleanupUsersWithoutRoles(dryRun);
+
+      res.json({
+        success: true,
+        data: result,
+        message: dryRun
+          ? `Dry run: found ${result.count} users with no role. Pass dry_run=false to delete.`
+          : `Deleted ${result.deletedCount} of ${result.count} users with no role.`,
+      });
+    } catch (error: any) {
+      logger.error('Error in cleanupUsersWithoutRoles:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to cleanup users without roles',
+      });
+    }
+  }
+
+  /**
    * GET /api/v1/users
    * List users with filters (admin)
    */

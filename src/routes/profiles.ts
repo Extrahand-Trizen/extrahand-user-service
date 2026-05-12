@@ -30,6 +30,11 @@ router.get(
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalTaskerAadhaarVerifiedCount)
 );
+router.get(
+  '/internal/stats/taskers/category-counts',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.getInternalTaskerCategoryCounts)
+);
 router.put(
   '/internal/:uid',
   serviceAuthMiddleware,
@@ -111,6 +116,9 @@ router.get('/by-id/:profileId', serviceAuthMiddleware, asyncHandler(ProfileContr
 
 // POST /api/v1/profiles/batch - Get multiple profiles by ObjectIds (for enrichment - service auth)
 router.post('/batch', serviceAuthMiddleware, asyncHandler(ProfileController.getProfilesBatch));
+
+// POST /api/v1/profiles/batch/uids - Get multiple profiles by Firebase UIDs (for enrichment - service auth)
+router.post('/batch/uids', serviceAuthMiddleware, asyncHandler(ProfileController.getProfilesBatchByUids));
 
 // GET /api/v1/profiles/:uid - Get profile by UID (optional auth)
 // Note: This route must come after /by-id/:profileId to avoid route conflicts
