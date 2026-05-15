@@ -3,7 +3,7 @@ import { AuthenticatedRequest } from '../types';
 import { PrivacyService } from '../services/PrivacyService';
 import { validateEnv } from '../config/env';
 import logger from '../config/logger';
-import { triggerDeletionExecutorWakeup } from '../jobs/scheduledDeletionJob';
+import { triggerDeletionExecutorWakeup } from '../jobs/scheduledDeletionJob'; // legacy scheduled deletions only
 
 const env = validateEnv();
 
@@ -132,20 +132,20 @@ export class PrivacyController {
       return;
     }
 
-    const deletionDate = await PrivacyService.requestAccountDeletion(userId, reason);
-    triggerDeletionExecutorWakeup();
+    const deletedAt = await PrivacyService.requestAccountDeletion(userId, reason);
 
-    logger.info('Delete-account API scheduled deletion successfully', {
+    logger.info('Delete-account API completed immediately', {
       userId,
-      deletionScheduledFor: deletionDate
+      deletedAt,
     });
 
     res.json({
       success: true,
-      message: 'Account deletion has been scheduled',
-      deletionScheduledFor: deletionDate,
-      gracePeriod: '24-48 hours',
-      note: 'Open posted tasks are deleted first. Deletion is blocked only while active tasks or accepted applications exist. You can cancel this request until the scheduled deletion time by calling POST /api/v1/privacy/cancel-deletion.'
+      message: 'Your account and personal data have been deleted',
+      deletedAt,
+      deletionScheduledFor: deletedAt,
+      gracePeriod: 'immediate',
+      note: 'Tasks, verifications, and personal profile data were removed. Deletion is blocked while you have active assigned or in-progress work.',
     });
   }
 
