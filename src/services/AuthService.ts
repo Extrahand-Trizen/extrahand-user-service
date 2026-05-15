@@ -694,6 +694,31 @@ export class AuthService {
       const now = Date.now();
       const displayName = name || DUMMY_DISPLAY_NAME;
 
+      // Same as production OTP path: privacy deletion leaves an anonymized row; dev login must revive it.
+      if (profile && ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false)) {
+         const reactivated = await Profile.findOneAndUpdate(
+            { uid },
+            {
+               $set: {
+                  name: displayName,
+                  phone: formattedPhone,
+                  isActive: true,
+                  status: 'active',
+                  updatedAt: now,
+                  'dataPrivacy.deletionRequested': false,
+                  'dataPrivacy.deletionRequestedAt': null,
+                  'dataPrivacy.deletionScheduledFor': null,
+                  'dataPrivacy.accountDeleted': false,
+                  'dataPrivacy.accountDeletedAt': null,
+                  'dataPrivacy.accountDeletionReason': null,
+               },
+            },
+            { new: true },
+         ).lean();
+         profile = reactivated as any;
+         logger.info('Reactivated deleted profile during completeOTPDevAuth', { uid, mode });
+      }
+
       if (mode === "login") {
          if (!profile) {
             try {
