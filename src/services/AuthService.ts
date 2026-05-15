@@ -9,6 +9,7 @@ import {
    findActiveProfileByUidOrPhone,
    normalizePhoneToLast10,
    reconcileProfileUidByPhone,
+   reactivateDeletedProfile,
 } from "../utils/identityReconciliation";
 
 export class AuthService {
@@ -344,28 +345,12 @@ export class AuthService {
             }
          }
 
-         // If this UID belongs to a deleted account, reactivate it for fresh onboarding.
-         if (profile && ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false)) {
-            const reactivated = await Profile.findOneAndUpdate(
-               { uid },
-               {
-                  $set: {
-                     name: name || "User",
-                     phone: formattedPhone,
-                     isActive: true,
-                     status: "active",
-                     updatedAt: Date.now(),
-                     'dataPrivacy.deletionRequested': false,
-                     'dataPrivacy.deletionRequestedAt': null,
-                     'dataPrivacy.deletionScheduledFor': null,
-                     'dataPrivacy.accountDeleted': false,
-                     'dataPrivacy.accountDeletedAt': null,
-                     'dataPrivacy.accountDeletionReason': null,
-                  },
-               },
-               { new: true }
-            ).lean();
-
+         const reactivated = await reactivateDeletedProfile({
+            firebaseUid: uid,
+            phone: formattedPhone,
+            preferredName: name || "User",
+         });
+         if (reactivated) {
             profile = reactivated as any;
             logger.info("Reactivated deleted profile during OTP auth", { uid, mode });
          }
@@ -694,29 +679,27 @@ export class AuthService {
       const now = Date.now();
       const displayName = name || DUMMY_DISPLAY_NAME;
 
-      // Same as production OTP path: privacy deletion leaves an anonymized row; dev login must revive it.
-      if (profile && ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false)) {
-         const reactivated = await Profile.findOneAndUpdate(
-            { uid },
-            {
-               $set: {
-                  name: displayName,
-                  phone: formattedPhone,
-                  isActive: true,
-                  status: 'active',
-                  updatedAt: now,
-                  'dataPrivacy.deletionRequested': false,
-                  'dataPrivacy.deletionRequestedAt': null,
-                  'dataPrivacy.deletionScheduledFor': null,
-                  'dataPrivacy.accountDeleted': false,
-                  'dataPrivacy.accountDeletedAt': null,
-                  'dataPrivacy.accountDeletionReason': null,
-               },
-            },
-            { new: true },
-         ).lean();
+      if (!profile) {
+         const reconciled = await reconcileProfileUidByPhone({
+            firebaseUid: uid,
+            phone: formattedPhone,
+            preferredName: displayName,
+            applyChanges: true,
+         });
+         if (reconciled.resolved && reconciled.profile) {
+            profile = (await Profile.findById((reconciled.profile as any)._id).lean()) as any;
+         }
+      }
+
+      const reactivated = await reactivateDeletedProfile({
+         firebaseUid: uid,
+         phone: formattedPhone,
+         preferredName: displayName,
+         resolveDummyPhoneCollision: true,
+      });
+      if (reactivated) {
          profile = reactivated as any;
-         logger.info('Reactivated deleted profile during completeOTPDevAuth', { uid, mode });
+         logger.info("Reactivated deleted profile during completeOTPDevAuth", { uid, mode });
       }
 
       if (mode === "login") {

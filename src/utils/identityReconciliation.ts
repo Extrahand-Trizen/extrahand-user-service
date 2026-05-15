@@ -26,6 +26,20 @@ export function buildPhoneSearchVariants(phone?: string | null): string[] {
   return [...new Set(variants.filter(Boolean))];
 }
 
+/** Any profile row holding this phone (including deleted / inactive). Dummy-auth collision helper only. */
+async function findProfileByPhoneForDummyCollision(phone?: string | null) {
+  const phoneVariants = buildPhoneSearchVariants(phone);
+  const last10 = normalizePhoneToLast10(phone);
+  if (!phoneVariants.length) return null;
+
+  return Profile.findOne({
+    $or: [
+      { phone: { $in: phoneVariants } },
+      ...(last10 ? [{ phone: { $regex: new RegExp(`${last10}$`) } }] : []),
+    ],
+  }).lean();
+}
+
 export async function findActiveProfileByUidOrPhone(params: {
   uid?: string;
   phone?: string | null;
@@ -111,4 +125,91 @@ export async function reconcileProfileUidByPhone(params: {
   }
 
   return { resolved: false, reason: "not_found", profile: null };
+}
+
+/**
+ * Revive a deleted/inactive profile after OTP login.
+ *
+ * When `resolveDummyPhoneCollision` is true (local dummy OTP only): may unset `phone` on another
+ * row so `phone_1` unique index does not throw. Never pass true for production Firebase OTP.
+ */
+export async function reactivateDeletedProfile(params: {
+  firebaseUid: string;
+  phone: string;
+  preferredName: string;
+  resolveDummyPhoneCollision?: boolean;
+}): Promise<Record<string, unknown> | null> {
+  const { firebaseUid, phone, preferredName, resolveDummyPhoneCollision = false } = params;
+  const uidProfile = await Profile.findOne({ uid: firebaseUid }).lean();
+  const needsReactivation =
+    uidProfile &&
+    ((uidProfile as any).dataPrivacy?.accountDeleted || uidProfile.isActive === false);
+
+  if (!needsReactivation) return null;
+
+  const now = Date.now();
+  const reactivationSet: Record<string, unknown> = {
+    name: preferredName,
+    phone,
+    isActive: true,
+    status: "active",
+    updatedAt: now,
+    "dataPrivacy.deletionRequested": false,
+    "dataPrivacy.deletionRequestedAt": null,
+    "dataPrivacy.deletionScheduledFor": null,
+    "dataPrivacy.accountDeleted": false,
+    "dataPrivacy.accountDeletedAt": null,
+    "dataPrivacy.accountDeletionReason": null,
+  };
+
+  if (!resolveDummyPhoneCollision) {
+    const reactivated = await Profile.findOneAndUpdate(
+      { uid: firebaseUid },
+      { $set: reactivationSet },
+      { new: true },
+    ).lean();
+    if (reactivated) {
+      logger.info("Reactivated deleted profile", { firebaseUid });
+    }
+    return reactivated as Record<string, unknown> | null;
+  }
+
+  const phoneHolder = await findProfileByPhoneForDummyCollision(phone);
+  if (phoneHolder && phoneHolder.uid !== firebaseUid) {
+    await Profile.updateOne(
+      { _id: phoneHolder._id },
+      { $unset: { phone: "" }, $set: { updatedAt: now } },
+    );
+    logger.info("Cleared phone from conflicting profile before dummy reactivation", {
+      firebaseUid,
+      conflictingUid: phoneHolder.uid,
+      conflictingProfileId: String(phoneHolder._id),
+    });
+  }
+
+  try {
+    const reactivated = await Profile.findOneAndUpdate(
+      { uid: firebaseUid },
+      { $set: reactivationSet },
+      { new: true },
+    ).lean();
+    if (reactivated) {
+      logger.info("Reactivated deleted profile (dummy collision path)", { firebaseUid });
+    }
+    return reactivated as Record<string, unknown> | null;
+  } catch (error: any) {
+    if (error?.code !== 11000) throw error;
+    const holder = await findProfileByPhoneForDummyCollision(phone);
+    if (holder && holder.uid !== firebaseUid) {
+      await Profile.updateOne(
+        { _id: holder._id },
+        { $unset: { phone: "" }, $set: { updatedAt: now } },
+      );
+    }
+    return Profile.findOneAndUpdate(
+      { uid: firebaseUid },
+      { $set: reactivationSet },
+      { new: true },
+    ).lean() as Promise<Record<string, unknown> | null>;
+  }
 }
