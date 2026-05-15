@@ -42,41 +42,6 @@ export class PrivacyService {
     };
   }
 
-  private static async deleteOpenPostedTasks(profile: any): Promise<number> {
-    const taskServiceUrl = env.TASK_SERVICE_URL;
-    if (!taskServiceUrl) {
-      return 0;
-    }
-
-    const profileId = profile?._id?.toString();
-
-    try {
-      const response = await axios.delete(`${taskServiceUrl}/api/v1/cascade-delete/user/${profile.uid}/open-tasks`, {
-        headers: this.buildServiceHeaders(profile.uid, profileId),
-        timeout: 7000
-      });
-
-      const payload = response.data?.data || response.data || {};
-      const deletedTaskCount = Number(payload.tasksDeleted || 0);
-
-      logger.info('Open posted tasks deleted successfully via task-service', {
-        userId: profile.uid,
-        deletedTaskCount
-      });
-
-      return deletedTaskCount;
-    } catch (error: any) {
-      logger.error('Failed to delete open tasks via task-service before account deletion', {
-        userId: profile.uid,
-        statusCode: error?.response?.status,
-        responseData: error?.response?.data,
-        error: error.message
-      });
-
-      throw new ServiceUnavailableError('Unable to delete your open tasks right now. Please try again shortly.');
-    }
-  }
-
   private static async assertNoActiveDeletionBlockers(profile: any): Promise<void> {
     const blockers: string[] = [];
     const taskServiceUrl = env.TASK_SERVICE_URL;
