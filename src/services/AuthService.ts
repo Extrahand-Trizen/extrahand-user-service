@@ -11,6 +11,7 @@ import {
    reconcileProfileUidByPhone,
    reactivateDeletedProfile,
 } from "../utils/identityReconciliation";
+import { ensureDemoVerificationProfile } from "../utils/reviewBypass";
 
 export class AuthService {
    private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
@@ -572,6 +573,10 @@ export class AuthService {
                });
          }
 
+         if (profile) {
+            profile = await ensureDemoVerificationProfile(profile);
+         }
+
          logger.info("OTP auth completed successfully", {
             uid,
             mode,
@@ -786,12 +791,18 @@ export class AuthService {
          throw new InternalServerError("Profile not found after create");
       }
 
-      logger.info("Dev OTP auth completed", { uid: profile.uid, phone: formattedPhone, mode });
+      const verifiedProfile = await ensureDemoVerificationProfile(profile);
+
+      logger.info("Dev OTP auth completed", {
+         uid: verifiedProfile.uid,
+         phone: formattedPhone,
+         mode,
+      });
 
       return {
          success: true,
-         profile,
-         user: { uid: profile.uid, phone: profile.phone || null },
+         profile: verifiedProfile,
+         user: { uid: verifiedProfile.uid, phone: verifiedProfile.phone || null },
       };
    }
 }
