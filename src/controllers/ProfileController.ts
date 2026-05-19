@@ -8,8 +8,8 @@ import EmailVerificationService from '../services/EmailVerificationService';
 import { VerificationBadgeService } from '../services/verificationBadgeService';
 import { VerificationType } from '../types/badge';
 import {
-  isReviewBypassUser,
-  getReviewBypassProfileOverrides,
+  ensureDemoVerificationProfile,
+  mergeReviewBypassProfile,
 } from '../utils/reviewBypass';
 
 type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only' | 'private';
@@ -127,7 +127,8 @@ export class ProfileController {
   static async getMyProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const uid = req.user!.uid;
-      const profile = await ProfileService.getMyProfile(uid);
+      let profile = await ProfileService.getMyProfile(uid);
+      profile = await ensureDemoVerificationProfile(profile);
 
       // Always fetch real-time stats from task-service (not from stored profile)
       let realTimeStats: {
@@ -268,16 +269,7 @@ export class ProfileController {
       };
 
       const responseBody =
-        isReviewBypassUser(
-          uid,
-          profile.phone as string | undefined,
-          profile.email as string | undefined
-        )
-          ? {
-              ...serializedProfile,
-              ...getReviewBypassProfileOverrides(),
-            }
-          : serializedProfile;
+        mergeReviewBypassProfile(serializedProfile) ?? serializedProfile;
 
       res.json(responseBody);
     } catch (error: any) {

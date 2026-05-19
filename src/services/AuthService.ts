@@ -9,7 +9,9 @@ import {
    findActiveProfileByUidOrPhone,
    normalizePhoneToLast10,
    reconcileProfileUidByPhone,
+   reactivateDeletedProfile,
 } from "../utils/identityReconciliation";
+import { ensureDemoVerificationProfile } from "../utils/reviewBypass";
 
 export class AuthService {
    private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
@@ -344,28 +346,12 @@ export class AuthService {
             }
          }
 
-         // If this UID belongs to a deleted account, reactivate it for fresh onboarding.
-         if (profile && ((profile as any).dataPrivacy?.accountDeleted || profile.isActive === false)) {
-            const reactivated = await Profile.findOneAndUpdate(
-               { uid },
-               {
-                  $set: {
-                     name: name || "User",
-                     phone: formattedPhone,
-                     isActive: true,
-                     status: "active",
-                     updatedAt: Date.now(),
-                     'dataPrivacy.deletionRequested': false,
-                     'dataPrivacy.deletionRequestedAt': null,
-                     'dataPrivacy.deletionScheduledFor': null,
-                     'dataPrivacy.accountDeleted': false,
-                     'dataPrivacy.accountDeletedAt': null,
-                     'dataPrivacy.accountDeletionReason': null,
-                  },
-               },
-               { new: true }
-            ).lean();
-
+         const reactivated = await reactivateDeletedProfile({
+            firebaseUid: uid,
+            phone: formattedPhone,
+            preferredName: name || "User",
+         });
+         if (reactivated) {
             profile = reactivated as any;
             logger.info("Reactivated deleted profile during OTP auth", { uid, mode });
          }
@@ -587,6 +573,10 @@ export class AuthService {
                });
          }
 
+         if (profile) {
+            profile = await ensureDemoVerificationProfile(profile);
+         }
+
          logger.info("OTP auth completed successfully", {
             uid,
             mode,
@@ -694,6 +684,29 @@ export class AuthService {
       const now = Date.now();
       const displayName = name || DUMMY_DISPLAY_NAME;
 
+      if (!profile) {
+         const reconciled = await reconcileProfileUidByPhone({
+            firebaseUid: uid,
+            phone: formattedPhone,
+            preferredName: displayName,
+            applyChanges: true,
+         });
+         if (reconciled.resolved && reconciled.profile) {
+            profile = (await Profile.findById((reconciled.profile as any)._id).lean()) as any;
+         }
+      }
+
+      const reactivated = await reactivateDeletedProfile({
+         firebaseUid: uid,
+         phone: formattedPhone,
+         preferredName: displayName,
+         resolveDummyPhoneCollision: true,
+      });
+      if (reactivated) {
+         profile = reactivated as any;
+         logger.info("Reactivated deleted profile during completeOTPDevAuth", { uid, mode });
+      }
+
       if (mode === "login") {
          if (!profile) {
             try {
@@ -778,12 +791,18 @@ export class AuthService {
          throw new InternalServerError("Profile not found after create");
       }
 
-      logger.info("Dev OTP auth completed", { uid: profile.uid, phone: formattedPhone, mode });
+      const verifiedProfile = await ensureDemoVerificationProfile(profile);
+
+      logger.info("Dev OTP auth completed", {
+         uid: verifiedProfile.uid,
+         phone: formattedPhone,
+         mode,
+      });
 
       return {
          success: true,
-         profile,
-         user: { uid: profile.uid, phone: profile.phone || null },
+         profile: verifiedProfile,
+         user: { uid: verifiedProfile.uid, phone: verifiedProfile.phone || null },
       };
    }
 }

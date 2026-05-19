@@ -5,6 +5,7 @@ import logger from '../config/logger';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
+import { auth } from '../config/firebase';
 
 const env = validateEnv();
 
@@ -828,24 +829,18 @@ export class PrivacyService {
     _serviceAuthToken: string
   ): Promise<any> {
     const now = new Date();
-    const deletionRequestedBefore = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
-    // Find profiles scheduled for deletion and requested at least 24 hours ago.
+
+    // Legacy rows: deletion was scheduled before instant-delete rollout.
     const profilesToDelete = await Profile.find({
       'dataPrivacy.deletionRequested': true,
+      'dataPrivacy.accountDeleted': { $ne: true },
       'dataPrivacy.deletionScheduledFor': { $lte: now },
-      'dataPrivacy.deletionRequestedAt': {
-        $type: 'date',
-        $lte: deletionRequestedBefore,
-      }
     }).lean();
 
     if (profilesToDelete.length > 0) {
-      logger.warn('🗑️ Executing scheduled deletions', {
-        count: profilesToDelete.length
-      });
+      logger.warn('Executing legacy scheduled deletions', { count: profilesToDelete.length });
     } else {
-      logger.debug('No scheduled deletions due right now');
+      logger.debug('No legacy scheduled deletions due');
     }
 
     const deletionResults = [];
@@ -875,19 +870,19 @@ export class PrivacyService {
         deletionResults.push({
           userId: profile.uid,
           status: 'failed',
-          error: error.message
+          error: error.message,
         });
-        logger.error('❌ Failed to delete account', {
+        logger.error('Failed legacy scheduled deletion', {
           userId: profile.uid,
-          error: error.message
+          error: error.message,
         });
       }
     }
 
     return {
-      deletedCount: deletionResults.filter(r => r.status === 'anonymized').length,
-      failedCount: deletionResults.filter(r => r.status === 'failed').length,
-      results: deletionResults
+      deletedCount: deletionResults.filter((r) => r.status === 'deleted').length,
+      failedCount: deletionResults.filter((r) => r.status === 'failed').length,
+      results: deletionResults,
     };
   }
 }

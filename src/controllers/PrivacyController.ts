@@ -3,7 +3,7 @@ import { AuthenticatedRequest } from '../types';
 import { PrivacyService } from '../services/PrivacyService';
 import { validateEnv } from '../config/env';
 import logger from '../config/logger';
-import { triggerDeletionExecutorWakeup } from '../jobs/scheduledDeletionJob';
+import { triggerDeletionExecutorWakeup } from '../jobs/scheduledDeletionJob'; // legacy scheduled deletions only
 
 const env = validateEnv();
 
