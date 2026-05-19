@@ -93,6 +93,19 @@ export class PrivacyController {
   }
 
   /**
+   * GET /api/v1/privacy/deletion-preview
+   */
+  static async getDeletionPreview(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const userId = req.user!.uid;
+    const preview = await PrivacyService.getAccountDeletionPreview(userId);
+
+    res.json({
+      success: true,
+      ...preview,
+    });
+  }
+
+  /**
    * GET /api/v1/privacy/open-tasks-count
    */
   static async getOpenTasksCount(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -132,20 +145,19 @@ export class PrivacyController {
       return;
     }
 
-    const deletionDate = await PrivacyService.requestAccountDeletion(userId, reason);
-    triggerDeletionExecutorWakeup();
+    const { deletedAt, cascadeDeleteResult } = await PrivacyService.requestAccountDeletion(userId, reason);
 
-    logger.info('Delete-account API scheduled deletion successfully', {
+    logger.info('Delete-account API completed immediate deletion', {
       userId,
-      deletionScheduledFor: deletionDate
+      deletedAt,
+      cascadeDeleteResult,
     });
 
     res.json({
       success: true,
-      message: 'Account deletion has been scheduled',
-      deletionScheduledFor: deletionDate,
-      gracePeriod: '24-48 hours',
-      note: 'Open posted tasks are deleted first. Deletion is blocked only while active tasks or accepted applications exist. You can cancel this request until the scheduled deletion time by calling POST /api/v1/privacy/cancel-deletion.'
+      message: 'Account deleted successfully',
+      deletedAt,
+      cascadeDeleteResult,
     });
   }
 

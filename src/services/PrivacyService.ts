@@ -4,26 +4,11 @@ import { NotFoundError, BadRequestError, ServiceUnavailableError } from '../erro
 import logger from '../config/logger';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
+import { auth } from '../config/firebase';
 
 const env = validateEnv();
-const MIN_DELETION_GRACE_HOURS = 24;
-const MAX_DELETION_GRACE_HOURS = 48;
-const DEFAULT_DELETION_GRACE_HOURS = 48;
 
 export class PrivacyService {
-  private static getDeletionGraceHours(): number {
-    // Prefer the new hours env var, but keep legacy var for backward compatibility.
-    const raw = Number(
-      process.env.ACCOUNT_DELETION_GRACE_HOURS
-      || process.env.ACCOUNT_DELETION_GRACE_SECONDS
-      || DEFAULT_DELETION_GRACE_HOURS
-    );
-    if (!Number.isFinite(raw)) {
-      return DEFAULT_DELETION_GRACE_HOURS;
-    }
-    return Math.min(MAX_DELETION_GRACE_HOURS, Math.max(MIN_DELETION_GRACE_HOURS, Math.floor(raw)));
-  }
-
   private static getDeletionAlias(profile: any): string {
     const roles = Array.isArray(profile?.roles) ? profile.roles : [];
     if (roles.includes('tasker')) {
@@ -41,139 +26,184 @@ export class PrivacyService {
     };
   }
 
-  private static async deleteOpenPostedTasks(profile: any): Promise<number> {
+  private static async cascadeDeleteAccountEligibleData(profile: any): Promise<Record<string, number>> {
     const taskServiceUrl = env.TASK_SERVICE_URL;
-    if (!taskServiceUrl) {
-      return 0;
+    if (!taskServiceUrl || !env.SERVICE_AUTH_TOKEN) {
+      throw new ServiceUnavailableError(
+        'Unable to delete your work data right now. Please try again shortly.',
+      );
     }
 
     const profileId = profile?._id?.toString();
+    const userId = profile?.uid;
 
     try {
-      const response = await axios.delete(`${taskServiceUrl}/api/v1/cascade-delete/user/${profile.uid}/open-tasks`, {
-        headers: this.buildServiceHeaders(profile.uid, profileId),
-        timeout: 7000
-      });
+      const response = await axios.delete(
+        `${taskServiceUrl}/api/v1/cascade-delete/user/${userId}/account-deletion`,
+        {
+          headers: this.buildServiceHeaders(userId, profileId),
+          timeout: 30000,
+        },
+      );
 
       const payload = response.data?.data || response.data || {};
-      const deletedTaskCount = Number(payload.tasksDeleted || 0);
-
-      logger.info('Open posted tasks deleted successfully via task-service', {
-        userId: profile.uid,
-        deletedTaskCount
+      logger.info('User account-deletion eligible data removed via task-service', {
+        userId,
+        profileId,
+        payload,
       });
 
-      return deletedTaskCount;
+      return {
+        tasksDeleted: Number(payload.tasksDeleted || 0),
+        applicationsDeleted: Number(payload.applicationsDeleted || 0),
+        reviewsDeleted: Number(payload.reviewsDeleted || 0),
+        followsDeleted: Number(payload.followsDeleted || 0),
+        reportsDeleted: Number(payload.reportsDeleted || 0),
+        questionsDeleted: Number(payload.questionsDeleted || 0),
+        totalDeleted: Number(payload.totalDeleted || 0),
+      };
     } catch (error: any) {
-      logger.error('Failed to delete open tasks via task-service before account deletion', {
-        userId: profile.uid,
+      logger.error('Failed to delete account-eligible task data before account deletion', {
+        userId,
+        profileId,
         statusCode: error?.response?.status,
         responseData: error?.response?.data,
-        error: error.message
+        error: error.message,
       });
 
-      throw new ServiceUnavailableError('Unable to delete your open tasks right now. Please try again shortly.');
+      throw new ServiceUnavailableError(
+        'Unable to delete your work data right now. Please try again shortly.',
+      );
     }
   }
 
   private static async assertNoActiveDeletionBlockers(profile: any): Promise<void> {
-    const blockers: string[] = [];
     const taskServiceUrl = env.TASK_SERVICE_URL;
-    const profileId = profile?._id?.toString();
-
-    logger.info('🔎 Running deletion blocker checks', {
-      userId: profile?.uid,
-      profileId,
-      hasTaskServiceUrl: Boolean(taskServiceUrl)
-    });
-
-    if (!env.SERVICE_AUTH_TOKEN) {
-      logger.error('Deletion blocker checks unavailable: SERVICE_AUTH_TOKEN missing', {
-        userId: profile?.uid
-      });
-      throw new ServiceUnavailableError('Account deletion checks are temporarily unavailable. Please try again shortly.');
-    }
-
-    try {
-      if (taskServiceUrl) {
-        // Check active tasks as POSTER (tasks the user posted that are now assigned/in-progress)
-        // and as TASKER (tasks assigned to the user that are in-progress).
-        // Note: we do NOT separately check accepted applications because an accepted application
-        // always results in the task being flipped to 'assigned' status — so the asTasker
-        // query (assigneeId + status=assigned,...) already covers that case correctly.
-        const statuses = 'assigned,started,in_progress,review';
-
-        logger.info('🔍 Querying task-service for active tasks', {
-          userId: profile.uid,
-          profileId,
-          posterQuery: { posterUid: profile.uid, status: statuses },
-          taskerQuery: { assigneeId: profileId, status: statuses }
-        });
-
-        const [asPoster, asTasker] = await Promise.all([
-          axios.get(`${taskServiceUrl}/api/v1/tasks`, {
-            params: { posterUid: profile.uid, status: statuses, limit: 1 },
-            headers: this.buildServiceHeaders(profile.uid, profileId),
-            timeout: 7000
-          }),
-          axios.get(`${taskServiceUrl}/api/v1/tasks`, {
-            params: { assigneeId: profile._id?.toString(), status: statuses, limit: 1 },
-            headers: this.buildServiceHeaders(profile.uid, profileId),
-            timeout: 7000
-          })
-        ]);
-
-        const posterTasks = asPoster.data?.tasks || asPoster.data?.data || [];
-        const taskerTasks = asTasker.data?.tasks || asTasker.data?.data || [];
-
-        const posterTaskDetails = Array.isArray(posterTasks) ? posterTasks.map((t: any) => ({
-          id: t._id,
-          title: t.title,
-          status: t.status
-        })) : [];
-
-        const taskerTaskDetails = Array.isArray(taskerTasks) ? taskerTasks.map((t: any) => ({
-          id: t._id,
-          title: t.title,
-          status: t.status
-        })) : [];
-
-        logger.info('Task blocker check completed', {
-          userId: profile.uid,
-          posterTasksCount: Array.isArray(posterTasks) ? posterTasks.length : 0,
-          posterTasks: posterTaskDetails,
-          taskerTasksCount: Array.isArray(taskerTasks) ? taskerTasks.length : 0,
-          taskerTasks: taskerTaskDetails
-        });
-
-        if (
-          (Array.isArray(posterTasks) && posterTasks.length > 0) ||
-          (Array.isArray(taskerTasks) && taskerTasks.length > 0)
-        ) {
-          blockers.push('active tasks (accepted/ongoing)');
-        }
-      }
-    } catch (error: any) {
-      logger.error('Failed to validate active tasks before account deletion', {
-        userId: profile.uid,
-        error: error.message
-      });
-      throw new ServiceUnavailableError('Unable to verify active tasks right now. Please try again shortly.');
-    }
-
-    if (blockers.length > 0) {
-      logger.warn('Deletion blocked due to active dependencies', {
-        userId: profile.uid,
-        blockers
-      });
-      throw new BadRequestError(
-        `Account cannot be deleted while you have ${blockers.join(' and ')}. Complete or cancel your active tasks first.`
+    if (!taskServiceUrl || !env.SERVICE_AUTH_TOKEN) {
+      throw new ServiceUnavailableError(
+        'Unable to verify your work status right now. Please try again shortly.',
       );
     }
 
-    logger.info('Deletion blocker checks passed', {
-      userId: profile.uid
+    const profileId = profile?._id?.toString();
+    const userId = profile?.uid;
+
+    if (!profileId) {
+      throw new BadRequestError('Profile not found');
+    }
+
+    try {
+      const response = await axios.get(
+        `${taskServiceUrl}/api/v1/cascade-delete/user/${userId}/active-blockers`,
+        {
+          headers: this.buildServiceHeaders(userId, profileId),
+          timeout: 10000,
+        },
+      );
+
+      const payload = response.data?.data || response.data || {};
+      if (payload?.hasBlockers) {
+        throw new BadRequestError(
+          'Account cannot be deleted while you have ongoing assigned work. Please complete or cancel active tasks first.',
+        );
+      }
+    } catch (error: any) {
+      if (error instanceof BadRequestError) {
+        throw error;
+      }
+
+      logger.error('Failed to check active deletion blockers', {
+        userId,
+        profileId,
+        statusCode: error?.response?.status,
+        responseData: error?.response?.data,
+        error: error.message,
+      });
+
+      throw new ServiceUnavailableError(
+        'Unable to verify your work status right now. Please try again shortly.',
+      );
+    }
+  }
+
+  private static async anonymizeAccountProfile(profile: any, reason?: string): Promise<string> {
+    const userId = profile.uid;
+    const anonymizedName = this.getDeletionAlias(profile);
+
+    await Promise.all([
+      Profile.updateOne(
+        { uid: userId },
+        {
+          $set: {
+            name: anonymizedName,
+            profession: null,
+            location: null,
+            savedAddresses: [],
+            photoURL: null,
+            bio: null,
+            portfolio: [],
+            business: null,
+            maskedAadhaar: null,
+            maskedPan: null,
+            maskedBankAccount: null,
+            bankAccount: null,
+            isAadhaarVerified: false,
+            aadhaarVerifiedAt: null,
+            isPANVerified: false,
+            panVerifiedAt: null,
+            isBankVerified: false,
+            bankVerifiedAt: null,
+            isEmailVerified: false,
+            emailVerifiedAt: null,
+            phoneVerified: false,
+            isActive: false,
+            status: 'inactive',
+            'dataPrivacy.deletionRequested': false,
+            'dataPrivacy.deletionRequestedAt': null,
+            'dataPrivacy.deletionScheduledFor': null,
+            'dataPrivacy.accountDeleted': true,
+            'dataPrivacy.accountDeletedAt': new Date(),
+            'dataPrivacy.accountDeletionReason':
+              reason?.trim() || 'User requested account deletion (DPDP)',
+          },
+          $unset: {
+            email: '',
+            phone: '',
+          },
+        },
+      ),
+      Consent.deleteOne({ userId }),
+    ]);
+
+    return anonymizedName;
+  }
+
+  private static async deleteFirebaseAuthUser(userId: string): Promise<void> {
+    try {
+      await auth.deleteUser(userId);
+      logger.info('Firebase account deleted after privacy deletion', { userId });
+    } catch (error: any) {
+      logger.error('Failed to delete Firebase account after privacy deletion', {
+        userId,
+        error: error?.message,
+        code: error?.code,
+      });
+    }
+  }
+
+  private static async recordDeletionConsent(userId: string, reason?: string): Promise<void> {
+    const consent = await Consent.findOne({ userId });
+    if (!consent) return;
+
+    consent.consentHistory.push({
+      consentType: 'account.deletion',
+      action: 'given' as const,
+      givenAt: new Date(),
+      ipAddress: 'system',
+      userAgent: 'system',
+      reason: reason || 'User requested account deletion',
     });
+    await consent.save();
   }
 
   /**
@@ -502,8 +532,8 @@ export class PrivacyService {
         },
         deleteAccount: {
           available: true,
-          gracePeriod: `${this.getDeletionGraceHours()} hours`,
-          description: 'Request account deletion',
+          immediate: true,
+          description: 'Delete account and all associated work data immediately',
           endpoint: '/api/v1/privacy/delete-account'
         },
         updateConsent: {
@@ -575,6 +605,69 @@ export class PrivacyService {
   }
 
   /**
+   * Preview task/application counts and active blockers for account deletion UI.
+   */
+  static async getAccountDeletionPreview(userId: string): Promise<{
+    hasActiveBlockers: boolean;
+    openTasksCount: number;
+    completedTasksCount: number;
+    cancelledTasksCount: number;
+    applicationsCount: number;
+    asPosterActiveCount: number;
+    asAssigneeActiveCount: number;
+  }> {
+    const taskServiceUrl = env.TASK_SERVICE_URL;
+    if (!taskServiceUrl || !env.SERVICE_AUTH_TOKEN) {
+      throw new ServiceUnavailableError(
+        'Unable to load deletion preview right now. Please try again shortly.',
+      );
+    }
+
+    const profile = await Profile.findOne({ uid: userId }).select('_id uid').lean();
+    const profileId = profile?._id?.toString();
+    if (!profileId) {
+      throw new NotFoundError('Profile not found');
+    }
+
+    try {
+      const response = await axios.get(
+        `${taskServiceUrl}/api/v1/cascade-delete/user/${userId}/account-deletion-preview`,
+        {
+          headers: this.buildServiceHeaders(userId, profileId),
+          timeout: 10000,
+        },
+      );
+
+      const payload = response.data?.data || response.data || {};
+      const num = (value: unknown) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+      };
+
+      return {
+        hasActiveBlockers: Boolean(payload.hasActiveBlockers),
+        openTasksCount: num(payload.openTasksCount),
+        completedTasksCount: num(payload.completedTasksCount),
+        cancelledTasksCount: num(payload.cancelledTasksCount),
+        applicationsCount: num(payload.applicationsCount),
+        asPosterActiveCount: num(payload.asPosterActiveCount),
+        asAssigneeActiveCount: num(payload.asAssigneeActiveCount),
+      };
+    } catch (error: any) {
+      logger.error('Failed to fetch account deletion preview from Task Service', {
+        userId,
+        profileId,
+        statusCode: error?.response?.status,
+        responseData: error?.response?.data,
+        error: error.message,
+      });
+      throw new ServiceUnavailableError(
+        'Unable to load deletion preview right now. Please try again shortly.',
+      );
+    }
+  }
+
+  /**
    * Update consent
    */
   static async updateConsent(
@@ -627,12 +720,16 @@ export class PrivacyService {
   }
 
   /**
-   * Request account deletion
+   * Request account deletion — immediate: remove eligible task data, anonymize profile, remove Firebase auth.
+   * Blocked when the user has ongoing/assigned tasks.
    */
-  static async requestAccountDeletion(userId: string, reason?: string): Promise<Date> {
+  static async requestAccountDeletion(
+    userId: string,
+    reason?: string,
+  ): Promise<{ deletedAt: Date; cascadeDeleteResult: Record<string, number> }> {
     logger.info('🗑️ Account deletion request started', {
       userId,
-      hasReason: Boolean(reason && reason.trim())
+      hasReason: Boolean(reason && reason.trim()),
     });
 
     const profile = await Profile.findOne({ uid: userId });
@@ -645,52 +742,22 @@ export class PrivacyService {
       throw new BadRequestError('This account is already deleted');
     }
 
-    if (profile.dataPrivacy?.deletionRequested) {
-      throw new BadRequestError('Account deletion has already been requested');
-    }
-
-    const deletedOpenTaskCount = await this.deleteOpenPostedTasks(profile);
-
     await this.assertNoActiveDeletionBlockers(profile);
+    const cascadeDeleteResult = await this.cascadeDeleteAccountEligibleData(profile);
+    const anonymizedName = await this.anonymizeAccountProfile(profile, reason);
+    await this.recordDeletionConsent(userId, reason);
+    await this.deleteFirebaseAuthUser(userId);
 
-    // Schedule deletion for 24-48 hours from now (default 48h)
-    const graceHours = this.getDeletionGraceHours();
-    const deletionDate = new Date();
-    deletionDate.setHours(deletionDate.getHours() + graceHours);
+    const deletedAt = new Date();
 
-    await Profile.updateOne(
-      { uid: userId },
-      {
-        $set: {
-          'dataPrivacy.deletionRequested': true,
-          'dataPrivacy.deletionRequestedAt': new Date(),
-          'dataPrivacy.deletionScheduledFor': deletionDate
-        }
-      }
-    );
-
-    // Log in consent history
-    const consent = await Consent.findOne({ userId });
-    if (consent) {
-      consent.consentHistory.push({
-        consentType: 'account.deletion',
-        action: 'given' as const,
-        givenAt: new Date(),
-        ipAddress: 'system',
-        userAgent: 'system',
-        reason: reason || 'User requested account deletion'
-      });
-      await consent.save();
-    }
-
-    logger.warn('⚠️ Account deletion scheduled', {
+    logger.warn('✅ Account deleted immediately', {
       userId,
-      scheduledFor: deletionDate,
-      graceHours,
-      deletedOpenTaskCount
+      anonymizedName,
+      cascadeDeleteResult,
+      deletedAt,
     });
 
-    return deletionDate;
+    return { deletedAt, cascadeDeleteResult };
   }
 
   /**
@@ -786,60 +853,20 @@ export class PrivacyService {
     for (const profile of profilesToDelete) {
       try {
         const userId = profile.uid;
-        const anonymizedName = this.getDeletionAlias(profile);
 
-        // DPDP-compliant deletion: anonymize personal data, retain legal/audit records.
-        await Promise.all([
-          Profile.updateOne(
-            { uid: userId },
-            {
-              $set: {
-                name: anonymizedName,
-                profession: null,
-                location: null,
-                savedAddresses: [],
-                photoURL: null,
-                bio: null,
-                portfolio: [],
-                business: null,
-                maskedAadhaar: null,
-                maskedPan: null,
-                maskedBankAccount: null,
-                bankAccount: null,
-                isAadhaarVerified: false,
-                aadhaarVerifiedAt: null,
-                isPANVerified: false,
-                panVerifiedAt: null,
-                isBankVerified: false,
-                bankVerifiedAt: null,
-                isEmailVerified: false,
-                emailVerifiedAt: null,
-                phoneVerified: false,
-                isActive: false,
-                status: 'inactive',
-                'dataPrivacy.deletionRequested': false,
-                'dataPrivacy.deletionRequestedAt': null,
-                'dataPrivacy.deletionScheduledFor': null,
-                'dataPrivacy.accountDeleted': true,
-                'dataPrivacy.accountDeletedAt': new Date(),
-                'dataPrivacy.accountDeletionReason': 'User requested account deletion (DPDP)'
-              },
-              // Unset unique sparse fields instead of setting null.
-              // This avoids duplicate-key collisions like phone_1 dup key: { phone: null }.
-              $unset: {
-                email: '',
-                phone: ''
-              },
-            }
-          ),
-          Consent.deleteOne({ userId })
-        ]);
+        await this.assertNoActiveDeletionBlockers(profile);
+        await this.cascadeDeleteAccountEligibleData(profile);
+        const anonymizedName = await this.anonymizeAccountProfile(
+          profile,
+          'User requested account deletion (DPDP)',
+        );
+        await this.deleteFirebaseAuthUser(userId);
 
         deletionResults.push({
           userId,
           status: 'anonymized',
           deletedAt: new Date(),
-          replacementName: anonymizedName
+          replacementName: anonymizedName,
         });
 
         logger.warn('✅ Account anonymized for DPDP deletion', { userId, replacementName: anonymizedName });
