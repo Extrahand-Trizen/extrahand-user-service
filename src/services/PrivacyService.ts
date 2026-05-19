@@ -5,7 +5,7 @@ import logger from '../config/logger';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
-import { auth } from '../config/firebase';
+
 
 const env = validateEnv();
 
