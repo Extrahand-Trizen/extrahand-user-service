@@ -97,6 +97,14 @@ const envSchema = z.object({
   MYOPERATOR_BEARER_TOKEN: z.string().optional(),
   MYOPERATOR_COMPANY_ID: z.string().optional(),
   MYOPERATOR_COUNTRY_CODE: z.string().default('91'),
+  /** POST /chat/messages — WhatsApp template (same host as public API by default). */
+  MYOPERATOR_CHAT_MESSAGES_URL: z.string().url().default('https://publicapi.myoperator.co/chat/messages'),
+  /** WhatsApp Business phone_number_id (required to send signup template). */
+  MYOPERATOR_WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  MYOPERATOR_SIGNUP_WA_TEMPLATE_NAME: z
+    .string()
+    .default('copy_copy_extrahand_existing_taskerdata_campaign'),
+  MYOPERATOR_SIGNUP_WA_LANGUAGE: z.string().default('en'),
 });
 
 // Extend global type for CORS config logging
