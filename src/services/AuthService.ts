@@ -291,6 +291,9 @@ export class AuthService {
       user?: { uid: string; phone: string | null };
       error?: string;
    }> {
+      /** True only when signup creates a new profile (not "profile already exists" retry). */
+      let sendSignupWelcomeWhatsApp = false;
+
       try {
          // 1. Verify Firebase ID token
          let decodedToken;
@@ -448,13 +451,21 @@ export class AuthService {
                   })
                      .then(async (result) => {
                         if (!result) return;
-                        const update: any = {
-                           myOperatorContactCreatedAt: new Date(),
-                        };
-                        if (result.contactId) {
-                           update.myOperatorContactId = result.contactId;
+                        if (!result.contactId) {
+                           logger.warn("MyOperator createContact returned no contactId; skipping profile update", {
+                              uid,
+                           });
+                           return;
                         }
-                        await Profile.updateOne({ uid }, { $set: update });
+                        await Profile.updateOne(
+                           { uid },
+                           {
+                              $set: {
+                                 myOperatorContactId: result.contactId,
+                                 myOperatorContactCreatedAt: new Date(),
+                              },
+                           }
+                        );
                      })
                      .catch((error) => {
                         logger.warn("MyOperator contact creation failed (non-blocking)", {
@@ -466,6 +477,31 @@ export class AuthService {
 
                await AuthService.ensureSignupNotificationDefaults(uid);
 
+               if (phoneLast10 && phoneLast10.length >= 10) {
+                  const waCountry = process.env.MYOPERATOR_COUNTRY_CODE || "91";
+                  logger.info("Triggering MyOperator signup WhatsApp template (existing signup profile)", { uid });
+                  void MyOperatorClient.sendSignupWelcomeWhatsAppTemplate({
+                     customerCountryCode: waCountry,
+                     customerNumber: phoneLast10,
+                     templateBody: { name: String((profile as any)?.name || name || "User") },
+                  })
+                     .then((sent) => {
+                        if (sent) {
+                           logger.info("Signup WhatsApp template (existing signup profile): sent", { uid });
+                           console.log("[Signup][WhatsApp] Template sent successfully (existing signup profile)", { uid });
+                        } else {
+                           logger.warn("Signup WhatsApp template (existing signup profile): not sent", { uid });
+                           console.warn("[Signup][WhatsApp] Template NOT sent (existing signup profile)", { uid });
+                        }
+                     })
+                     .catch((error) => {
+                        logger.warn("MyOperator signup WhatsApp template threw (non-blocking, existing signup profile)", {
+                           uid,
+                           error: error instanceof Error ? error.message : error,
+                        });
+                     });
+               }
+
                // Return existing profile instead of creating duplicate
                return {
                   success: true,
@@ -476,6 +512,7 @@ export class AuthService {
                   },
                };
             } else {
+               sendSignupWelcomeWhatsApp = true;
                const now = Date.now();
                
                try {
@@ -554,16 +591,21 @@ export class AuthService {
             })
                .then(async (result) => {
                   if (!result) return;
-
-                  const update: any = {
-                     myOperatorContactCreatedAt: new Date(),
-                  };
-
-                  if (result.contactId) {
-                     update.myOperatorContactId = result.contactId;
+                  if (!result.contactId) {
+                     logger.warn("MyOperator createContact returned no contactId; skipping profile update", {
+                        uid,
+                     });
+                     return;
                   }
-
-                  await Profile.updateOne({ uid }, { $set: update });
+                  await Profile.updateOne(
+                     { uid },
+                     {
+                        $set: {
+                           myOperatorContactId: result.contactId,
+                           myOperatorContactCreatedAt: new Date(),
+                        },
+                     }
+                  );
                })
                .catch((error) => {
                   logger.warn("MyOperator contact creation failed (non-blocking)", {
@@ -674,6 +716,7 @@ export class AuthService {
 
       const DUMMY_PHONE_E164 = match.phoneE164;
       const DUMMY_DISPLAY_NAME = name || match.displayName;
+      let sendSignupWelcomeWhatsAppDev = false;
 
       // Keep dev OTP path fully local and deterministic; avoids external Firebase timeouts.
       const uid = `local-test-${match.phoneLast10}`;
@@ -751,6 +794,7 @@ export class AuthService {
               profile = await Profile.findOne({ uid }).lean();
             }
          } else {
+            sendSignupWelcomeWhatsAppDev = true;
             try {
                const created = await Profile.create({
                   uid,
