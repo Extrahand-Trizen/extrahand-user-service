@@ -303,7 +303,7 @@ export class MinIOStorage extends BaseStorage {
   /**
    * Generate presigned URL for reading a file (GET)
    */
-  private async getPresignedReadUrl(key: string, expiresIn: number = 3600): Promise<string> {
+  async getPresignedReadUrl(key: string, expiresIn: number = 3600): Promise<string> {
     try {
       if (!this.accessKeyId || !this.secretAccessKey) {
         throw new Error('MinIO credentials not configured');

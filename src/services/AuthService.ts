@@ -619,6 +619,31 @@ export class AuthService {
             profile = await ensureDemoVerificationProfile(profile);
          }
 
+         if (sendSignupWelcomeWhatsApp && phoneLast10 && phoneLast10.length >= 10) {
+            const waCountry = process.env.MYOPERATOR_COUNTRY_CODE || "91";
+            logger.info("Triggering MyOperator signup WhatsApp template (new signup profile)", { uid });
+            void MyOperatorClient.sendSignupWelcomeWhatsAppTemplate({
+               customerCountryCode: waCountry,
+               customerNumber: phoneLast10,
+               templateBody: { name: String(profile?.name || name || "User") },
+            })
+               .then((sent) => {
+                  if (sent) {
+                     logger.info("Signup WhatsApp template (new signup profile): sent", { uid });
+                     console.log("[Signup][WhatsApp] Template sent successfully (new signup profile)", { uid });
+                  } else {
+                     logger.warn("Signup WhatsApp template (new signup profile): not sent", { uid });
+                     console.warn("[Signup][WhatsApp] Template NOT sent (new signup profile)", { uid });
+                  }
+               })
+               .catch((error) => {
+                  logger.warn("MyOperator signup WhatsApp template threw (non-blocking, new signup profile)", {
+                     uid,
+                     error: error instanceof Error ? error.message : error,
+                  });
+               });
+         }
+
          logger.info("OTP auth completed successfully", {
             uid,
             mode,
@@ -716,7 +741,6 @@ export class AuthService {
 
       const DUMMY_PHONE_E164 = match.phoneE164;
       const DUMMY_DISPLAY_NAME = name || match.displayName;
-      let sendSignupWelcomeWhatsAppDev = false;
 
       // Keep dev OTP path fully local and deterministic; avoids external Firebase timeouts.
       const uid = `local-test-${match.phoneLast10}`;
@@ -794,7 +818,6 @@ export class AuthService {
               profile = await Profile.findOne({ uid }).lean();
             }
          } else {
-            sendSignupWelcomeWhatsAppDev = true;
             try {
                const created = await Profile.create({
                   uid,

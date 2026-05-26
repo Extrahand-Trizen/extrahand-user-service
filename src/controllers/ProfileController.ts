@@ -1703,7 +1703,7 @@ export class ProfileController {
         MainAdminNotificationClient.send({
           type: 'aadhaar_verification_failed',
           userId: updatedProfile.uid,
-          userName: updatedProfile.name || updatedProfile.fullName || undefined,
+          userName: updatedProfile.name || undefined,
           userEmail: updatedProfile.email || undefined,
           occurredAt: new Date().toISOString(),
         });
