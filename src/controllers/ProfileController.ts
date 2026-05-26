@@ -7,6 +7,7 @@ import { validateEnv } from '../config/env';
 import EmailVerificationService from '../services/EmailVerificationService';
 import { VerificationBadgeService } from '../services/verificationBadgeService';
 import { VerificationType } from '../types/badge';
+import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
 import {
   ensureDemoVerificationProfile,
   mergeReviewBypassProfile,
@@ -1696,6 +1697,16 @@ export class ProfileController {
         });
       } catch (badgeError: any) {
         logger.error('Failed to update badge after Aadhaar verification', badgeError);
+      }
+
+      if (isAadhaarVerified === false) {
+        MainAdminNotificationClient.send({
+          type: 'aadhaar_verification_failed',
+          userId: updatedProfile.uid,
+          userName: updatedProfile.name || updatedProfile.fullName || undefined,
+          userEmail: updatedProfile.email || undefined,
+          occurredAt: new Date().toISOString(),
+        });
       }
 
       res.json({

@@ -58,6 +58,7 @@ const envSchema = z.object({
   PAYMENT_SERVICE_URL: z.string().url().default('http://localhost:4009'),
   MESSAGING_SERVICE_URL: z.string().url().default('http://localhost:4006'),
   VERIFICATION_SERVICE_URL: z.string().url().default('http://localhost:4004'),
+  MAIN_ADMIN_SERVICE_URL: z.string().url().default('http://localhost:4007'),
   
   // Storage Configuration
   STORAGE_PROVIDER: z.enum(['minio', 's3']).default('minio'),

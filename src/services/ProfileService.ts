@@ -1,4 +1,5 @@
 import Profile, { IProfile, IProfileDocument } from '../models/Profile';
+import { getKycSessionModel, IKycSession } from '../models/KycSession';
 import { ILocation } from '../types';
 import { NotFoundError, BadRequestError, InternalServerError } from '../errors/AppError';
 import logger from '../config/logger';
@@ -11,6 +12,29 @@ import { statsService } from './StatsService';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 
 type CanonicalRole = 'helper' | 'customer';
+
+function toIsoString(value: unknown): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function serializeKycSession(session: IKycSession | null): Record<string, unknown> | null {
+  if (!session) return null;
+
+  return {
+    id: session._id?.toString(),
+    verificationId: session.verification_id || null,
+    sessionType: session.sessionType || null,
+    status: session.status ?? null,
+    internalStatus: session.internalStatus || null,
+    visibleStatus: session.visibleStatus || null,
+    failureReason: session.failureReason || null,
+    visibleFailureAt: toIsoString(session.visibleFailureAt),
+    createdAt: toIsoString(session.createdAt),
+    updatedAt: toIsoString(session.updatedAt),
+  };
+}
 
 function normalizeRoles(roles: unknown): CanonicalRole[] {
   if (!Array.isArray(roles)) return [];
@@ -2470,6 +2494,28 @@ export class ProfileService {
       });
     }
 
+    let latestAadhaarKycSession: Record<string, unknown> | null = null;
+    try {
+      const KycSession = getKycSessionModel();
+      const session = await KycSession.findOne({
+        userId: profile.uid,
+        sessionType: { $regex: '^aadhaar', $options: 'i' },
+      })
+        .select(
+          '_id verification_id sessionType status internalStatus visibleStatus failureReason visibleFailureAt createdAt updatedAt'
+        )
+        .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
+        .lean<IKycSession | null>();
+
+      latestAadhaarKycSession = serializeKycSession(session);
+    } catch (error: any) {
+      logger.warn('Failed to fetch Aadhaar KYC session for admin user details', {
+        userId,
+        uid: profile.uid,
+        error: error.message,
+      });
+    }
+
     // Return full profile data with admin-friendly format
     // Spread profile first, then override with admin-specific fields
     const result: any = {
@@ -2496,6 +2542,7 @@ export class ProfileService {
         ? Math.round(liveRating * 10) / 10
         : profile.rating ?? 0
     );
+    result.aadhaarKyc = latestAadhaarKycSession;
     
     return result;
   }
