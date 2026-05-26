@@ -9,6 +9,9 @@ import Profile from '../models/Profile';
 import { ReferralService, CreditService } from '../services/referralService';
 import { CreditTransactionType, ReferralStatus } from '../types/referral';
 import { PaymentServiceClient } from '../clients/PaymentServiceClient';
+import { ReferralApplyOrchestrator } from '../rewards/referral/ReferralApplyOrchestrator';
+import { rewardsFlags } from '../rewards/config/rewardsFlags';
+import { RewardConfigProvider } from '../rewards/config/RewardConfigProvider';
 
 export class ReferralController {
   /**
@@ -114,39 +117,32 @@ export class ReferralController {
         return;
       }
 
-      // Create referral record
-      const referralRecord = await ReferralService.createReferralRecord(
-        referrerCode.userId.toString(),
-        profile._id.toString(),
-        referralCode.toUpperCase()
-      );
-
-      // Award ExtraCoins: referrer gets ₹25 (125 coins), referee gets ₹15 (75 coins)
-      // Fire-and-forget — coins failure should not block signup
-      PaymentServiceClient.awardReferralCoins({
-        type: 'signup',
-        referrerUid: referrerCode.userId.toString(),
+      const applyResult = await ReferralApplyOrchestrator.apply({
         refereeUid: uid,
         referralCode: referralCode.toUpperCase(),
-      }).catch((err) => logger.warn('[Referral] ExtraCoins award failed (signup)', { err }));
+        refereeProfileId: profile._id.toString(),
+      });
 
       logger.info('✅ Referral code applied successfully', {
         refereeId: profile._id,
-        referrerId: referrerCode.userId,
-        referralCode: referralCode.toUpperCase()
+        refereeUid: uid,
+        enrollmentId: applyResult.enrollmentId,
+        referralCode: applyResult.referralCode,
+        status: applyResult.status,
       });
 
       res.json({
         success: true,
-        message: 'Referral code applied! Your welcome bonus of ₹15 ExtraCoins will be credited shortly.',
+        message: `Referral code applied! Your welcome bonus of ${applyResult.welcomeCoins} ExtraCoins will be credited shortly.`,
         data: {
-          referralCode: referralRecord.referralCode,
-          status: referralRecord.status,
-          expiresAt: referralRecord.expiresAt,
-          potentialReward: referralRecord.refereeRewardAmount,
-          welcomeCoins: 75,
-          welcomeRupees: 15,
-        }
+          referralCode: applyResult.referralCode,
+          status: applyResult.status,
+          expiresAt: applyResult.expiresAt,
+          welcomeCoins: applyResult.welcomeCoins,
+          welcomeRupees: applyResult.welcomeRupees,
+          referrerCoins: applyResult.referrerCoins,
+          enrollmentId: applyResult.enrollmentId,
+        },
       });
     } catch (error: any) {
       logger.error('Error applying referral code:', error);
@@ -226,26 +222,33 @@ export class ReferralController {
       const successfulReferrals = allReferrals.filter(r => r.status === ReferralStatus.QUALIFIED).length;
       const failedReferrals = allReferrals.filter(r => r.status === ReferralStatus.EXPIRED).length;
 
-      const totalEarnings = successfulReferrals * 100; // ₹100 per successful referral
+      const program = await RewardConfigProvider.getActiveProgram();
+      const referrerRule = program.referral.grants.onEnroll.find((r) => r.recipient === 'referrer');
+      const coinsPerReferral =
+        referrerRule?.amount.type === 'fixed_coins' ? referrerRule.amount.value : 100;
+      const rupeesPerReferral = coinsPerReferral * program.coinEconomics.coinValueInr;
+      const totalEarnings = successfulReferrals * rupeesPerReferral;
       const conversionRate = totalReferrals > 0 ? Math.round((successfulReferrals / totalReferrals) * 100) : 0;
 
       const creditBalance = credits.balance ?? 0;
       const transactionsList = Array.isArray(credits.transactions) ? credits.transactions : [];
       const transactions = transactionsList.slice(offset, offset + limit);
-
+      const referralLink = ReferralService.getReferralLink(referralCode.code);
       res.json({
         success: true,
         data: {
           referralCode: referralCode.code,
-          referralLink: ReferralService.getReferralLink(referralCode.code),
+          referralLink: referralLink,
           totalReferrals,
           successfulReferrals,
           failedReferrals,
           totalEarnings,
           conversionRate,
           creditBalance,
-          recentTransactions: transactions
-        }
+          referralCoinsPerSuccess: coinsPerReferral,
+          coinValueInr: program.coinEconomics.coinValueInr,
+          recentTransactions: transactions,
+        },
       });
     } catch (error: any) {
       logger.error('Error getting referral dashboard:', error);
@@ -259,24 +262,23 @@ export class ReferralController {
    */
   static async qualifyReferral(req: any, res: Response): Promise<void> {
     try {
-      const serviceToken = req.headers['x-service-token'];
-      if (serviceToken !== process.env.SERVICE_AUTH_TOKEN) {
-        res.status(401).json({ success: false, error: 'Invalid service token' });
+      const { taskId, refereeId, refereeUid, referralCode, taskAmount, platformFeeInr } = req.body;
+
+      const minAmount = 500;
+      if (taskAmount < minAmount) {
+        res.status(400).json({ success: false, error: `Task amount must be at least ₹${minAmount}` });
         return;
       }
 
-      const { taskId, refereeId, referralCode, taskAmount } = req.body;
-
-      if (taskAmount < 500) {
-        res.status(400).json({ success: false, error: 'Task amount must be at least ₹500' });
-        return;
-      }
-
-      const referralRecord = await ReferralRecord.findOne({
-        referralCode,
-        refereeId,
-        status: ReferralStatus.PENDING
-      });
+      const referralRecord =
+        (refereeUid
+          ? await ReferralRecord.findOne({ referralCode, refereeUid, status: ReferralStatus.PENDING })
+          : null) ||
+        (await ReferralRecord.findOne({
+          referralCode,
+          refereeId,
+          status: ReferralStatus.PENDING,
+        }));
 
       if (!referralRecord) {
         res.status(404).json({ success: false, error: 'Referral record not found' });
@@ -289,65 +291,77 @@ export class ReferralController {
         return;
       }
 
-      // Update referral record
-      const now = new Date();
-      await ReferralRecord.updateOne(
-        { _id: referralRecord._id },
+      let referrerUid = referralRecord.referrerUid;
+      let resolvedRefereeUid = referralRecord.refereeUid;
+      if (!referrerUid || !resolvedRefereeUid) {
+        const [referrerProfile, refereeProfile] = await Promise.all([
+          Profile.findById(referralRecord.referrerId),
+          Profile.findById(referralRecord.refereeId),
+        ]);
+        referrerUid = referrerUid || referrerProfile?.uid;
+        resolvedRefereeUid = resolvedRefereeUid || refereeProfile?.uid;
+      }
+
+      const platformFeeRupees =
+        typeof platformFeeInr === 'number'
+          ? platformFeeInr
+          : Math.round(taskAmount * 0.05 * 100) / 100;
+
+      const { createPlatformEvent } = await import('../rewards/events/InProcessEventBus');
+      const { QualificationEngine } = await import('../rewards/qualification/QualificationEngine');
+
+      const event = createPlatformEvent(
+        'PAYMENT_COMPLETED',
         {
-          status: ReferralStatus.QUALIFIED,
-          qualifiedDate: now,
-          qualifyingTaskId: taskId,
-          referrerRewardCredited: now,
-          refereeRewardCredited: now
+          taskId,
+          posterUid: resolvedRefereeUid,
+          amountInr: taskAmount,
+          platformFeeInr: platformFeeRupees,
+          enrollmentId: referralRecord._id.toString(),
+          refereeUid: resolvedRefereeUid,
+        },
+        referralRecord._id.toString()
+      );
+
+      if (referralRecord.rewardProgramSnapshot) {
+        await QualificationEngine.processDomainEvent(event);
+      } else {
+        const now = new Date();
+        await ReferralRecord.updateOne(
+          { _id: referralRecord._id, status: ReferralStatus.PENDING },
+          {
+            status: ReferralStatus.QUALIFIED,
+            qualifiedDate: now,
+            qualifyingTaskId: taskId,
+          }
+        );
+        if (referrerUid && resolvedRefereeUid) {
+          PaymentServiceClient.awardReferralCoins({
+            type: 'task_bonus',
+            referrerUid,
+            refereeUid: resolvedRefereeUid,
+            referralCode,
+            taskId,
+            platformFeeRupees,
+          }).catch((err) => logger.warn('[Referral] ExtraCoins task bonus failed', { err }));
         }
-      );
-
-      // Legacy Credit system (MongoDB) — keep for backwards compat
-      await CreditService.addCredit(
-        referralRecord.referrerId.toString(),
-        100,
-        CreditTransactionType.EARNED_REFERRAL,
-        `Referral bonus - User completed ₹${taskAmount} task`
-      );
-
-      await CreditService.addCredit(
-        refereeId,
-        50,
-        CreditTransactionType.EARNED_REFERRAL,
-        `Welcome bonus for signing up with referral code ${referralCode}`
-      );
-
-      // Award referrer ExtraCoins: 20% of platform fee (payment-service)
-      // platformFee = taskAmount × 5%
-      const platformFeeRupees = Math.round(taskAmount * 0.05 * 100) / 100;
-      PaymentServiceClient.awardReferralCoins({
-        type: 'task_bonus',
-        referrerUid: referralRecord.referrerId.toString(),
-        refereeUid: refereeId,
-        referralCode,
-        taskId,
-        platformFeeRupees,
-      }).catch((err) => logger.warn('[Referral] ExtraCoins task bonus failed', { err }));
-
-      logger.info('✅ Referral qualified', {
-        referralCode,
-        referrerId: referralRecord.referrerId.toString(),
-        refereeId,
-        taskId,
-        platformFeeRupees,
-      });
+        if (!rewardsFlags.CREDITS_WRITES_DISABLED) {
+          await CreditService.addCredit(
+            referralRecord.referrerId.toString(),
+            100,
+            CreditTransactionType.EARNED_REFERRAL,
+            `Referral bonus - User completed ₹${taskAmount} task`
+          );
+        }
+      }
 
       res.json({
         success: true,
         data: {
           referralId: referralRecord._id,
           status: ReferralStatus.QUALIFIED,
-          referrerCredit: 100,
-          refereeCredit: 50,
-          referrerExtraCoins: Math.round(platformFeeRupees * 0.20 / 0.20),
-          feeReduction: 3,
-          creditsIssuedAt: now
-        }
+          platformFeeRupees,
+        },
       });
     } catch (error: any) {
       logger.error('Error qualifying referral:', error);
@@ -464,6 +478,13 @@ export class ReferralController {
    * POST /api/v1/user/credits/use-payment
    */
   static async useCredit(req: AuthenticatedRequest, res: Response): Promise<void> {
+    if (rewardsFlags.CREDITS_WRITES_DISABLED) {
+      res.status(410).json({
+        success: false,
+        error: 'Legacy credits are deprecated. Use ExtraCoins instead.',
+      });
+      return;
+    }
     try {
       const uid = req.user!.uid;
       const { taskId, amount } = req.body;
@@ -497,6 +518,13 @@ export class ReferralController {
    * POST /api/v1/user/credits/gift
    */
   static async giftCredit(req: AuthenticatedRequest, res: Response): Promise<void> {
+    if (rewardsFlags.CREDITS_WRITES_DISABLED) {
+      res.status(410).json({
+        success: false,
+        error: 'Legacy credits are deprecated. Use ExtraCoins instead.',
+      });
+      return;
+    }
     try {
       const fromUid = req.user!.uid;
       const { recipientUserId, amount, message } = req.body;
@@ -541,6 +569,13 @@ export class ReferralController {
    * Request credit withdrawal to bank account
    */
   static async withdrawCredit(req: AuthenticatedRequest, res: Response): Promise<void> {
+    if (rewardsFlags.CREDITS_WRITES_DISABLED) {
+      res.status(410).json({
+        success: false,
+        error: 'Legacy credits are deprecated. Use ExtraCoins instead.',
+      });
+      return;
+    }
     try {
       const uid = req.user!.uid;
       const { amount, bankAccountId } = req.body;

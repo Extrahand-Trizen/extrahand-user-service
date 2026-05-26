@@ -22,6 +22,26 @@ export class PaymentServiceClient {
    * type='signup'    → ₹25 coins to referrer + ₹15 welcome coins to referee
    * type='task_bonus' → 20% of platform fee coins to referrer
    */
+  static async issueGrants(
+    grants: import('../rewards/types/GrantSpec').GrantSpec[]
+  ): Promise<{ success: boolean; results?: unknown[]; error?: string }> {
+    try {
+      const res = await axios.post(
+        `${this.baseURL}/api/v1/transactions/issue-grants`,
+        { grants },
+        { headers: this.headers, timeout: 15_000 }
+      );
+      return { success: true, results: res.data?.results };
+    } catch (err) {
+      const axiosErr = err as AxiosError;
+      logger.error('[PaymentServiceClient] issueGrants failed', {
+        status: axiosErr.response?.status,
+        message: axiosErr.message,
+      });
+      return { success: false, error: axiosErr.message };
+    }
+  }
+
   static async awardReferralCoins(params: {
     type: 'signup' | 'task_bonus';
     referrerUid: string;

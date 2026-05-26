@@ -6,6 +6,7 @@ import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 import { asyncHandler } from '../middleware/errorHandler';
 import profileStatsRoutes from './profileStats';
 import Profile from '../models/Profile';
+import { RewardsInternalController } from '../controllers/RewardsInternalController';
 
 const router = Router();
 
@@ -35,10 +36,20 @@ router.get(
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalTaskerCategoryCounts)
 );
+router.get(
+  '/internal/:uid',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.getProfileInternal)
+);
 router.put(
   '/internal/:uid',
   serviceAuthMiddleware,
   asyncHandler(ProfileController.updateProfileInternal)
+);
+router.get(
+  '/internal/:uid/reward-context',
+  serviceAuthMiddleware,
+  asyncHandler(RewardsInternalController.getRewardContext)
 );
 
 // Profile Stats Routes - must come before /me to avoid conflicts

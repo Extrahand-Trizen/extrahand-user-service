@@ -4,10 +4,15 @@ import { ReferralStatus } from '../types/referral';
 export interface IReferralRecord extends Document {
   referrerId: mongoose.Types.ObjectId;
   refereeId: mongoose.Types.ObjectId;
+  /** Firebase uid — canonical external id */
+  referrerUid?: string;
+  refereeUid?: string;
   referralCode: string;
   status: ReferralStatus;
   createdAt: Date;
+  appliedAt?: Date;
   qualifiedDate?: Date;
+  rewardProgramSnapshot?: Record<string, unknown>;
   qualifyingTaskId?: mongoose.Types.ObjectId;
   expiresAt: Date;
   referrerRewardAmount: number;
@@ -30,6 +35,16 @@ const referralRecordSchema = new Schema<IReferralRecord>({
     required: true,
     index: true
   },
+  referrerUid: {
+    type: String,
+    index: true,
+  },
+  refereeUid: {
+    type: String,
+    index: true,
+  },
+  appliedAt: Date,
+  rewardProgramSnapshot: Schema.Types.Mixed,
   referralCode: {
     type: String,
     required: true,

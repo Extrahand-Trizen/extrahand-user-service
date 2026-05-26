@@ -5,6 +5,8 @@ import logger from './config/logger';
 import { scheduleExpiredReferralCheck } from './jobs/checkExpiredReferrals';
 import { scheduleDailyBadgeCheck } from './jobs/dailyBadgeCheck';
 import { scheduleDeletionExecutorJob } from './jobs/scheduledDeletionJob';
+import { seedRewardProgramIfNeeded } from './rewards/seed/seedRewardProgram';
+import { registerRewardEventHandlers } from './rewards/events/registerRewardHandlers';
 
 const env = validateEnv();
 
@@ -13,6 +15,8 @@ async function startServer() {
     // Connect to MongoDB
     if (env.MONGODB_URI) {
       await connectMongo(env.MONGODB_URI);
+      await seedRewardProgramIfNeeded();
+      registerRewardEventHandlers();
     } else {
       logger.warn('⚠️ MONGODB_URI not provided, some features may not work');
     }

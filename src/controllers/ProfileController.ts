@@ -1446,6 +1446,48 @@ export class ProfileController {
   }
 
   /**
+   * GET /api/v1/profiles/internal/:uid
+   * Internal service-to-service profile read (no privacy gate).
+   * Used by admin-service certificate verification before review actions.
+   */
+  static async getProfileInternal(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uid } = req.params;
+      if (!uid) {
+        res.status(400).json({
+          success: false,
+          error: 'uid is required',
+        });
+        return;
+      }
+
+      const profile = await ProfileService.getProfileByUid(uid);
+
+      res.json({
+        success: true,
+        profile,
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.getProfileInternal failed', {
+        uid: req.params?.uid,
+        error: error.message,
+      });
+
+      const statusCode =
+        error?.statusCode === 404 ||
+        error?.name === 'NotFoundError' ||
+        /not found/i.test(error?.message || '')
+          ? 404
+          : 500;
+
+      res.status(statusCode).json({
+        success: false,
+        error: error.message || 'Failed to fetch profile',
+      });
+    }
+  }
+
+  /**
    * PUT /api/v1/profiles/internal/:uid
    * Internal service-to-service profile update endpoint.
    * Currently used by admin-service certificate verification flow.
