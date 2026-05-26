@@ -8,6 +8,7 @@ import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 import { statsService } from './StatsService';
+import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 
 type CanonicalRole = 'helper' | 'customer';
 
@@ -1670,15 +1671,44 @@ export class ProfileService {
     }
     
     if (profileData.skills !== undefined) {
-      updatePayload.skills = {
-        ...profileData.skills,
-        list: Array.isArray(profileData.skills.list)
-          ? profileData.skills.list.map((s: any) => ({
-              ...s,
-              name: String(s.name).toLowerCase().trim()
-            })).slice(0, 50)
-          : []
-      };
+      const normalizeSkillList = (list: any[]) =>
+        list
+          .map((s: any) => ({
+            ...s,
+            name: String(s.name).toLowerCase().trim(),
+          }))
+          .slice(0, 50);
+
+      // Partial skills updates use dot notation so legacy primaryCategory values
+      // (e.g. beauty-services) are not re-validated on certificate-only patches.
+      if (Array.isArray(profileData.skills.list)) {
+        updatePayload['skills.list'] = normalizeSkillList(profileData.skills.list);
+      }
+
+      if (profileData.skills.primaryCategory !== undefined) {
+        if (ALL_PRIMARY_CATEGORIES.includes(profileData.skills.primaryCategory as any)) {
+          updatePayload['skills.primaryCategory'] = profileData.skills.primaryCategory;
+        }
+      }
+
+      if (profileData.skills.updatedAt !== undefined) {
+        updatePayload['skills.updatedAt'] = profileData.skills.updatedAt;
+      }
+
+      // Full skills object replacement (legacy callers that send the entire skills doc)
+      const hasOnlyList =
+        Array.isArray(profileData.skills.list) &&
+        profileData.skills.primaryCategory === undefined &&
+        profileData.skills.updatedAt === undefined;
+
+      if (!hasOnlyList && !Array.isArray(profileData.skills.list)) {
+        updatePayload.skills = {
+          ...profileData.skills,
+          list: Array.isArray(profileData.skills.list)
+            ? normalizeSkillList(profileData.skills.list)
+            : [],
+        };
+      }
     }
     if (profileData.savedAddresses !== undefined) {
       // Process savedAddresses exactly like upsertProfile for consistency

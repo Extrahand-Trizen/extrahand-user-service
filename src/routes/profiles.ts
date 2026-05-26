@@ -35,6 +35,11 @@ router.get(
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalTaskerCategoryCounts)
 );
+router.get(
+  '/internal/:uid',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.getProfileInternal)
+);
 router.put(
   '/internal/:uid',
   serviceAuthMiddleware,
