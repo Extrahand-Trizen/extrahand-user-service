@@ -1,6 +1,6 @@
 import { Response, Request } from 'express';
 import { ProfileService } from '../services/ProfileService';
-import { IProfile } from '../models/Profile';
+import Profile, { IProfile } from '../models/Profile';
 import { AuthenticatedRequest } from '../types';
 import logger from '../config/logger';
 import { validateEnv } from '../config/env';
@@ -2337,6 +2337,84 @@ export class ProfileController {
         success: false,
         error: 'Failed to get keyword alerts'
       });
+    }
+  }
+
+  /**
+   * POST /api/v1/profiles/check-phone
+   * Check if a phone number is available (not already used by another profile).
+   */
+  static async checkPhoneAvailability(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const { phone } = req.body;
+    const currentUid = req.user!.uid;
+
+    if (!phone || typeof phone !== 'string') {
+      res.status(400).json({ success: false, error: 'Phone number is required' });
+      return;
+    }
+
+    const normalised = phone.trim();
+
+    try {
+      const existing = await Profile.findOne({ phone: normalised }).lean();
+
+      // Available if no profile owns it, or the only owner is the current user
+      if (!existing || existing.uid === currentUid) {
+        res.json({ success: true, available: true });
+      } else {
+        res.json({ success: true, available: false, message: 'Phone number already registered' });
+      }
+    } catch (error: any) {
+      logger.error('checkPhoneAvailability error', { error: error.message });
+      res.status(500).json({ success: false, error: 'Failed to check phone availability' });
+    }
+  }
+
+  /**
+   * PUT /api/v1/profiles/change-phone
+   * Update the authenticated user's phone number after OTP verification.
+   * Identified by Firebase UID — never changes UID.
+   */
+  static async changePhone(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const uid = req.user!.uid;
+    const { phone } = req.body;
+
+    if (!phone || typeof phone !== 'string') {
+      res.status(400).json({ success: false, error: 'Phone number is required' });
+      return;
+    }
+
+    const normalised = phone.trim();
+
+    try {
+      // Double-check uniqueness before writing
+      const conflict = await Profile.findOne({ phone: normalised, uid: { $ne: uid } }).lean();
+      if (conflict) {
+        res.status(409).json({ success: false, error: 'Phone number already registered to another account' });
+        return;
+      }
+
+      const updated = await Profile.findOneAndUpdate(
+        { uid },
+        { $set: { phone: normalised, phoneVerified: true } },
+        { new: true, runValidators: true }
+      ).lean();
+
+      if (!updated) {
+        res.status(404).json({ success: false, error: 'Profile not found' });
+        return;
+      }
+
+      logger.info('Phone number updated', { uid, phone: normalised });
+      res.json({ success: true, data: updated });
+    } catch (error: any) {
+      // Handle MongoDB duplicate key error (race condition)
+      if (error.code === 11000) {
+        res.status(409).json({ success: false, error: 'Phone number already registered to another account' });
+        return;
+      }
+      logger.error('changePhone error', { uid, error: error.message });
+      res.status(500).json({ success: false, error: 'Failed to update phone number' });
     }
   }
 }
