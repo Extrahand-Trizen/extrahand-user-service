@@ -76,7 +76,9 @@ export class UserController {
         search,
         status,
         role,
+        category,
         isAadhaarVerified,
+        isCertified,
         createdFrom,
         createdTo,
         sortBy = 'createdAt',
@@ -92,13 +94,24 @@ export class UserController {
               : undefined
           : undefined;
 
+      const parsedCertified =
+        typeof isCertified === 'string'
+          ? isCertified === 'true'
+            ? true
+            : isCertified === 'false'
+              ? false
+              : undefined
+          : undefined;
+
       const result = await ProfileService.listUsersForAdmin({
         page: parseInt(page as string),
         limit: parseInt(limit as string),
         search: search as string,
         status: status as string,
         role: role as string,
+        category: category as string,
         isAadhaarVerified: parsedAadhaarVerified,
+        isCertified: parsedCertified,
         createdFrom: createdFrom as string,
         createdTo: createdTo as string,
         sortBy: sortBy as string,

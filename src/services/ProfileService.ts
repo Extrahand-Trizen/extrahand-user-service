@@ -2104,7 +2104,9 @@ export class ProfileService {
     search?: string;
     status?: string;
     role?: string;
+    category?: string;
     isAadhaarVerified?: boolean;
+    isCertified?: boolean;
     createdFrom?: string;
     createdTo?: string;
     sortBy?: string;
@@ -2128,7 +2130,9 @@ export class ProfileService {
       search,
       status,
       role,
+      category,
       isAadhaarVerified,
+      isCertified,
       createdFrom,
       createdTo,
       sortBy = 'createdAt',
@@ -2190,8 +2194,33 @@ export class ProfileService {
       }
     }
 
+    if (category && category.trim()) {
+      const categoryRegex = buildFlexibleTextRegex(category);
+      const categoryNameRegex = buildFlexibleTextRegex(category, false);
+      andConditions.push({
+        $and: [
+          { roles: { $in: ['tasker', 'both', 'helper'] } },
+          {
+            $or: [
+              { 'skills.primaryCategory': categoryRegex },
+              { 'skills.list.category': categoryRegex },
+              { 'skills.list.name': categoryNameRegex },
+            ],
+          },
+        ],
+      });
+    }
+
     if (typeof isAadhaarVerified === 'boolean') {
       andConditions.push({ isAadhaarVerified });
+    }
+
+    if (typeof isCertified === 'boolean') {
+      if (isCertified) {
+        andConditions.push({ 'skills.list.certified': true });
+      } else {
+        andConditions.push({ 'skills.list.certified': { $ne: true } });
+      }
     }
 
     if (createdFrom || createdTo) {
@@ -2764,4 +2793,19 @@ export class ProfileService {
 
     return profile;
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildFlexibleTextRegex(value: string, exact = true): RegExp {
+  const pattern = value
+    .trim()
+    .split(/[\s_-]+/)
+    .map((part) => escapeRegExp(part))
+    .filter(Boolean)
+    .join('[\\s_-]+');
+
+  return new RegExp(exact ? `^${pattern}$` : pattern, 'i');
 }
