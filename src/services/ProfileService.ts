@@ -1,4 +1,5 @@
 import Profile, { IProfile, IProfileDocument } from '../models/Profile';
+import { getKycSessionModel, IKycSession } from '../models/KycSession';
 import { ILocation } from '../types';
 import { NotFoundError, BadRequestError, InternalServerError } from '../errors/AppError';
 import logger from '../config/logger';
@@ -8,8 +9,32 @@ import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 import { statsService } from './StatsService';
+import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 
 type CanonicalRole = 'helper' | 'customer';
+
+function toIsoString(value: unknown): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function serializeKycSession(session: IKycSession | null): Record<string, unknown> | null {
+  if (!session) return null;
+
+  return {
+    id: session._id?.toString(),
+    verificationId: session.verification_id || null,
+    sessionType: session.sessionType || null,
+    status: session.status ?? null,
+    internalStatus: session.internalStatus || null,
+    visibleStatus: session.visibleStatus || null,
+    failureReason: session.failureReason || null,
+    visibleFailureAt: toIsoString(session.visibleFailureAt),
+    createdAt: toIsoString(session.createdAt),
+    updatedAt: toIsoString(session.updatedAt),
+  };
+}
 
 function normalizeRoles(roles: unknown): CanonicalRole[] {
   if (!Array.isArray(roles)) return [];
@@ -1670,15 +1695,44 @@ export class ProfileService {
     }
     
     if (profileData.skills !== undefined) {
-      updatePayload.skills = {
-        ...profileData.skills,
-        list: Array.isArray(profileData.skills.list)
-          ? profileData.skills.list.map((s: any) => ({
-              ...s,
-              name: String(s.name).toLowerCase().trim()
-            })).slice(0, 50)
-          : []
-      };
+      const normalizeSkillList = (list: any[]) =>
+        list
+          .map((s: any) => ({
+            ...s,
+            name: String(s.name).toLowerCase().trim(),
+          }))
+          .slice(0, 50);
+
+      // Partial skills updates use dot notation so legacy primaryCategory values
+      // (e.g. beauty-services) are not re-validated on certificate-only patches.
+      if (Array.isArray(profileData.skills.list)) {
+        updatePayload['skills.list'] = normalizeSkillList(profileData.skills.list);
+      }
+
+      if (profileData.skills.primaryCategory !== undefined) {
+        if (ALL_PRIMARY_CATEGORIES.includes(profileData.skills.primaryCategory as any)) {
+          updatePayload['skills.primaryCategory'] = profileData.skills.primaryCategory;
+        }
+      }
+
+      if (profileData.skills.updatedAt !== undefined) {
+        updatePayload['skills.updatedAt'] = profileData.skills.updatedAt;
+      }
+
+      // Full skills object replacement (legacy callers that send the entire skills doc)
+      const hasOnlyList =
+        Array.isArray(profileData.skills.list) &&
+        profileData.skills.primaryCategory === undefined &&
+        profileData.skills.updatedAt === undefined;
+
+      if (!hasOnlyList && !Array.isArray(profileData.skills.list)) {
+        updatePayload.skills = {
+          ...profileData.skills,
+          list: Array.isArray(profileData.skills.list)
+            ? normalizeSkillList(profileData.skills.list)
+            : [],
+        };
+      }
     }
     if (profileData.savedAddresses !== undefined) {
       // Process savedAddresses exactly like upsertProfile for consistency
@@ -2050,7 +2104,9 @@ export class ProfileService {
     search?: string;
     status?: string;
     role?: string;
+    category?: string;
     isAadhaarVerified?: boolean;
+    isCertified?: boolean;
     createdFrom?: string;
     createdTo?: string;
     sortBy?: string;
@@ -2074,7 +2130,9 @@ export class ProfileService {
       search,
       status,
       role,
+      category,
       isAadhaarVerified,
+      isCertified,
       createdFrom,
       createdTo,
       sortBy = 'createdAt',
@@ -2136,8 +2194,33 @@ export class ProfileService {
       }
     }
 
+    if (category && category.trim()) {
+      const categoryRegex = buildFlexibleTextRegex(category);
+      const categoryNameRegex = buildFlexibleTextRegex(category, false);
+      andConditions.push({
+        $and: [
+          { roles: { $in: ['tasker', 'both', 'helper'] } },
+          {
+            $or: [
+              { 'skills.primaryCategory': categoryRegex },
+              { 'skills.list.category': categoryRegex },
+              { 'skills.list.name': categoryNameRegex },
+            ],
+          },
+        ],
+      });
+    }
+
     if (typeof isAadhaarVerified === 'boolean') {
       andConditions.push({ isAadhaarVerified });
+    }
+
+    if (typeof isCertified === 'boolean') {
+      if (isCertified) {
+        andConditions.push({ 'skills.list.certified': true });
+      } else {
+        andConditions.push({ 'skills.list.certified': { $ne: true } });
+      }
     }
 
     if (createdFrom || createdTo) {
@@ -2440,6 +2523,28 @@ export class ProfileService {
       });
     }
 
+    let latestAadhaarKycSession: Record<string, unknown> | null = null;
+    try {
+      const KycSession = getKycSessionModel();
+      const session = await KycSession.findOne({
+        userId: profile.uid,
+        sessionType: { $regex: '^aadhaar', $options: 'i' },
+      })
+        .select(
+          '_id verification_id sessionType status internalStatus visibleStatus failureReason visibleFailureAt createdAt updatedAt'
+        )
+        .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
+        .lean<IKycSession | null>();
+
+      latestAadhaarKycSession = serializeKycSession(session);
+    } catch (error: any) {
+      logger.warn('Failed to fetch Aadhaar KYC session for admin user details', {
+        userId,
+        uid: profile.uid,
+        error: error.message,
+      });
+    }
+
     // Return full profile data with admin-friendly format
     // Spread profile first, then override with admin-specific fields
     const result: any = {
@@ -2466,6 +2571,7 @@ export class ProfileService {
         ? Math.round(liveRating * 10) / 10
         : profile.rating ?? 0
     );
+    result.aadhaarKyc = latestAadhaarKycSession;
     
     return result;
   }
@@ -2687,4 +2793,19 @@ export class ProfileService {
 
     return profile;
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildFlexibleTextRegex(value: string, exact = true): RegExp {
+  const pattern = value
+    .trim()
+    .split(/[\s_-]+/)
+    .map((part) => escapeRegExp(part))
+    .filter(Boolean)
+    .join('[\\s_-]+');
+
+  return new RegExp(exact ? `^${pattern}$` : pattern, 'i');
 }

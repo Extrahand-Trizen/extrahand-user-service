@@ -53,6 +53,7 @@
      "PAYMENT_SERVICE_URL": "http://srv-captain--extrahand-payment-service:4009",
      "MESSAGING_SERVICE_URL": "http://srv-captain--extrahand-messaging-service:4006",
      "VERIFICATION_SERVICE_URL": "http://srv-captain--extrahand-user-verification:4004",
+     "MAIN_ADMIN_SERVICE_URL": "http://srv-captain--extrahand-main-admin-service:4007",
      "EMAIL_SERVICE_URL": "http://srv-captain--extrahand-email-service:4007"
    },
   "volumes": [

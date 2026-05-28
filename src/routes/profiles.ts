@@ -150,6 +150,12 @@ router.put('/me/keyword-alerts', authMiddleware, asyncHandler(ProfileController.
 // GET /api/v1/profiles/me/keyword-alerts - Get keyword alerts (requires auth)
 router.get('/me/keyword-alerts', authMiddleware, asyncHandler(ProfileController.getKeywordAlerts));
 
+// POST /api/v1/profiles/check-phone - Check phone availability (requires auth)
+router.post('/check-phone', authMiddleware, asyncHandler(ProfileController.checkPhoneAvailability));
+
+// PUT /api/v1/profiles/change-phone - Change phone number after OTP verification (requires auth)
+router.put('/change-phone', authMiddleware, asyncHandler(ProfileController.changePhone));
+
 // PUT /api/v1/profiles/me - Update profile (requires auth)
 router.put('/me', authMiddleware, asyncHandler(ProfileController.updateProfile));
 

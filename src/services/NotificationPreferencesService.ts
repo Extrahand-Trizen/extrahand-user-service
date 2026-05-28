@@ -143,7 +143,12 @@ export class NotificationPreferencesService {
                 category,
                 error: error.message,
             });
-            // Fail closed to avoid sending unwanted notifications when checks fail.
+            // Fail open for push/taskUpdates so chat messages always get through.
+            // For other channels/categories, fail closed to avoid spam.
+            if (channel === 'push' && (category === 'taskUpdates' || category === 'system')) {
+                logger.warn('Failing open for push/taskUpdates after error', { uid, channel, category });
+                return true;
+            }
             return false;
         }
     }
