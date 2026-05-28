@@ -19,6 +19,19 @@ export interface ReferralProgramConfig {
   };
 }
 
+/** Configurable coin redemption caps per profile role (editable in Mongo). */
+export interface CoinUsageRoleConfig {
+  /** Poster checkout: max fraction of booking payable with coins (e.g. 0.1 = 10%). */
+  redeemCapPercentOfBooking?: number;
+  /** Tasker payout: max fraction of platform fee (ex-GST) payable with coins (e.g. 0.15 = 15%). */
+  redeemCapPercentOfPlatformFee?: number;
+}
+
+export interface CoinUsageConfig {
+  poster?: CoinUsageRoleConfig;
+  tasker?: CoinUsageRoleConfig;
+}
+
 export interface RewardProgramDocument {
   programId: string;
   version: number;
@@ -27,6 +40,7 @@ export interface RewardProgramDocument {
   effectiveTo?: Date;
   coinEconomics: CoinEconomics;
   referral: ReferralProgramConfig;
+  coinUsage?: CoinUsageConfig;
   taskRewards?: Record<string, unknown>;
 }
 

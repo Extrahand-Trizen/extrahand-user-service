@@ -1,31 +1,73 @@
 import type { RewardProgramDocument } from '../types/RewardProgram';
 
-/** Default v1: AUTO qualify, 100 coins referrer + 100 coins referee */
-export function getDefaultRewardProgramV1(): RewardProgramDocument {
+const BASE_COIN_ECONOMICS = {
+  coinValueInr: 1.0,
+  earnedExpiryDays: 180,
+  expiringSoonDays: 7,
+  displayName: 'ExtraCoins',
+};
+
+const BASE_COIN_USAGE = {
+  poster: { redeemCapPercentOfBooking: 0.1 },
+  tasker: { redeemCapPercentOfPlatformFee: 0.15 },
+};
+
+/** Poster referral: referee instant, referrer after first paid booking */
+export function getDefaultPosterRewardProgramV1(): RewardProgramDocument {
   return {
-    programId: 'referral_v1',
+    programId: 'referral_poster_v1',
     version: 1,
     status: 'active',
-    coinEconomics: {
-      coinValueInr: 0.2,
-      earnedExpiryDays: 180,
-      expiringSoonDays: 7,
-      displayName: 'ExtraCoins',
-    },
+    coinEconomics: BASE_COIN_ECONOMICS,
+    coinUsage: BASE_COIN_USAGE,
     referral: {
-      qualificationMode: 'AUTO',
+      qualificationMode: 'FIRST_PAYMENT',
       qualificationWindowDays: 30,
-      minQualifyingTaskAmountInr: 500,
+      minQualifyingTaskAmountInr: 0,
       grants: {
         onEnroll: [
           {
-            grantId: 'referrer_signup',
+            grantId: 'referee_welcome',
+            recipient: 'referee',
+            trigger: 'on_enroll',
+            amount: { type: 'fixed_coins', value: 100 },
+          },
+        ],
+        onQualify: [
+          {
+            grantId: 'referrer_first_paid_booking',
+            recipient: 'referrer',
+            trigger: 'on_qualify',
+            amount: { type: 'fixed_coins', value: 100 },
+          },
+        ],
+      },
+    },
+  };
+}
+
+/** Tasker referral: both instant */
+export function getDefaultTaskerRewardProgramV1(): RewardProgramDocument {
+  return {
+    programId: 'referral_tasker_v1',
+    version: 1,
+    status: 'active',
+    coinEconomics: BASE_COIN_ECONOMICS,
+    coinUsage: BASE_COIN_USAGE,
+    referral: {
+      qualificationMode: 'AUTO',
+      qualificationWindowDays: 30,
+      minQualifyingTaskAmountInr: 0,
+      grants: {
+        onEnroll: [
+          {
+            grantId: 'tasker_referrer_signup',
             recipient: 'referrer',
             trigger: 'on_enroll',
             amount: { type: 'fixed_coins', value: 100 },
           },
           {
-            grantId: 'referee_welcome',
+            grantId: 'tasker_referee_welcome',
             recipient: 'referee',
             trigger: 'on_enroll',
             amount: { type: 'fixed_coins', value: 100 },
@@ -35,4 +77,15 @@ export function getDefaultRewardProgramV1(): RewardProgramDocument {
       },
     },
   };
+}
+
+/** @deprecated Use getDefaultPosterRewardProgramV1 — legacy program id referral_customer_v1 */
+export function getDefaultCustomerRewardProgramV1(): RewardProgramDocument {
+  const doc = getDefaultPosterRewardProgramV1();
+  return { ...doc, programId: 'referral_customer_v1' };
+}
+
+/** Backward compatibility default */
+export function getDefaultRewardProgramV1(): RewardProgramDocument {
+  return getDefaultTaskerRewardProgramV1();
 }

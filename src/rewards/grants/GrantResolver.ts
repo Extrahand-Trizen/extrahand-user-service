@@ -1,5 +1,6 @@
 import type { GrantRule, GrantSpec } from '../types/GrantSpec';
 import type { RewardProgramSnapshot } from '../types/RewardProgram';
+import { parseReferralChannel } from '../utils/walletRole';
 import { RewardCampaign } from '../models/RewardCampaign';
 import {
   referralQualifyGrantKey,
@@ -13,6 +14,9 @@ export interface ResolveGrantsContext {
   referrerUid: string;
   refereeUid: string;
   referralCode: string;
+  referralChannel?: 'poster' | 'tasker' | 'customer';
+  refereeWalletRole?: 'poster' | 'tasker';
+  referrerWalletRole?: 'poster' | 'tasker';
   taskId?: string;
   platformFeeInr?: number;
 }
@@ -123,6 +127,10 @@ export class GrantResolver {
       specs.push({
         idempotencyKey: idempotencyForRule(rule, trigger, ctx),
         recipientUid,
+        walletRole:
+          rule.recipient === 'referrer'
+            ? parseReferralChannel(ctx.referrerWalletRole ?? ctx.referralChannel)
+            : parseReferralChannel(ctx.refereeWalletRole ?? ctx.referralChannel),
         coins: coins.toFixed(2),
         rupeeValue: rupees.toFixed(2),
         expiresAt,

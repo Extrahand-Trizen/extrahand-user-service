@@ -5,7 +5,8 @@ import type { PlatformEvent, PaymentCompletedPayload, TaskCompletedPayload } fro
 import { GrantResolver, type ResolveGrantsContext } from '../grants/GrantResolver';
 import type { GrantSpec } from '../types/GrantSpec';
 import { rewardsFlags } from '../config/rewardsFlags';
-import logger from '../../config/logger';
+import { logReferralCoins, summarizeGrantsForLog } from '../referral/referralCoinsLogger';
+import { parseReferralChannel } from '../utils/walletRole';
 
 export interface QualificationEvaluation {
   shouldQualify: boolean;
@@ -20,6 +21,7 @@ export class QualificationEngine {
       referrerUid?: string;
       refereeUid?: string;
       referralCode: string;
+      referralChannel?: 'poster' | 'tasker' | 'customer';
       status: string;
       expiresAt: Date;
       rewardProgramSnapshot?: RewardProgramSnapshot;
@@ -72,12 +74,23 @@ export class QualificationEngine {
     referrerUid?: string;
     refereeUid?: string;
     referralCode: string;
+    referralChannel?: 'poster' | 'tasker' | 'customer';
+    referrerWalletRole?: 'poster' | 'tasker' | 'customer';
+    refereeWalletRole?: 'poster' | 'tasker' | 'customer';
   }): ResolveGrantsContext {
+    const channel = parseReferralChannel(enrollment.referralChannel);
     return {
       enrollmentId: enrollment._id.toString(),
       referrerUid: enrollment.referrerUid || '',
       refereeUid: enrollment.refereeUid || '',
       referralCode: enrollment.referralCode,
+      referralChannel: channel,
+      referrerWalletRole: parseReferralChannel(
+        enrollment.referrerWalletRole ?? enrollment.referralChannel
+      ),
+      refereeWalletRole: parseReferralChannel(
+        enrollment.refereeWalletRole ?? enrollment.referralChannel
+      ),
     };
   }
 
@@ -119,10 +132,6 @@ export class QualificationEngine {
     if (payload.posterUid !== enrollment.refereeUid) {
       return { shouldQualify: false, grants: [], reason: 'referee_not_poster' };
     }
-    const min = snapshot.referral.minQualifyingTaskAmountInr ?? 500;
-    if (payload.amountInr < min) {
-      return { shouldQualify: false, grants: [], reason: 'below_min_amount' };
-    }
     ctx.taskId = payload.taskId;
     ctx.platformFeeInr = payload.platformFeeInr;
     const grants = await GrantResolver.resolve(snapshot, 'on_qualify', ctx);
@@ -143,10 +152,6 @@ export class QualificationEngine {
     }
     if (payload.performerUid !== enrollment.refereeUid) {
       return { shouldQualify: false, grants: [], reason: 'referee_not_performer' };
-    }
-    const min = snapshot.referral.minQualifyingTaskAmountInr ?? 500;
-    if (payload.taskAmountInr < min) {
-      return { shouldQualify: false, grants: [], reason: 'below_min_amount' };
     }
     ctx.taskId = payload.taskId;
     const grants = await GrantResolver.resolve(snapshot, 'on_qualify', ctx);
@@ -187,7 +192,11 @@ export class QualificationEngine {
     return result.modifiedCount === 1;
   }
 
-  static async processDomainEvent(event: PlatformEvent): Promise<{ grantsIssued: number }> {
+  static async processDomainEvent(event: PlatformEvent): Promise<{
+    grantsIssued: number;
+    grantsFailed: number;
+    qualified: boolean;
+  }> {
     const payload = event.payload as {
       enrollmentId?: string;
       refereeUid?: string;
@@ -202,13 +211,28 @@ export class QualificationEngine {
         refereeUid: payload.refereeUid,
         status: ReferralStatus.PENDING,
       });
+    } else if (event.eventType === 'PAYMENT_COMPLETED') {
+      const posterUid = (event.payload as { posterUid?: string }).posterUid;
+      if (posterUid) {
+        enrollment = await ReferralRecord.findOne({
+          refereeUid: posterUid,
+          status: ReferralStatus.PENDING,
+        });
+      }
     }
 
     if (!enrollment) {
-      logger.debug('[QualificationEngine] No pending enrollment for event', {
-        eventType: event.eventType,
-      });
-      return { grantsIssued: 0 };
+      logReferralCoins(
+        'qualification_no_enrollment',
+        {
+          eventType: event.eventType,
+          enrollmentId: payload.enrollmentId,
+          refereeUid: payload.refereeUid,
+          referrerUid: payload.referrerUid,
+        },
+        'warn'
+      );
+      return { grantsIssued: 0, grantsFailed: 0, qualified: false };
     }
 
     const evalResult = await this.evaluateForEventAsync(
@@ -217,6 +241,8 @@ export class QualificationEngine {
         referrerUid: enrollment.referrerUid,
         refereeUid: enrollment.refereeUid,
         referralCode: enrollment.referralCode,
+        referralChannel: (enrollment as { referralChannel?: 'poster' | 'tasker' | 'customer' })
+          .referralChannel,
         status: enrollment.status,
         expiresAt: enrollment.expiresAt,
         rewardProgramSnapshot: enrollment.rewardProgramSnapshot as RewardProgramSnapshot | undefined,
@@ -226,27 +252,70 @@ export class QualificationEngine {
 
     const { GrantCommandPublisher } = await import('../publishers/GrantCommandPublisher');
 
-    let grantsToIssue = evalResult.grants;
+    const grantsToIssue = evalResult.grants;
+    let qualified = enrollment.status === ReferralStatus.QUALIFIED;
+    const shouldMarkQualifiedOnSuccess = evalResult.shouldQualify;
+    const enrollmentId = enrollment._id.toString();
 
-    if (evalResult.shouldQualify) {
-      const qualified = await this.markQualified(
-        enrollment._id.toString(),
-        (event.payload as { taskId?: string }).taskId
+    logReferralCoins('qualification_evaluated', {
+      enrollmentId,
+      eventType: event.eventType,
+      shouldQualify: evalResult.shouldQualify,
+      reason: evalResult.reason,
+      enrollmentStatus: enrollment.status,
+      grantCount: grantsToIssue.length,
+      grantsPreview: summarizeGrantsForLog(grantsToIssue),
+    });
+
+    if (
+      event.eventType !== 'REFERRAL_ENROLLED' &&
+      grantsToIssue.length === 0
+    ) {
+      return { grantsIssued: 0, grantsFailed: 0, qualified };
+    }
+
+    if (event.eventType === 'REFERRAL_ENROLLED' && grantsToIssue.length === 0) {
+      logReferralCoins(
+        'qualification_no_grants',
+        { enrollmentId, eventType: event.eventType, reason: evalResult.reason },
+        'warn'
       );
-      if (!qualified && enrollment.status === ReferralStatus.QUALIFIED) {
-        grantsToIssue = [];
-      }
-    } else if (event.eventType === 'REFERRAL_ENROLLED' && grantsToIssue.length > 0) {
-      // Non-AUTO: issue enroll grants only, stay PENDING
-    } else if (event.eventType !== 'REFERRAL_ENROLLED') {
-      return { grantsIssued: 0 };
+      return { grantsIssued: 0, grantsFailed: 0, qualified };
+    }
+
+    if (event.eventType !== 'REFERRAL_ENROLLED' && !shouldMarkQualifiedOnSuccess) {
+      return { grantsIssued: 0, grantsFailed: 0, qualified };
     }
 
     if (grantsToIssue.length === 0) {
-      return { grantsIssued: 0 };
+      return { grantsIssued: 0, grantsFailed: 0, qualified };
     }
 
-    await GrantCommandPublisher.issueGrants(grantsToIssue);
-    return { grantsIssued: grantsToIssue.length };
+    const publishResult = await GrantCommandPublisher.issueGrants(grantsToIssue, {
+      enrollmentId,
+    });
+
+    if (
+      shouldMarkQualifiedOnSuccess &&
+      publishResult.grantsFailed === 0 &&
+      publishResult.grantsSucceeded > 0
+    ) {
+      const didQualify = await this.markQualified(
+        enrollmentId,
+        (event.payload as { taskId?: string }).taskId
+      );
+      qualified = didQualify || qualified;
+      logReferralCoins('qualification_mark_qualified', {
+        enrollmentId,
+        didQualify,
+        qualified,
+      });
+    }
+
+    return {
+      grantsIssued: publishResult.grantsSucceeded,
+      grantsFailed: publishResult.grantsFailed,
+      qualified,
+    };
   }
 }

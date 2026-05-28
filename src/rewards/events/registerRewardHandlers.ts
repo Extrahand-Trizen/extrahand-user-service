@@ -17,5 +17,8 @@ export function registerRewardEventHandlers(): void {
   inProcessEventBus.subscribe('TASK_COMPLETED', handler);
   inProcessEventBus.subscribe('IDENTITY_VERIFIED', handler);
 
+  logger.info(
+    '[REFERRAL_COINS] rewards_handlers_ready — grep logs with [REFERRAL_COINS] after signup with referral code'
+  );
   logger.info('[rewards] In-process event handlers registered');
 }

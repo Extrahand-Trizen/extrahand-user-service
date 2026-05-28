@@ -7,11 +7,14 @@ import { scheduleDailyBadgeCheck } from './jobs/dailyBadgeCheck';
 import { scheduleDeletionExecutorJob } from './jobs/scheduledDeletionJob';
 import { seedRewardProgramIfNeeded } from './rewards/seed/seedRewardProgram';
 import { registerRewardEventHandlers } from './rewards/events/registerRewardHandlers';
+import { validateRewardsConfiguration } from './rewards/config/rewardsFlags';
 
 const env = validateEnv();
 
 async function startServer() {
   try {
+    validateRewardsConfiguration();
+
     // Connect to MongoDB
     if (env.MONGODB_URI) {
       await connectMongo(env.MONGODB_URI);
@@ -33,6 +36,9 @@ async function startServer() {
     const port = env.PORT;
     app.listen(port, () => {
       logger.info(`🚀 User Service running on port ${port}`);
+      logger.info(
+        '[REFERRAL_COINS] user-service ready — grep console or logs/combined.log for [REFERRAL_COINS]'
+      );
       logger.info(`📝 Environment: ${env.NODE_ENV}`);
       logger.info(`🔗 Health check: http://localhost:${port}/api/v1/health`);
       logger.info(`⏰ Scheduled jobs: Badge checks, referral expiration checks, and deletion executor enabled`);

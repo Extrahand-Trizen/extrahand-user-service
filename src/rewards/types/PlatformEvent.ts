@@ -26,6 +26,7 @@ export interface ReferralEnrolledPayload extends Record<string, unknown> {
 export interface PaymentCompletedPayload extends Record<string, unknown> {
   taskId: string;
   posterUid: string;
+  refereeUid?: string;
   performerUid?: string;
   amountInr: number;
   platformFeeInr: number;

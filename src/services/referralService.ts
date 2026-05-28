@@ -3,10 +3,12 @@
  * Handles referral code generation, tracking, qualification, and credit management
  */
 
+import mongoose from "mongoose";
 import { ReferralStatus, CreditTransactionType } from "../types/referral";
-import { ReferralCode } from "../models/ReferralCode";
 import { ReferralRecord } from "../models/ReferralRecord";
 import { Credit } from "../models/Credit";
+import { ensureDualReferralCodes } from "./referralCodeService";
+import { channelToPublicUrlParam } from "../rewards/utils/walletRole";
 
 export class ReferralService {
   /**
@@ -29,17 +31,14 @@ export class ReferralService {
   }
 
   /**
-   * Create referral code for new user (called on user signup)
+   * Create referral codes for new user (poster + tasker).
    */
   static async createUserReferralCode(userId: string, firstName: string) {
-    const code = this.generateReferralCode(firstName);
-    
-    const referralCode = await ReferralCode.create({
-      code,
-      userId
-    });
-    
-    return referralCode;
+    const dual = await ensureDualReferralCodes(
+      new mongoose.Types.ObjectId(userId),
+      firstName
+    );
+    return dual.poster;
   }
 
   /**
@@ -121,10 +120,11 @@ export class ReferralService {
   }
 
   /**
-   * Get referral link for user
+   * Get referral link for user (channel encodes invite intent).
    */
-  static getReferralLink(code: string): string {
-    return `extrahand.in/signup?ref=${code}`;
+  static getReferralLink(code: string, channel: 'poster' | 'tasker' = 'poster'): string {
+    const publicChannel = channelToPublicUrlParam(channel);
+    return `extrahand.in/signup?ref=${encodeURIComponent(code)}&channel=${publicChannel}`;
   }
 
   /**

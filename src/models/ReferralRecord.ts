@@ -1,5 +1,6 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
 import { ReferralStatus } from '../types/referral';
+import type { ReferralGrantsStatus } from '../rewards/types/GrantsStatus';
 
 export interface IReferralRecord extends Document {
   referrerId: mongoose.Types.ObjectId;
@@ -19,6 +20,12 @@ export interface IReferralRecord extends Document {
   refereeRewardAmount: number;
   referrerRewardCredited?: Date;
   refereeRewardCredited?: Date;
+  grantsStatus?: ReferralGrantsStatus;
+  referralChannel?: 'poster' | 'tasker' | 'customer';
+  referrerWalletRole?: 'poster' | 'tasker' | 'customer';
+  refereeWalletRole?: 'poster' | 'tasker' | 'customer';
+  lastGrantAttemptAt?: Date;
+  lastGrantErrorAt?: Date;
   updatedAt: Date;
 }
 
@@ -80,6 +87,29 @@ const referralRecordSchema = new Schema<IReferralRecord>({
   },
   referrerRewardCredited: Date,
   refereeRewardCredited: Date,
+  grantsStatus: {
+    type: String,
+    enum: ['pending', 'partial', 'completed', 'failed'],
+    default: 'pending',
+  },
+  referralChannel: {
+    type: String,
+    enum: ['poster', 'tasker', 'customer'],
+    default: 'tasker',
+    index: true,
+  },
+  referrerWalletRole: {
+    type: String,
+    enum: ['poster', 'tasker', 'customer'],
+    default: 'tasker',
+  },
+  refereeWalletRole: {
+    type: String,
+    enum: ['poster', 'tasker', 'customer'],
+    default: 'tasker',
+  },
+  lastGrantAttemptAt: Date,
+  lastGrantErrorAt: Date,
   updatedAt: {
     type: Date,
     default: Date.now

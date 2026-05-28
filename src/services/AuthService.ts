@@ -12,6 +12,14 @@ import {
    reactivateDeletedProfile,
 } from "../utils/identityReconciliation";
 import { ensureDemoVerificationProfile } from "../utils/reviewBypass";
+import { ReferralRecord } from "../models/ReferralRecord";
+import { ReferralService } from "./referralService";
+import { ReferralApplyOrchestrator } from "../rewards/referral/ReferralApplyOrchestrator";
+import { ReferralGrantReissue } from "../rewards/referral/ReferralGrantReissue";
+import {
+   logReferralCoins,
+   referralCoinsPaymentConfig,
+} from "../rewards/referral/referralCoinsLogger";
 
 export class AuthService {
    private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
@@ -276,6 +284,206 @@ export class AuthService {
    }
 
    /**
+    * Apply referral on signup (or re-issue grants if a prior attempt failed).
+    */
+   static async applyReferralOnSignup(
+      uid: string,
+      profile: { _id: unknown },
+      referralCode: string,
+      referralChannel?: "poster" | "tasker" | "customer"
+   ): Promise<{
+      applied: boolean;
+      grantsStatus?: string;
+      welcomeCoins?: number;
+      error?: string;
+   }> {
+      const code = referralCode.trim().toUpperCase();
+      const paymentCfg = referralCoinsPaymentConfig();
+      if (!code) {
+         logReferralCoins("signup_apply_skip_empty_code", { refereeUid: uid });
+         return { applied: false };
+      }
+      if (!ReferralService.isValidReferralCode(code)) {
+         logReferralCoins(
+            "signup_apply_skip_invalid_format",
+            {
+               refereeUid: uid,
+               referralCode: code,
+               hint: "Expected 4 letters + 4 alphanumeric (e.g. JOHN1A2B)",
+            },
+            "warn"
+         );
+         return { applied: false, error: "Invalid referral code format" };
+      }
+
+      const profileId = String(profile._id);
+      logReferralCoins("signup_apply_start", {
+         refereeUid: uid,
+         refereeProfileId: profileId,
+         referralCode: code,
+         rewardsV2: true,
+         paymentServiceUrl: paymentCfg.baseURL,
+         paymentServiceAuthConfigured: paymentCfg.serviceAuthConfigured,
+         paymentServiceAuthPreview: paymentCfg.serviceAuthPreview,
+      });
+
+      try {
+         const existing = await ReferralRecord.findOne({ refereeId: profileId }).sort({
+            createdAt: -1,
+         });
+
+         if (existing) {
+            logReferralCoins("signup_apply_existing_enrollment", {
+               refereeUid: uid,
+               enrollmentId: String(existing._id),
+               grantsStatus: existing.grantsStatus,
+               referralStatus: existing.status,
+            });
+            if (existing.grantsStatus === "completed") {
+               logReferralCoins("signup_apply_success", {
+                  refereeUid: uid,
+                  enrollmentId: String(existing._id),
+                  grantsStatus: "completed",
+                  note: "already_completed",
+               });
+               return { applied: true, grantsStatus: "completed" };
+            }
+            logReferralCoins("signup_apply_reissue", {
+               refereeUid: uid,
+               enrollmentId: String(existing._id),
+               priorGrantsStatus: existing.grantsStatus,
+            });
+            const reissue = await ReferralGrantReissue.reissue(existing._id.toString());
+            logReferralCoins("signup_apply_success", {
+               refereeUid: uid,
+               enrollmentId: String(existing._id),
+               grantsStatus: reissue.grantsStatus,
+               grantsIssued: reissue.grantsIssued,
+               grantsFailed: reissue.grantsFailed,
+               note: "reissued",
+            });
+            return {
+               applied: true,
+               grantsStatus: reissue.grantsStatus,
+            };
+         }
+
+         const { lookupReferralCodeChannel } = await import("./referralCodeService");
+         const codeLookup = await lookupReferralCodeChannel(code);
+         if (!codeLookup.valid || !codeLookup.channel) {
+            logReferralCoins(
+               "signup_apply_skip_invalid_format",
+               { refereeUid: uid, referralCode: code },
+               "warn"
+            );
+            return { applied: false, error: "Invalid referral code" };
+         }
+         if (referralChannel != null && String(referralChannel).trim() !== "") {
+            const { parseReferralChannel } = await import("../rewards/utils/walletRole");
+            const clientChannel = parseReferralChannel(referralChannel);
+            if (clientChannel !== codeLookup.channel) {
+               return {
+                  applied: false,
+                  error: `This code is for ${codeLookup.channel === "poster" ? "customer" : "helper"} signup only`,
+               };
+            }
+         }
+
+         const applyResult = await ReferralApplyOrchestrator.apply({
+            refereeUid: uid,
+            referralCode: code,
+            refereeProfileId: profileId,
+            codeChannel: codeLookup.channel,
+         });
+         logReferralCoins("signup_apply_success", {
+            refereeUid: uid,
+            enrollmentId: applyResult.enrollmentId,
+            grantsStatus: applyResult.grantsStatus,
+            welcomeCoins: applyResult.welcomeCoins,
+            referrerCoins: applyResult.referrerCoins,
+            note: "new_enrollment",
+         });
+         return {
+            applied: true,
+            grantsStatus: applyResult.grantsStatus,
+            welcomeCoins: applyResult.welcomeCoins,
+         };
+      } catch (error: unknown) {
+         const message = error instanceof Error ? error.message : "Failed to apply referral";
+         logReferralCoins(
+            "signup_apply_error",
+            {
+               refereeUid: uid,
+               referralCode: code,
+               error: message,
+               stack: error instanceof Error ? error.stack : undefined,
+            },
+            "error"
+         );
+         return { applied: false, error: message };
+      }
+   }
+
+   private static async buildOtpSuccessResponse(
+      uid: string,
+      profile: any,
+      firebasePhone: string | undefined,
+      mode: "login" | "signup",
+      referralCode?: string,
+      referralChannel?: "poster" | "tasker" | "customer"
+   ) {
+      if (mode === "signup" && profile && !referralCode?.trim()) {
+         logReferralCoins("signup_apply_skip_empty_code", {
+            refereeUid: uid,
+            note: "completeOTP finished without referralCode — no background apply",
+         });
+      }
+
+      if (mode === "signup" && profile && referralCode?.trim()) {
+         const code = referralCode.trim().toUpperCase();
+         logReferralCoins("signup_background_scheduled", {
+            refereeUid: uid,
+            refereeProfileId: String(profile._id),
+            referralCode: code,
+         });
+         // Never block signup on referral — apply in background when a code was provided.
+         void AuthService.applyReferralOnSignup(uid, profile, referralCode, referralChannel)
+            .then((result) => {
+               logReferralCoins("signup_background_finished", {
+                  refereeUid: uid,
+                  referralCode: code,
+                  applied: result.applied,
+                  grantsStatus: result.grantsStatus,
+                  welcomeCoins: result.welcomeCoins,
+                  error: result.error,
+               }, result.applied ? "info" : "warn");
+            })
+            .catch((err) => {
+               logReferralCoins(
+                  "signup_apply_error",
+                  {
+                     refereeUid: uid,
+                     referralCode: code,
+                     error: err instanceof Error ? err.message : String(err),
+                     stack: err instanceof Error ? err.stack : undefined,
+                     phase: "background_unhandled",
+                  },
+                  "error"
+               );
+            });
+      }
+
+      return {
+         success: true,
+         profile,
+         user: {
+            uid,
+            phone: firebasePhone || null,
+         },
+      };
+   }
+
+   /**
     * Complete OTP authentication flow
     * Verifies Firebase ID token and creates/retrieves user profile
     */
@@ -284,7 +492,9 @@ export class AuthService {
       mode: "login" | "signup",
       phone: string,
       name?: string,
-      clientType: "web" | "mobile" = "web"
+      clientType: "web" | "mobile" = "web",
+      referralCode?: string,
+      referralChannel?: "poster" | "tasker" | "customer"
    ): Promise<{
       success: boolean;
       profile?: any;
@@ -467,14 +677,14 @@ export class AuthService {
                await AuthService.ensureSignupNotificationDefaults(uid);
 
                // Return existing profile instead of creating duplicate
-               return {
-                  success: true,
+               return AuthService.buildOtpSuccessResponse(
+                  uid,
                   profile,
-                  user: {
-                     uid,
-                     phone: firebasePhone || null,
-                  },
-               };
+                  firebasePhone,
+                  mode,
+                  referralCode,
+                  referralChannel
+               );
             } else {
                const now = Date.now();
                
@@ -604,14 +814,14 @@ export class AuthService {
             }
          }
 
-         return {
-            success: true,
+         return AuthService.buildOtpSuccessResponse(
+            uid,
             profile,
-            user: {
-               uid,
-               phone: firebasePhone || null,
-            },
-         };
+            firebasePhone,
+            mode,
+            referralCode,
+            referralChannel
+         );
       } catch (error: any) {
          logger.error("OTP auth completion error:", error);
 
@@ -649,7 +859,9 @@ export class AuthService {
       otp: string,
       mode: "login" | "signup",
       name?: string,
-      clientType: "web" | "mobile" = "web"
+      clientType: "web" | "mobile" = "web",
+      referralCode?: string,
+      referralChannel?: "poster" | "tasker" | "customer"
    ): Promise<{
       success: boolean;
       profile?: any;
@@ -799,10 +1011,13 @@ export class AuthService {
          mode,
       });
 
-      return {
-         success: true,
-         profile: verifiedProfile,
-         user: { uid: verifiedProfile.uid, phone: verifiedProfile.phone || null },
-      };
+      return AuthService.buildOtpSuccessResponse(
+         verifiedProfile.uid,
+         verifiedProfile,
+         verifiedProfile.phone || formattedPhone,
+         mode,
+         referralCode,
+         referralChannel
+      );
    }
 }

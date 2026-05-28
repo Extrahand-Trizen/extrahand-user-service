@@ -42,6 +42,14 @@ const rewardProgramSchema = new Schema<IRewardProgram>(
         onQualify: [grantRuleSchema],
       },
     },
+    coinUsage: {
+      poster: {
+        redeemCapPercentOfBooking: Number,
+      },
+      tasker: {
+        redeemCapPercentOfPlatformFee: Number,
+      },
+    },
     taskRewards: Schema.Types.Mixed,
   },
   { timestamps: true }

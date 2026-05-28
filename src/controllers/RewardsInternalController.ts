@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { QualificationEngine } from '../rewards/qualification/QualificationEngine';
 import { RewardContextService } from '../rewards/services/RewardContextService';
+import { CoinUsageConfigProvider } from '../rewards/config/CoinUsageConfigProvider';
 import { createPlatformEvent } from '../rewards/events/InProcessEventBus';
 import type { PlatformEventType } from '../rewards/types/PlatformEvent';
 export class RewardsInternalController {
@@ -23,7 +24,29 @@ export class RewardsInternalController {
     const event = createPlatformEvent(eventType, payload, correlationId);
     const result = await QualificationEngine.processDomainEvent(event);
 
-    res.json({ success: true, data: result });
+    res.json({
+      success: true,
+      data: {
+        grantsIssued: result.grantsIssued,
+        grantsFailed: result.grantsFailed,
+        qualified: result.qualified,
+      },
+    });
+  }
+
+  /**
+   * GET /api/v1/user/internal/rewards/coin-usage
+   * Service-auth: poster/tasker coin redemption cap percents from RewardProgram.
+   */
+  static async getCoinUsage(_req: Request, res: Response): Promise<void> {
+    const config = await CoinUsageConfigProvider.getConfig();
+    res.json({
+      success: true,
+      data: {
+        posterBookingCapPercent: config.poster.redeemCapPercentOfBooking,
+        taskerPlatformFeeCapPercent: config.tasker.redeemCapPercentOfPlatformFee,
+      },
+    });
   }
 
   /**

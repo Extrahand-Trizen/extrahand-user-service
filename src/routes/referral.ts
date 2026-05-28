@@ -8,9 +8,11 @@ import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 const router: Router = express.Router();
 
 // User referral endpoints (authenticated)
+router.get('/referral-code/preview', ReferralController.previewReferralCode);
 router.get('/referral-code', authMiddleware, ReferralController.getUserReferralCode);
 router.get('/referral-program', authMiddleware, RewardProgramController.getReferralProgram);
 router.post('/referral/apply', authMiddleware, ReferralController.applyReferralCode);
+router.post('/referral/retry-grants', authMiddleware, ReferralController.retryReferralGrants);
 router.get('/referral-dashboard', authMiddleware, ReferralController.getReferralDashboard);
 
 // Internal rewards (service-auth)
@@ -18,6 +20,11 @@ router.post(
   '/internal/rewards/process-event',
   serviceAuthMiddleware,
   RewardsInternalController.processEvent
+);
+router.get(
+  '/internal/rewards/coin-usage',
+  serviceAuthMiddleware,
+  RewardsInternalController.getCoinUsage
 );
 
 // Credit management endpoints (authenticated)

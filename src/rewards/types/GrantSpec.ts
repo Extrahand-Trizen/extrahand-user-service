@@ -22,6 +22,7 @@ export interface GrantMetadata extends Record<string, unknown> {
 export interface GrantSpec {
   idempotencyKey: string;
   recipientUid: string;
+  walletRole?: 'poster' | 'tasker';
   coins: string;
   rupeeValue: string;
   expiresAt?: string;
