@@ -17,6 +17,8 @@ export interface ResolveGrantsContext {
   referralChannel?: 'poster' | 'tasker' | 'customer';
   refereeWalletRole?: 'poster' | 'tasker';
   referrerWalletRole?: 'poster' | 'tasker';
+  /** Stable anti-abuse key for idempotency (survives account recreation). */
+  refereePhoneHash?: string;
   taskId?: string;
   platformFeeInr?: number;
 }
@@ -60,14 +62,19 @@ function idempotencyForRule(
   const recipientUid = resolveRecipientUid(rule.recipient, ctx);
   if (trigger === 'on_enroll') {
     if (rule.recipient === 'referrer') {
-      return referralSignupReferrerKey(ctx.referrerUid, ctx.refereeUid);
+      return referralSignupReferrerKey(ctx.referrerUid, ctx.refereeUid, ctx.refereePhoneHash);
     }
-    return referralSignupRefereeKey(ctx.refereeUid, ctx.referrerUid);
+    return referralSignupRefereeKey(ctx.refereeUid, ctx.referrerUid, ctx.refereePhoneHash);
   }
   if (rule.grantId.includes('task_bonus') && ctx.taskId) {
     return referralTaskBonusKey(ctx.referrerUid, ctx.taskId);
   }
-  return referralQualifyGrantKey(ctx.enrollmentId, rule.grantId, recipientUid);
+  return referralQualifyGrantKey(
+    ctx.enrollmentId,
+    rule.grantId,
+    recipientUid,
+    ctx.refereePhoneHash
+  );
 }
 
 function metadataSource(rule: GrantRule, trigger: 'on_enroll' | 'on_qualify'): string {

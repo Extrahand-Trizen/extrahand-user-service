@@ -32,7 +32,7 @@ const rewardProgramSchema = new Schema<IRewardProgram>(
     referral: {
       qualificationMode: {
         type: String,
-        enum: ['AUTO', 'FIRST_TASK', 'FIRST_PAYMENT', 'KYC'],
+        enum: ['AUTO', 'FIRST_TASK', 'FIRST_PAYMENT', 'KYC', 'BOTH_KYC'],
         required: true,
       },
       qualificationWindowDays: { type: Number, required: true },

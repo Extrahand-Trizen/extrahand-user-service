@@ -35,14 +35,20 @@ export class RewardProgramController {
     const referrerEnrollRule = onEnroll.find((r) => r.recipient === 'referrer');
     const refereeEnrollRule = onEnroll.find((r) => r.recipient === 'referee');
     const referrerQualifyRule = onQualify.find((r) => r.recipient === 'referrer');
+    const refereeQualifyRule = onQualify.find((r) => r.recipient === 'referee');
 
     const referrerEnrollCoins = coinsFromRule(referrerEnrollRule);
     const refereeEnrollCoins = coinsFromRule(refereeEnrollRule);
     const referrerQualifyCoins = coinsFromRule(referrerQualifyRule);
+    const refereeQualifyCoins = coinsFromRule(refereeQualifyRule);
+
+    /** Marketing tiles: best amount per role across enroll + qualify triggers */
+    const referrerDisplayCoins = Math.max(referrerEnrollCoins, referrerQualifyCoins);
+    const refereeDisplayCoins = Math.max(refereeEnrollCoins, refereeQualifyCoins);
 
     /** @deprecated use referrerEnrollCoins / referrerQualifyCoins */
-    const referrerCoins = referrerEnrollCoins;
-    const refereeCoins = refereeEnrollCoins;
+    const referrerCoins = referrerDisplayCoins;
+    const refereeCoins = refereeDisplayCoins;
 
 
 
@@ -75,6 +81,12 @@ export class RewardProgramController {
         refereeEnrollCoins,
 
         referrerQualifyCoins,
+
+        refereeQualifyCoins,
+
+        referrerDisplayCoins,
+
+        refereeDisplayCoins,
 
         minQualifyingTaskAmountInr: program.referral.minQualifyingTaskAmountInr ?? 0,
 

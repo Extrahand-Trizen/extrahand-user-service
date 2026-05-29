@@ -43,12 +43,21 @@ export class ReferralController {
 
     const program = await RewardConfigProvider.getProgramByReferralChannel(lookup.channel);
     const onEnroll = program.referral.grants.onEnroll || [];
-    const refereeRule = onEnroll.find((r) => r.recipient === 'referee');
-    const referrerRule = onEnroll.find((r) => r.recipient === 'referrer');
-    const refereeCoins =
-      refereeRule?.amount.type === 'fixed_coins' ? refereeRule.amount.value : 0;
-    const referrerCoins =
-      referrerRule?.amount.type === 'fixed_coins' ? referrerRule.amount.value : 0;
+    const onQualify = program.referral.grants.onQualify || [];
+    const refereeEnrollRule = onEnroll.find((r) => r.recipient === 'referee');
+    const referrerEnrollRule = onEnroll.find((r) => r.recipient === 'referrer');
+    const refereeQualifyRule = onQualify.find((r) => r.recipient === 'referee');
+    const referrerQualifyRule = onQualify.find((r) => r.recipient === 'referrer');
+    const coinsFromRule = (rule?: { amount?: { type?: string; value?: number } }) =>
+      rule?.amount?.type === 'fixed_coins' ? Number(rule.amount.value) || 0 : 0;
+    const refereeCoins = Math.max(
+      coinsFromRule(refereeEnrollRule),
+      coinsFromRule(refereeQualifyRule),
+    );
+    const referrerCoins = Math.max(
+      coinsFromRule(referrerEnrollRule),
+      coinsFromRule(referrerQualifyRule),
+    );
 
     res.json({
       success: true,

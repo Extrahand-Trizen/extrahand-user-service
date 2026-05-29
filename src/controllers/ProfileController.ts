@@ -1378,8 +1378,7 @@ export class ProfileController {
     const uid = req.user.uid;
     const profileData: Partial<IProfile> = req.body;
 
-    // Log request data for debugging
-    console.log('🔍 [ProfileController.updateProfile] Request data:', {
+    logger.debug('[ProfileController.updateProfile] Request data', {
       uid,
       hasSavedAddresses: !!profileData.savedAddresses,
       savedAddressesCount: Array.isArray(profileData.savedAddresses) ? profileData.savedAddresses.length : 0,
@@ -1405,7 +1404,7 @@ export class ProfileController {
         message: 'Profile updated successfully'
       });
     } catch (error: any) {
-      console.error('❌ [ProfileController.updateProfile] Error:', {
+      logger.error('[ProfileController.updateProfile] Error', {
         message: error.message,
         name: error.name,
         code: error.code,
@@ -1641,7 +1640,7 @@ export class ProfileController {
     const { uid } = req.params;
     const { isAadhaarVerified, aadhaarVerifiedAt, maskedAadhaar } = req.body;
 
-    console.log('📥 [USER SERVICE] Received Aadhaar verification update request', {
+    logger.debug('[USER SERVICE] Received Aadhaar verification update request', {
       uid,
       body: req.body,
       headers: {
@@ -1652,7 +1651,7 @@ export class ProfileController {
     });
 
     if (!uid) {
-      console.error('❌ [USER SERVICE] Missing uid in request');
+      logger.error('[USER SERVICE] Missing uid in Aadhaar verification request');
       res.status(400).json({
         success: false,
         error: 'User ID (uid) is required'
@@ -1669,14 +1668,14 @@ export class ProfileController {
         ...(maskedAadhaar && { maskedAadhaar })
       };
 
-      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+      logger.debug('[USER SERVICE] Updating profile in MongoDB for Aadhaar', {
         uid,
         updateData
       });
 
       const updatedProfile = await ProfileService.updateProfile(uid, updateData);
 
-      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+      logger.debug('[USER SERVICE] Profile updated in MongoDB for Aadhaar', {
         uid,
         isAadhaarVerified: updatedProfile.isAadhaarVerified,
         aadhaarVerifiedAt: updatedProfile.aadhaarVerifiedAt
@@ -1709,6 +1708,31 @@ export class ProfileController {
         });
       }
 
+      if (updatedProfile.isAadhaarVerified) {
+        try {
+          const { createPlatformEvent } = await import('../rewards/events/InProcessEventBus');
+          const { QualificationEngine } = await import('../rewards/qualification/QualificationEngine');
+          const enrollmentCorrelationId =
+            `aadhaar:${updatedProfile.uid}:${Date.now()}`;
+          const event = createPlatformEvent(
+            'IDENTITY_VERIFIED',
+            {
+              uid: updatedProfile.uid,
+              refereeUid: updatedProfile.uid,
+              referrerUid: updatedProfile.uid,
+              verificationType: 'aadhaar',
+            },
+            enrollmentCorrelationId
+          );
+          await QualificationEngine.processDomainEvent(event);
+        } catch (qualificationError: any) {
+          logger.warn('[USER SERVICE] Aadhaar qualification event processing failed', {
+            uid: updatedProfile.uid,
+            error: qualificationError?.message || String(qualificationError),
+          });
+        }
+      }
+
       res.json({
         success: true,
         message: 'Aadhaar verification status updated',
@@ -1735,7 +1759,7 @@ export class ProfileController {
     const { uid } = req.params;
     const { isPANVerified, panVerifiedAt, maskedPAN } = req.body;
 
-    console.log('📥 [USER SERVICE] Received PAN verification update request', {
+    logger.debug('[USER SERVICE] Received PAN verification update request', {
       uid,
       body: req.body,
       headers: {
@@ -1746,7 +1770,7 @@ export class ProfileController {
     });
 
     if (!uid) {
-      console.error('❌ [USER SERVICE] Missing uid in request');
+      logger.error('[USER SERVICE] Missing uid in PAN verification request');
       res.status(400).json({
         success: false,
         error: 'User ID (uid) is required'
@@ -1763,14 +1787,14 @@ export class ProfileController {
         ...(maskedPAN && { maskedPan: maskedPAN })
       };
 
-      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+      logger.debug('[USER SERVICE] Updating profile in MongoDB for PAN', {
         uid,
         updateData
       });
 
       const updatedProfile = await ProfileService.updateProfile(uid, updateData);
 
-      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+      logger.debug('[USER SERVICE] Profile updated in MongoDB for PAN', {
         uid,
         isPANVerified: updatedProfile.isPANVerified,
         panVerifiedAt: updatedProfile.panVerifiedAt
@@ -1818,7 +1842,7 @@ export class ProfileController {
     const { uid } = req.params;
     const { isBankVerified, bankVerifiedAt, maskedBankAccount, bankAccount } = req.body;
 
-    console.log('📥 [USER SERVICE] Received bank verification update request', {
+    logger.debug('[USER SERVICE] Received bank verification update request', {
       uid,
       body: req.body,
       headers: {
@@ -1829,7 +1853,7 @@ export class ProfileController {
     });
 
     if (!uid) {
-      console.error('❌ [USER SERVICE] Missing uid in request');
+      logger.error('[USER SERVICE] Missing uid in bank verification request');
       res.status(400).json({
         success: false,
         error: 'User ID (uid) is required'
@@ -1846,14 +1870,14 @@ export class ProfileController {
         ...(bankAccount && { bankAccount })
       };
 
-      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+      logger.debug('[USER SERVICE] Updating profile in MongoDB for bank verification', {
         uid,
         updateData
       });
 
       const updatedProfile = await ProfileService.updateProfile(uid, updateData);
 
-      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+      logger.debug('[USER SERVICE] Profile updated in MongoDB for bank verification', {
         uid,
         isBankVerified: updatedProfile.isBankVerified,
         bankVerifiedAt: updatedProfile.bankVerifiedAt
@@ -1902,7 +1926,7 @@ export class ProfileController {
     const { uid } = req.params;
     const { isEmailVerified, emailVerifiedAt, email } = req.body;
 
-    console.log('📥 [USER SERVICE] Received email verification update request', {
+    logger.debug('[USER SERVICE] Received email verification update request', {
       uid,
       body: req.body,
       headers: {
@@ -1913,7 +1937,7 @@ export class ProfileController {
     });
 
     if (!uid) {
-      console.error('❌ [USER SERVICE] Missing uid in request');
+      logger.error('[USER SERVICE] Missing uid in email verification request');
       res.status(400).json({
         success: false,
         error: 'User ID (uid) is required'
@@ -1929,14 +1953,14 @@ export class ProfileController {
         ...(email && { email })
       };
 
-      console.log('💾 [USER SERVICE] Updating profile in MongoDB', {
+      logger.debug('[USER SERVICE] Updating profile in MongoDB for email verification', {
         uid,
         updateData
       });
 
       const updatedProfile = await ProfileService.updateProfile(uid, updateData);
 
-      console.log('✅ [USER SERVICE] Profile updated in MongoDB', {
+      logger.debug('[USER SERVICE] Profile updated in MongoDB for email verification', {
         uid,
         isEmailVerified: updatedProfile.isEmailVerified,
         emailVerifiedAt: updatedProfile.emailVerifiedAt

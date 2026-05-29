@@ -8,6 +8,8 @@ export interface IReferralRecord extends Document {
   /** Firebase uid — canonical external id */
   referrerUid?: string;
   refereeUid?: string;
+  /** HMAC of referee normalized phone — survives profile deletion; anti-abuse */
+  refereePhoneHash?: string;
   referralCode: string;
   status: ReferralStatus;
   createdAt: Date;
@@ -47,6 +49,10 @@ const referralRecordSchema = new Schema<IReferralRecord>({
     index: true,
   },
   refereeUid: {
+    type: String,
+    index: true,
+  },
+  refereePhoneHash: {
     type: String,
     index: true,
   },
@@ -117,6 +123,13 @@ const referralRecordSchema = new Schema<IReferralRecord>({
 });
 
 referralRecordSchema.index({ referrerId: 1, refereeId: 1 }, { unique: true });
+referralRecordSchema.index(
+  { referrerId: 1, refereePhoneHash: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { refereePhoneHash: { $type: 'string' } },
+  }
+);
 
 export const ReferralRecord: Model<IReferralRecord> = mongoose.model<IReferralRecord>(
   'ReferralRecord',

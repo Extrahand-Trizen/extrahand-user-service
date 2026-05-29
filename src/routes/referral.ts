@@ -26,6 +26,16 @@ router.get(
   serviceAuthMiddleware,
   RewardsInternalController.getCoinUsage
 );
+router.get(
+  '/internal/rewards/referral-debug',
+  serviceAuthMiddleware,
+  RewardsInternalController.getReferralDebug
+);
+router.post(
+  '/internal/rewards/retry-grants',
+  serviceAuthMiddleware,
+  RewardsInternalController.retryGrantsInternal
+);
 
 // Credit management endpoints (authenticated)
 router.get('/credits/balance', authMiddleware, ReferralController.getCreditBalance);

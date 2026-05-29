@@ -1,6 +1,6 @@
 import type { GrantRule } from './GrantSpec';
 
-export type QualificationMode = 'AUTO' | 'FIRST_TASK' | 'FIRST_PAYMENT' | 'KYC';
+export type QualificationMode = 'AUTO' | 'FIRST_TASK' | 'FIRST_PAYMENT' | 'KYC' | 'BOTH_KYC';
 
 export interface CoinEconomics {
   coinValueInr: number;

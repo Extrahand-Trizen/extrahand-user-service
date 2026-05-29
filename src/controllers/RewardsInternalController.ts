@@ -1,9 +1,12 @@
 import { Request, Response } from 'express';
+import Profile from '../models/Profile';
+import { ReferralRecord } from '../models/ReferralRecord';
 import { QualificationEngine } from '../rewards/qualification/QualificationEngine';
 import { RewardContextService } from '../rewards/services/RewardContextService';
 import { CoinUsageConfigProvider } from '../rewards/config/CoinUsageConfigProvider';
 import { createPlatformEvent } from '../rewards/events/InProcessEventBus';
 import type { PlatformEventType } from '../rewards/types/PlatformEvent';
+import { ReferralGrantReissue } from '../rewards/referral/ReferralGrantReissue';
 export class RewardsInternalController {
   /**
    * POST /api/v1/user/internal/rewards/process-event
@@ -60,5 +63,66 @@ export class RewardsInternalController {
     }
     const context = await RewardContextService.getRewardContext(uid);
     res.json({ success: true, data: context });
+  }
+
+  /**
+   * GET /api/v1/user/internal/rewards/referral-debug?refereeUid=
+   * Service-auth: inspect enrollment + KYC state for referral testing.
+   */
+  static async getReferralDebug(req: Request, res: Response): Promise<void> {
+    const refereeUid = String(req.query.refereeUid || '').trim();
+    if (!refereeUid) {
+      res.status(400).json({ success: false, error: 'refereeUid query required' });
+      return;
+    }
+
+    const enrollment = await ReferralRecord.findOne({ refereeUid })
+      .sort({ createdAt: -1 })
+      .lean();
+    if (!enrollment) {
+      res.json({ success: true, data: { enrollment: null } });
+      return;
+    }
+
+    const [referrerProfile, refereeProfile] = await Promise.all([
+      enrollment.referrerUid
+        ? Profile.findOne({ uid: enrollment.referrerUid })
+            .select('uid phone isAadhaarVerified name')
+            .lean()
+        : null,
+      Profile.findOne({ uid: refereeUid }).select('uid phone isAadhaarVerified name').lean(),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        enrollment: {
+          id: String(enrollment._id),
+          status: enrollment.status,
+          grantsStatus: enrollment.grantsStatus,
+          referralCode: enrollment.referralCode,
+          qualificationMode: (enrollment.rewardProgramSnapshot as { referral?: { qualificationMode?: string } })
+            ?.referral?.qualificationMode,
+          referrerUid: enrollment.referrerUid,
+          refereeUid: enrollment.refereeUid,
+        },
+        referrer: referrerProfile,
+        referee: refereeProfile,
+      },
+    });
+  }
+
+  /**
+   * POST /api/v1/user/internal/rewards/retry-grants
+   * Service-auth: re-run grants for enrollment (testing).
+   */
+  static async retryGrantsInternal(req: Request, res: Response): Promise<void> {
+    const enrollmentId = String(req.body?.enrollmentId || '').trim();
+    if (!enrollmentId) {
+      res.status(400).json({ success: false, error: 'enrollmentId required' });
+      return;
+    }
+    const result = await ReferralGrantReissue.reissue(enrollmentId);
+    res.json({ success: true, data: result });
   }
 }

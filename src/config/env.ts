@@ -54,6 +54,8 @@ const envSchema = z.object({
   
   // Service-to-Service Communication
   SERVICE_AUTH_TOKEN: z.string().min(1, 'SERVICE_AUTH_TOKEN is required for service-to-service communication').optional(),
+  /** HMAC pepper for ReferralRewardConsumption phoneHash (falls back to SERVICE_AUTH_TOKEN). */
+  REFERRAL_PHONE_HASH_SECRET: z.string().min(16).optional(),
   TASK_SERVICE_URL: z.string().url().default('http://localhost:4002'),
   PAYMENT_SERVICE_URL: z.string().url().default('http://localhost:4003'),
   MESSAGING_SERVICE_URL: z.string().url().default('http://localhost:4006'),

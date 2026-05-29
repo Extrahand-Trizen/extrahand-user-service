@@ -1,4 +1,5 @@
 import { ReferralRecord } from '../../models/ReferralRecord';
+import Profile from '../../models/Profile';
 import { ReferralStatus } from '../../types/referral';
 import type { RewardProgramSnapshot, QualificationMode } from '../types/RewardProgram';
 import type { PlatformEvent, PaymentCompletedPayload, TaskCompletedPayload } from '../types/PlatformEvent';
@@ -7,6 +8,9 @@ import type { GrantSpec } from '../types/GrantSpec';
 import { rewardsFlags } from '../config/rewardsFlags';
 import { logReferralCoins, summarizeGrantsForLog } from '../referral/referralCoinsLogger';
 import { parseReferralChannel } from '../utils/walletRole';
+import { usesStaggeredBothKyc } from '../utils/programSnapshot.util';
+import { BothKycStaggeredEvaluator } from './modes/bothKycStaggered.evaluator';
+import { ReferralGrantIssueCoordinator } from '../referral/services/ReferralGrantIssueCoordinator';
 
 export interface QualificationEvaluation {
   shouldQualify: boolean;
@@ -25,6 +29,7 @@ export class QualificationEngine {
       status: string;
       expiresAt: Date;
       rewardProgramSnapshot?: RewardProgramSnapshot;
+      refereePhoneHash?: string;
     },
     event: PlatformEvent
   ): Promise<QualificationEvaluation> {
@@ -37,6 +42,9 @@ export class QualificationEngine {
     const ctx = this.buildContext(enrollment);
 
     if (event.eventType === 'REFERRAL_ENROLLED') {
+      if (mode === 'BOTH_KYC' && usesStaggeredBothKyc(snapshot)) {
+        return BothKycStaggeredEvaluator.evaluateOnEnroll(enrollment, snapshot, ctx);
+      }
       return this.evaluateAutoOnEnroll(enrollment, snapshot, ctx, mode);
     }
 
@@ -65,6 +73,22 @@ export class QualificationEngine {
     if (event.eventType === 'IDENTITY_VERIFIED' && mode === 'KYC') {
       return this.evaluateKyc(enrollment, snapshot, ctx, event.payload as { refereeUid?: string });
     }
+    if (event.eventType === 'IDENTITY_VERIFIED' && mode === 'BOTH_KYC') {
+      const identityPayload = event.payload as {
+        refereeUid?: string;
+        referrerUid?: string;
+        uid?: string;
+      };
+      if (usesStaggeredBothKyc(snapshot)) {
+        return BothKycStaggeredEvaluator.evaluateOnIdentityVerified(
+          enrollment,
+          snapshot,
+          ctx,
+          identityPayload
+        );
+      }
+      return this.evaluateBothKyc(enrollment, snapshot, ctx, identityPayload);
+    }
 
     return { shouldQualify: false, grants: [], reason: 'mode_mismatch' };
   }
@@ -77,6 +101,7 @@ export class QualificationEngine {
     referralChannel?: 'poster' | 'tasker' | 'customer';
     referrerWalletRole?: 'poster' | 'tasker' | 'customer';
     refereeWalletRole?: 'poster' | 'tasker' | 'customer';
+    refereePhoneHash?: string;
   }): ResolveGrantsContext {
     const channel = parseReferralChannel(enrollment.referralChannel);
     return {
@@ -91,6 +116,7 @@ export class QualificationEngine {
       refereeWalletRole: parseReferralChannel(
         enrollment.refereeWalletRole ?? enrollment.referralChannel
       ),
+      refereePhoneHash: enrollment.refereePhoneHash,
     };
   }
 
@@ -177,6 +203,47 @@ export class QualificationEngine {
     return { shouldQualify: grants.length > 0, grants };
   }
 
+  private static async evaluateBothKyc(
+    enrollment: { refereeUid?: string; referrerUid?: string; expiresAt: Date; status: string },
+    snapshot: RewardProgramSnapshot,
+    ctx: ResolveGrantsContext,
+    payload: { refereeUid?: string; referrerUid?: string; uid?: string }
+  ): Promise<QualificationEvaluation> {
+    if (enrollment.status !== ReferralStatus.PENDING) {
+      return { shouldQualify: false, grants: [] };
+    }
+    if (new Date() > enrollment.expiresAt) {
+      return { shouldQualify: false, grants: [], reason: 'expired' };
+    }
+
+    const eventUid = String(payload.uid || payload.refereeUid || payload.referrerUid || '').trim();
+    if (
+      eventUid &&
+      eventUid !== String(enrollment.refereeUid || '').trim() &&
+      eventUid !== String(enrollment.referrerUid || '').trim()
+    ) {
+      return { shouldQualify: false, grants: [], reason: 'uid_not_participant' };
+    }
+
+    const [referrerProfile, refereeProfile] = await Promise.all([
+      enrollment.referrerUid
+        ? Profile.findOne({ uid: enrollment.referrerUid }).select('isAadhaarVerified').lean()
+        : null,
+      enrollment.refereeUid
+        ? Profile.findOne({ uid: enrollment.refereeUid }).select('isAadhaarVerified').lean()
+        : null,
+    ]);
+
+    const referrerKyc = Boolean((referrerProfile as { isAadhaarVerified?: boolean } | null)?.isAadhaarVerified);
+    const refereeKyc = Boolean((refereeProfile as { isAadhaarVerified?: boolean } | null)?.isAadhaarVerified);
+    if (!referrerKyc || !refereeKyc) {
+      return { shouldQualify: false, grants: [], reason: 'both_kyc_required' };
+    }
+
+    const grants = await GrantResolver.resolve(snapshot, 'on_qualify', ctx);
+    return { shouldQualify: grants.length > 0, grants };
+  }
+
   /** Atomic PENDING → QUALIFIED */
   static async markQualified(enrollmentId: string, taskId?: string): Promise<boolean> {
     const result = await ReferralRecord.updateOne(
@@ -203,25 +270,36 @@ export class QualificationEngine {
       referrerUid?: string;
     };
 
-    let enrollment = null;
+    let enrollments: Array<any> = [];
     if (payload.enrollmentId) {
-      enrollment = await ReferralRecord.findById(payload.enrollmentId);
+      const enrollment = await ReferralRecord.findById(payload.enrollmentId);
+      if (enrollment) enrollments = [enrollment];
+    } else if (event.eventType === 'IDENTITY_VERIFIED') {
+      const verifiedUid = String(payload.refereeUid || payload.referrerUid || (payload as { uid?: string }).uid || '').trim();
+      if (verifiedUid) {
+        enrollments = await ReferralRecord.find({
+          status: ReferralStatus.PENDING,
+          $or: [{ refereeUid: verifiedUid }, { referrerUid: verifiedUid }],
+        }).sort({ createdAt: -1 });
+      }
     } else if (payload.refereeUid) {
-      enrollment = await ReferralRecord.findOne({
+      const enrollment = await ReferralRecord.findOne({
         refereeUid: payload.refereeUid,
         status: ReferralStatus.PENDING,
       });
+      if (enrollment) enrollments = [enrollment];
     } else if (event.eventType === 'PAYMENT_COMPLETED') {
       const posterUid = (event.payload as { posterUid?: string }).posterUid;
       if (posterUid) {
-        enrollment = await ReferralRecord.findOne({
+        const enrollment = await ReferralRecord.findOne({
           refereeUid: posterUid,
           status: ReferralStatus.PENDING,
         });
+        if (enrollment) enrollments = [enrollment];
       }
     }
 
-    if (!enrollment) {
+    if (enrollments.length === 0) {
       logReferralCoins(
         'qualification_no_enrollment',
         {
@@ -235,6 +313,28 @@ export class QualificationEngine {
       return { grantsIssued: 0, grantsFailed: 0, qualified: false };
     }
 
+    let totalIssued = 0;
+    let totalFailed = 0;
+    let anyQualified = false;
+
+    for (const enrollment of enrollments) {
+      const result = await this.processEnrollmentEvent(enrollment, event);
+      totalIssued += result.grantsIssued;
+      totalFailed += result.grantsFailed;
+      anyQualified = anyQualified || result.qualified;
+    }
+
+    return {
+      grantsIssued: totalIssued,
+      grantsFailed: totalFailed,
+      qualified: anyQualified,
+    };
+  }
+
+  private static async processEnrollmentEvent(
+    enrollment: any,
+    event: PlatformEvent
+  ): Promise<{ grantsIssued: number; grantsFailed: number; qualified: boolean }> {
     const evalResult = await this.evaluateForEventAsync(
       {
         _id: enrollment._id.toString(),
@@ -246,11 +346,10 @@ export class QualificationEngine {
         status: enrollment.status,
         expiresAt: enrollment.expiresAt,
         rewardProgramSnapshot: enrollment.rewardProgramSnapshot as RewardProgramSnapshot | undefined,
+        refereePhoneHash: (enrollment as { refereePhoneHash?: string }).refereePhoneHash,
       },
       event
     );
-
-    const { GrantCommandPublisher } = await import('../publishers/GrantCommandPublisher');
 
     const grantsToIssue = evalResult.grants;
     let qualified = enrollment.status === ReferralStatus.QUALIFIED;
@@ -291,8 +390,14 @@ export class QualificationEngine {
       return { grantsIssued: 0, grantsFailed: 0, qualified };
     }
 
-    const publishResult = await GrantCommandPublisher.issueGrants(grantsToIssue, {
+    const publishResult = await ReferralGrantIssueCoordinator.issue({
       enrollmentId,
+      grants: grantsToIssue,
+      refereePhoneHash: (enrollment as { refereePhoneHash?: string }).refereePhoneHash,
+      referralChannel: parseReferralChannel(
+        (enrollment as { referralChannel?: string }).referralChannel
+      ),
+      referrerId: (enrollment as { referrerId?: { toString(): string } }).referrerId?.toString(),
     });
 
     if (

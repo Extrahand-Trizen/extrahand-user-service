@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { validateEnv } from '../config/env';
+import logger from '../config/logger';
 
 const env = validateEnv();
 
@@ -36,7 +37,7 @@ export class StatsService {
   async calculateTaskStats(profileId: string, uid: string): Promise<TaskStats> {
     try {
       if (!this.taskServiceUrl || !this.serviceAuthToken) {
-        console.warn('⚠️ Task service not configured, returning zero stats');
+        logger.warn('Task service not configured, returning zero stats');
         return { totalTasks: 0, completedTasks: 0, postedTasks: 0 };
       }
 
@@ -86,7 +87,7 @@ export class StatsService {
         0
       );
 
-      console.log(`📊 Calculated task stats for ${uid}:`, {
+      logger.debug(`Calculated task stats for ${uid}`, {
         totalTasks,
         completedTasks,
         postedTasks,
@@ -94,7 +95,7 @@ export class StatsService {
 
       return { totalTasks, completedTasks, postedTasks };
     } catch (error: any) {
-      console.error('Error calculating task stats:', error.message);
+      logger.error('Error calculating task stats', { message: error.message });
       // Return zeros on error rather than failing
       return { totalTasks: 0, completedTasks: 0, postedTasks: 0 };
     }
@@ -106,7 +107,7 @@ export class StatsService {
   async calculateReviewStats(profileId: string): Promise<ReviewStats> {
     try {
       if (!this.taskServiceUrl || !this.serviceAuthToken) {
-        console.warn('⚠️ Task service not configured, returning zero review stats');
+        logger.warn('Task service not configured, returning zero review stats');
         return { totalReviews: 0, avgRating: 0 };
       }
 
@@ -116,8 +117,7 @@ export class StatsService {
       };
 
       // Query reviews for the user using MongoDB ObjectId (not Firebase UID)
-      console.log(`🔍 Querying reviews for profileId: ${profileId}`);
-      console.log(`🔍 Review endpoint: ${this.taskServiceUrl}/api/v1/reviews/user/${profileId}`);
+      logger.debug(`Querying reviews for profileId: ${profileId}`);
       
       const reviewsResponse = await axios.get(
         `${this.taskServiceUrl}/api/v1/reviews/user/${profileId}`,
@@ -127,13 +127,12 @@ export class StatsService {
         }
       );
 
-      console.log(`📦 Reviews response status: ${reviewsResponse.status}`);
-      console.log(`📦 Reviews response data:`, JSON.stringify(reviewsResponse.data, null, 2));
+      logger.debug(`Reviews response status: ${reviewsResponse.status}`);
 
       const reviews = reviewsResponse.data?.data || []; // API returns reviews in 'data' field
       const totalReviews = reviews.length;
       
-      console.log(`📊 Found ${totalReviews} reviews for profileId ${profileId}`);
+      logger.debug(`Found ${totalReviews} reviews for profileId ${profileId}`);
       
       if (totalReviews === 0) {
         return { totalReviews: 0, avgRating: 0 };
@@ -172,7 +171,7 @@ export class StatsService {
         ratingBreakdowns.value = Math.round((ratingBreakdowns.value / reviewsWithBreakdown) * 10) / 10;
       }
 
-      console.log(`⭐ Calculated review stats for profileId ${profileId}:`, {
+      logger.debug(`Calculated review stats for profileId ${profileId}`, {
         totalReviews,
         avgRating,
         ratingBreakdowns,
@@ -184,7 +183,7 @@ export class StatsService {
         ratingBreakdowns: reviewsWithBreakdown > 0 ? ratingBreakdowns : undefined,
       };
     } catch (error: any) {
-      console.error('Error calculating review stats:', error.message);
+      logger.error('Error calculating review stats', { message: error.message });
       // Return zeros on error rather than failing
       return { totalReviews: 0, avgRating: 0 };
     }

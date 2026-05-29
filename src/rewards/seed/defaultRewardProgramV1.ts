@@ -46,7 +46,7 @@ export function getDefaultPosterRewardProgramV1(): RewardProgramDocument {
   };
 }
 
-/** Tasker referral: both instant */
+/** Tasker referral: referrer on enroll (if KYC), referee on qualify (Aadhaar); BOTH_KYC gate on qualify */
 export function getDefaultTaskerRewardProgramV1(): RewardProgramDocument {
   return {
     programId: 'referral_tasker_v1',
@@ -55,7 +55,7 @@ export function getDefaultTaskerRewardProgramV1(): RewardProgramDocument {
     coinEconomics: BASE_COIN_ECONOMICS,
     coinUsage: BASE_COIN_USAGE,
     referral: {
-      qualificationMode: 'AUTO',
+      qualificationMode: 'BOTH_KYC',
       qualificationWindowDays: 30,
       minQualifyingTaskAmountInr: 0,
       grants: {
@@ -66,14 +66,15 @@ export function getDefaultTaskerRewardProgramV1(): RewardProgramDocument {
             trigger: 'on_enroll',
             amount: { type: 'fixed_coins', value: 100 },
           },
+        ],
+        onQualify: [
           {
             grantId: 'tasker_referee_welcome',
             recipient: 'referee',
-            trigger: 'on_enroll',
+            trigger: 'on_qualify',
             amount: { type: 'fixed_coins', value: 100 },
           },
         ],
-        onQualify: [],
       },
     },
   };
