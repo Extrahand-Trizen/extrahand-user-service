@@ -33,6 +33,23 @@ function extractTasks(response: any): any[] {
   return response?.data || response?.tasks || response?.items || [];
 }
 
+function resolveReviewerDisplayName(review: any): string {
+  const direct =
+    (typeof review?.reviewerName === 'string' && review.reviewerName.trim()) ||
+    (typeof review?.reviewer?.name === 'string' && review.reviewer.name.trim()) ||
+    (typeof review?.reviewer?.fullName === 'string' && review.reviewer.fullName.trim()) ||
+    (typeof review?.reviewer?.displayName === 'string' && review.reviewer.displayName.trim()) ||
+    '';
+  if (direct) return direct;
+
+  const first =
+    typeof review?.reviewer?.firstName === 'string' ? review.reviewer.firstName.trim() : '';
+  const last =
+    typeof review?.reviewer?.lastName === 'string' ? review.reviewer.lastName.trim() : '';
+  const combined = `${first} ${last}`.trim();
+  return combined || '';
+}
+
 async function hasWorkedWithTarget(viewerProfile: any, targetProfile: any): Promise<boolean> {
   try {
     const env = validateEnv();
@@ -746,10 +763,7 @@ export class ProfileController {
             taskId: review.taskId,
             taskTitle: review.taskTitle || review.title || 'Task',
             reviewerId: review.reviewerId || review.reviewerUid || review.reviewer?.id || 'unknown',
-            reviewerName:
-              (typeof review.reviewerName === 'string' && review.reviewerName.trim()) ||
-              (typeof review.reviewer?.name === 'string' && review.reviewer.name.trim()) ||
-              'Verified user',
+            reviewerName: resolveReviewerDisplayName(review),
             reviewerPhoto: review.reviewerPhoto || review.reviewer?.photoURL || review.reviewer?.photo,
             rating: Number(review.rating) || 0,
             comment: typeof review.comment === 'string' ? review.comment : '',
@@ -962,10 +976,7 @@ export class ProfileController {
             taskId: review.taskId,
             taskTitle: review.taskTitle || review.title || 'Task',
             reviewerId: review.reviewerId || review.reviewerUid || review.reviewer?.id || 'unknown',
-            reviewerName:
-              (typeof review.reviewerName === 'string' && review.reviewerName.trim()) ||
-              (typeof review.reviewer?.name === 'string' && review.reviewer.name.trim()) ||
-              'Verified user',
+            reviewerName: resolveReviewerDisplayName(review),
             reviewerPhoto: review.reviewerPhoto || review.reviewer?.photoURL || review.reviewer?.photo,
             rating: Number(review.rating) || 0,
             comment: typeof review.comment === 'string' ? review.comment : '',
@@ -1183,10 +1194,7 @@ export class ProfileController {
             taskId: review.taskId,
             taskTitle: review.taskTitle || review.title || 'Task',
             reviewerId: review.reviewerId || review.reviewerUid || review.reviewer?.id || 'unknown',
-            reviewerName:
-              (typeof review.reviewerName === 'string' && review.reviewerName.trim()) ||
-              (typeof review.reviewer?.name === 'string' && review.reviewer.name.trim()) ||
-              'Verified user',
+            reviewerName: resolveReviewerDisplayName(review),
             reviewerPhoto: review.reviewerPhoto || review.reviewer?.photoURL || review.reviewer?.photo,
             rating: Number(review.rating) || 0,
             comment: typeof review.comment === 'string' ? review.comment : '',

@@ -1355,6 +1355,17 @@ export class ProfileService {
         isPublic: true
       };
     }
+    // Process homeLocation data (source of truth for Home-screen-based nearby matching)
+    let processedHomeLocation: ILocation | null = null;
+    if ((profileData as any).homeLocation && (profileData as any).homeLocation.coordinates) {
+      processedHomeLocation = {
+        type: 'Point',
+        coordinates: (profileData as any).homeLocation.coordinates,
+        address: (profileData as any).homeLocation.address || null,
+        addressDetails: (profileData as any).homeLocation.addressDetails || {},
+        isPublic: true
+      };
+    }
 
     // Build payload
     const payload: any = {
@@ -1373,6 +1384,7 @@ export class ProfileService {
     }
     if (profileData.userType) payload.userType = profileData.userType;
     if (processedLocation) payload.location = processedLocation;
+    if (processedHomeLocation) payload.homeLocation = processedHomeLocation;
     if (profileData.savedAddresses !== undefined) {
       // Ensure each address has proper structure with validation
       payload.savedAddresses = Array.isArray(profileData.savedAddresses)
@@ -1594,6 +1606,17 @@ export class ProfileService {
           coordinates: profileData.location.coordinates,
           address: profileData.location.address || null,
           addressDetails: profileData.location.addressDetails || {},
+          isPublic: true
+        };
+      }
+    }
+    if ((profileData as any).homeLocation) {
+      if ((profileData as any).homeLocation.coordinates && Array.isArray((profileData as any).homeLocation.coordinates) && (profileData as any).homeLocation.coordinates.length === 2) {
+        updatePayload.homeLocation = {
+          type: 'Point',
+          coordinates: (profileData as any).homeLocation.coordinates,
+          address: (profileData as any).homeLocation.address || null,
+          addressDetails: (profileData as any).homeLocation.addressDetails || {},
           isPublic: true
         };
       }
