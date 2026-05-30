@@ -15,6 +15,26 @@ export interface RecordConsumptionParams {
   enrollmentId?: string;
 }
 
+/** Grant pays the referee signup welcome for this enrollment. */
+export function grantTargetsRefereeWelcome(grant: GrantSpec): boolean {
+  return (
+    Boolean(grant.metadata?.refereeUid) &&
+    grant.recipientUid === grant.metadata.refereeUid
+  );
+}
+
+/** Grant pays the referrer for this referral enrollment (enroll or qualify). */
+export function grantTargetsReferrerReferralPayout(grant: GrantSpec): boolean {
+  const source = String(grant.metadata?.source || '');
+  if (!source.startsWith('referral_') || !grant.metadata?.enrollmentId) {
+    return false;
+  }
+  return (
+    Boolean(grant.metadata?.referrerUid) &&
+    grant.recipientUid === grant.metadata.referrerUid
+  );
+}
+
 export class ReferralConsumptionService {
   static async hasConsumed(
     phoneHash: string,
@@ -59,11 +79,7 @@ export class ReferralConsumptionService {
 
     const filtered: GrantSpec[] = [];
     for (const grant of grants) {
-      const targetsReferee =
-        Boolean(grant.metadata?.refereeUid) &&
-        grant.recipientUid === grant.metadata?.refereeUid;
-
-      if (refereeWelcomeBlocked && targetsReferee) {
+      if (refereeWelcomeBlocked && grantTargetsRefereeWelcome(grant)) {
         logReferralCoins(
           'consumption_grant_blocked',
           {
@@ -71,6 +87,22 @@ export class ReferralConsumptionService {
             recipientUid: grant.recipientUid,
             idempotencyKey: grant.idempotencyKey,
             rewardType: refereeWelcomeRewardType(referralChannel),
+            grantRole: 'referee',
+          },
+          'warn'
+        );
+        continue;
+      }
+
+      if (refereeWelcomeBlocked && grantTargetsReferrerReferralPayout(grant)) {
+        logReferralCoins(
+          'consumption_grant_blocked',
+          {
+            phoneHashPrefix: refereePhoneHash?.slice(0, 8),
+            recipientUid: grant.recipientUid,
+            idempotencyKey: grant.idempotencyKey,
+            rewardType: refereeWelcomeRewardType(referralChannel),
+            grantRole: 'referrer',
           },
           'warn'
         );
@@ -81,7 +113,7 @@ export class ReferralConsumptionService {
     }
 
     if (refereeWelcomeBlocked && filtered.length < grants.length) {
-      logReferralCoins('consumption_referee_welcome_skipped', {
+      logReferralCoins('consumption_referral_grants_skipped', {
         referrerId,
         phoneHashPrefix: refereePhoneHash?.slice(0, 8),
         blockedCount: grants.length - filtered.length,

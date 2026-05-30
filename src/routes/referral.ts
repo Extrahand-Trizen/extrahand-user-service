@@ -13,6 +13,11 @@ router.get('/referral-code', authMiddleware, ReferralController.getUserReferralC
 router.get('/referral-program', authMiddleware, RewardProgramController.getReferralProgram);
 router.post('/referral/apply', authMiddleware, ReferralController.applyReferralCode);
 router.post('/referral/retry-grants', authMiddleware, ReferralController.retryReferralGrants);
+router.get(
+  '/referral/referee-welcome-eligibility',
+  authMiddleware,
+  ReferralController.getRefereeWelcomeEligibility,
+);
 router.get('/referral-dashboard', authMiddleware, ReferralController.getReferralDashboard);
 
 // Internal rewards (service-auth)

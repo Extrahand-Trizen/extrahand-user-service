@@ -1,8 +1,9 @@
 import type { GrantSpec } from '../../types/GrantSpec';
 import { GrantCommandPublisher, type GrantPublishResult } from '../../publishers/GrantCommandPublisher';
-import { ReferralConsumptionService } from '../../antiAbuse/services/ReferralConsumptionService';
+import { ReferralConsumptionService, grantTargetsReferrerReferralPayout } from '../../antiAbuse/services/ReferralConsumptionService';
 import { refereeWelcomeRewardType } from '../../antiAbuse/utils/rewardType.util';
 import type { ReferralChannel } from '../../utils/walletRole';
+import { parseReferralChannel } from '../../utils/walletRole';
 import { logReferralCoins } from '../referralCoinsLogger';
 
 export interface IssueGrantsWithConsumptionParams {
@@ -14,7 +15,7 @@ export interface IssueGrantsWithConsumptionParams {
 }
 
 /**
- * Filters lifetime-consumed grants, issues via payment, records consumption for successful referee welcomes.
+ * Filters lifetime-consumed grants, issues via payment, records phone consumption for successful referral payouts.
  */
 export class ReferralGrantIssueCoordinator {
   static async issue(params: IssueGrantsWithConsumptionParams): Promise<GrantPublishResult> {
@@ -40,7 +41,7 @@ export class ReferralGrantIssueCoordinator {
     });
 
     if (params.refereePhoneHash) {
-      await this.recordConsumptionForSuccessfulRefereeGrants({
+      await this.recordConsumptionForSuccessfulReferralGrants({
         results: publishResult.results,
         grants: filtered,
         refereePhoneHash: params.refereePhoneHash,
@@ -53,7 +54,7 @@ export class ReferralGrantIssueCoordinator {
     return publishResult;
   }
 
-  private static async recordConsumptionForSuccessfulRefereeGrants(params: {
+  private static async recordConsumptionForSuccessfulReferralGrants(params: {
     results: Array<{ success?: boolean; idempotencyKey?: string }>;
     grants: GrantSpec[];
     refereePhoneHash: string;
@@ -68,19 +69,27 @@ export class ReferralGrantIssueCoordinator {
         .filter(Boolean) as string[]
     );
 
+    const channel = parseReferralChannel(params.referralChannel);
+    const rewardType = refereeWelcomeRewardType(params.referralChannel);
+
     for (const grant of params.grants) {
       if (!successKeys.has(grant.idempotencyKey)) continue;
-      if (grant.recipientUid !== grant.metadata?.refereeUid) continue;
+
+      const isRefereeWelcome = grant.recipientUid === grant.metadata?.refereeUid;
+      const isPosterReferrerPayout =
+        channel === 'poster' && grantTargetsReferrerReferralPayout(grant);
+
+      if (!isRefereeWelcome && !isPosterReferrerPayout) continue;
 
       await ReferralConsumptionService.recordAfterSuccessfulGrant({
         phoneHash: params.refereePhoneHash,
-        rewardType: refereeWelcomeRewardType(params.referralChannel),
+        rewardType,
         referrerId: params.referrerId,
         enrollmentId: params.enrollmentId,
       });
     }
 
-    logReferralCoins('consumption_referee_record_batch_done', {
+    logReferralCoins('consumption_referral_record_batch_done', {
       enrollmentId: params.enrollmentId,
       successCount: successKeys.size,
     });

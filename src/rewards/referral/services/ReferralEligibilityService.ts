@@ -2,8 +2,22 @@ import Profile from '../../../models/Profile';
 import { ReferralRecord } from '../../../models/ReferralRecord';
 import { BadRequestError } from '../../../errors/AppError';
 import { hashReferralPhone } from '../../antiAbuse/utils/phoneHash.util';
+import { ReferralConsumptionService } from '../../antiAbuse/services/ReferralConsumptionService';
 import type { ReferralChannel } from '../../utils/walletRole';
 import mongoose from 'mongoose';
+
+export type RefereeWelcomeIneligibleReason =
+  | 'already_consumed'
+  | 'no_phone'
+  | 'no_enrollment'
+  | 'not_tasker_referral';
+
+export interface RefereeWelcomeEligibilityResult {
+  eligible: boolean;
+  reason?: RefereeWelcomeIneligibleReason;
+  referralCode?: string;
+  refereeCoins?: number;
+}
 
 export interface ReferralApplyEligibilityInput {
   refereeUid: string;
@@ -66,6 +80,72 @@ export class ReferralEligibilityService {
       );
     }
 
+    const consumption = await ReferralConsumptionService.checkRefereeWelcome(
+      refereePhoneHash,
+      input.referralChannel
+    );
+    if (!consumption.allowed) {
+      throw new BadRequestError(
+        input.referralChannel === 'poster'
+          ? 'This phone number has already received a customer signup referral bonus'
+          : 'This phone number has already received a helper signup referral bonus'
+      );
+    }
+
     return { refereePhoneHash, referrerIsAadhaarVerified };
+  }
+
+  /** Whether this signed-in user can still receive helper referee welcome coins (phone not consumed). */
+  static async checkRefereeWelcomeEligibility(
+    uid: string
+  ): Promise<RefereeWelcomeEligibilityResult> {
+    const profile = await Profile.findOne({ uid }).select('_id phone').lean();
+    if (!profile) {
+      return { eligible: false, reason: 'no_enrollment' };
+    }
+
+    const profilePhoneHash = hashReferralPhone((profile as { phone?: string }).phone);
+
+    const enrollment = await ReferralRecord.findOne({
+      refereeId: profile._id,
+    })
+      .select('referralChannel referralCode refereePhoneHash')
+      .lean();
+
+    const channel = enrollment
+      ? String(enrollment.referralChannel || '').toLowerCase()
+      : 'tasker';
+
+    if (enrollment && channel !== 'tasker') {
+      return { eligible: false, reason: 'not_tasker_referral' };
+    }
+
+    const phoneHash =
+      enrollment?.refereePhoneHash || profilePhoneHash;
+    if (!phoneHash) {
+      return { eligible: false, reason: 'no_phone' };
+    }
+
+    // Lifetime phone consumption — checked even without enrollment (delete/recreate, failed apply).
+    const consumption = await ReferralConsumptionService.checkRefereeWelcome(
+      phoneHash,
+      'tasker'
+    );
+    if (!consumption.allowed) {
+      return {
+        eligible: false,
+        reason: 'already_consumed',
+        referralCode: enrollment?.referralCode,
+      };
+    }
+
+    if (!enrollment) {
+      return { eligible: false, reason: 'no_enrollment' };
+    }
+
+    return {
+      eligible: true,
+      referralCode: enrollment.referralCode,
+    };
   }
 }

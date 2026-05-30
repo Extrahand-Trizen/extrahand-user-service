@@ -11,6 +11,7 @@ import { ensureDualReferralCodes, lookupReferralCodeChannel } from '../services/
 import { CreditTransactionType, ReferralStatus } from '../types/referral';
 import { ReferralApplyOrchestrator } from '../rewards/referral/ReferralApplyOrchestrator';
 import { ReferralGrantReissue } from '../rewards/referral/ReferralGrantReissue';
+import { ReferralEligibilityService } from '../rewards/referral/services/ReferralEligibilityService';
 import { rewardsFlags } from '../rewards/config/rewardsFlags';
 import { RewardConfigProvider } from '../rewards/config/RewardConfigProvider';
 import { AppError } from '../errors/AppError';
@@ -207,6 +208,24 @@ export class ReferralController {
         return;
       }
       logger.error('Error applying referral code:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * GET /api/v1/user/referral/referee-welcome-eligibility
+   * Whether signed-in helper referee can still receive signup welcome coins (phone consumption check).
+   */
+  static async getRefereeWelcomeEligibility(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const result = await ReferralEligibilityService.checkRefereeWelcomeEligibility(uid);
+      res.json({ success: true, data: result });
+    } catch (error: any) {
+      logger.error('Error checking referee welcome eligibility:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }
