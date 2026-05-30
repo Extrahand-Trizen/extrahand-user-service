@@ -13,9 +13,9 @@ export class PrivacyService {
   private static getDeletionAlias(profile: any): string {
     const roles = Array.isArray(profile?.roles) ? profile.roles : [];
     if (roles.includes('tasker')) {
-      return 'Tasker (account deleted)';
+      return 'Helper Account Deleted';
     }
-    return 'Customer (account deleted)';
+    return 'Customer Account Deleted';
   }
 
   private static buildServiceHeaders(userId?: string, profileId?: string): Record<string, string> {

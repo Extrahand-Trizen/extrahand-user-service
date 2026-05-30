@@ -16,6 +16,7 @@ export interface IProfile extends Document {
   bio?: string;
   portfolio?: PortfolioItem[];
   location?: Location | null;
+  homeLocation?: Location | null;
   savedAddresses?: SavedAddress[];
   skills?: {
     primaryCategory?: string;
@@ -193,6 +194,27 @@ const ProfileSchema = new Schema<IProfile>({
     default: 'individual'
   },
   location: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number],
+      required: false
+    },
+    address: String,
+    addressDetails: {
+      doorNo: String,
+      area: String,
+      city: String,
+      state: String,
+      pinCode: String,
+      country: String
+    },
+    isPublic: Boolean
+  },
+  homeLocation: {
     type: {
       type: String,
       enum: ['Point'],
@@ -672,6 +694,7 @@ ProfileSchema.pre('updateMany', function(next) {
 
 // Index for geospatial queries
 ProfileSchema.index({ 'location.coordinates': '2dsphere' });
+ProfileSchema.index({ 'homeLocation.coordinates': '2dsphere' });
 
 // Compound indexes for efficient matching queries (notifications)
 ProfileSchema.index({ 'skills.primaryCategory': 1, isActive: 1 });

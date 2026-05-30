@@ -28,6 +28,8 @@ export interface Location {
    isPublic?: boolean;
 }
 
+export interface HomeLocation extends Location {}
+
 export interface SavedAddress {
    _id?: string;
    label: "Home" | "Work" | "Other";
