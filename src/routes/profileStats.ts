@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware } from '../middleware/auth';
 import Profile from '../models/Profile';
+import logger from '../config/logger';
 
 const router = Router();
 
@@ -197,7 +198,7 @@ router.patch('/:profileId/internal/stats', async (req: Request, res: Response) =
       });
     }
 
-    console.log(`📊 Stats update from ${serviceName} for profile ${req.params.profileId}`);
+    logger.debug(`Stats update from ${serviceName} for profile ${req.params.profileId}`);
 
     // Update profile stats directly
     await Profile.findByIdAndUpdate(
@@ -219,7 +220,7 @@ router.patch('/:profileId/internal/stats', async (req: Request, res: Response) =
       message: 'Profile statistics updated successfully',
     });
   } catch (error: any) {
-    console.error('Error updating stats:', error);
+    logger.error('Error updating stats', { error: error.message });
     return res.status(500).json({
       success: false,
       error: 'Failed to update statistics',
@@ -262,7 +263,7 @@ router.patch('/:profileId/internal/stats-increment', async (req: Request, res: R
       return res.status(400).json({ success: false, error: 'No valid increment values provided' });
     }
 
-    console.log(`📊 Stats increment from ${serviceName} for profile ${profileId}:`, increment);
+    logger.debug(`Stats increment from ${serviceName} for profile ${profileId}`, increment);
 
     await Profile.findByIdAndUpdate(
       profileId,
@@ -275,7 +276,7 @@ router.patch('/:profileId/internal/stats-increment', async (req: Request, res: R
       message: 'Profile statistics incremented successfully',
     });
   } catch (error: any) {
-    console.error('Error incrementing profile stats:', error);
+    logger.error('Error incrementing profile stats', { error: error.message });
     return res.status(500).json({
       success: false,
       error: 'Failed to increment statistics',

@@ -7,6 +7,8 @@ import {
    setAccessTokenCookie,
 } from "../utils/sessionCookies";
 import type { ClientType } from "../models/SessionToken";
+import { logReferralCoins } from "../rewards/referral/referralCoinsLogger";
+import { parseReferralChannel } from "../rewards/utils/walletRole";
 
 export class AuthController {
    static async checkPhone(
@@ -85,7 +87,7 @@ export class AuthController {
       res: Response
    ): Promise<void> {
       try {
-         const { idToken, mode, phone, name, clientType, deviceId } = req.body;
+         const { idToken, mode, phone, name, clientType, deviceId, referralCode, referralChannel } = req.body;
 
          if (!idToken || !mode || !phone) {
             res.status(400).json({
@@ -106,12 +108,25 @@ export class AuthController {
          const normalizedClient: ClientType =
             clientType === "mobile" ? "mobile" : "web";
 
+         if (mode === "signup" && typeof referralCode === "string" && referralCode.trim()) {
+            logReferralCoins("api_apply_request", {
+               phase: "otp_complete",
+               referralCode: referralCode.trim().toUpperCase(),
+               clientType: normalizedClient,
+               phoneLast4: String(phone).replace(/\D/g, "").slice(-4),
+            });
+         }
+
          const result = await AuthService.completeOTPAuth(
             idToken,
             mode,
             phone,
             name,
-            normalizedClient
+            normalizedClient,
+            typeof referralCode === "string" ? referralCode : undefined,
+            referralChannel != null && String(referralChannel).trim() !== ""
+               ? parseReferralChannel(referralChannel)
+               : undefined
          );
 
          // Use Firebase UID (profile.uid) for session, NOT MongoDB _id
@@ -195,7 +210,7 @@ export class AuthController {
             return;
          }
 
-         const { phone, otp, mode, name, clientType, deviceId } = req.body;
+         const { phone, otp, mode, name, clientType, deviceId, referralCode, referralChannel } = req.body;
          if (!phone || !otp || !mode) {
             res.status(400).json({
                success: false,
@@ -219,7 +234,11 @@ export class AuthController {
             otp,
             mode,
             name,
-            normalizedClient
+            normalizedClient,
+            typeof referralCode === "string" ? referralCode : undefined,
+            referralChannel != null && String(referralChannel).trim() !== ""
+               ? parseReferralChannel(referralChannel)
+               : undefined
          );
          const firebaseUid = result.profile?.uid;
          if (!firebaseUid) {

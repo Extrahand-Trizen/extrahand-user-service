@@ -1372,7 +1372,7 @@ export class ProfileService {
   static async upsertProfile(uid: string, profileData: Partial<IProfile>): Promise<IProfileDocument> {
     this.checkConnection();
     
-    console.log('💾 [PROFILE SERVICE] upsertProfile called', {
+    logger.debug('💾 [PROFILE SERVICE] upsertProfile called', {
       uid,
       profileData: {
         name: profileData.name,
@@ -1397,6 +1397,17 @@ export class ProfileService {
         isPublic: true
       };
     }
+    // Process homeLocation data (source of truth for Home-screen-based nearby matching)
+    let processedHomeLocation: ILocation | null = null;
+    if ((profileData as any).homeLocation && (profileData as any).homeLocation.coordinates) {
+      processedHomeLocation = {
+        type: 'Point',
+        coordinates: (profileData as any).homeLocation.coordinates,
+        address: (profileData as any).homeLocation.address || null,
+        addressDetails: (profileData as any).homeLocation.addressDetails || {},
+        isPublic: true
+      };
+    }
 
     // Build payload
     const payload: any = {
@@ -1415,6 +1426,7 @@ export class ProfileService {
     }
     if (profileData.userType) payload.userType = profileData.userType;
     if (processedLocation) payload.location = processedLocation;
+    if (processedHomeLocation) payload.homeLocation = processedHomeLocation;
     if (profileData.savedAddresses !== undefined) {
       // Ensure each address has proper structure with validation
       payload.savedAddresses = Array.isArray(profileData.savedAddresses)
@@ -1497,7 +1509,7 @@ export class ProfileService {
     if (profileData.agreeUpdates !== undefined) payload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) payload.agreeTerms = profileData.agreeTerms;
 
-    console.log('🔍 [PROFILE SERVICE] Checking if profile exists', {
+    logger.debug('🔍 [PROFILE SERVICE] Checking if profile exists', {
       uid,
       exists: !!existingProfile,
       existingProfileId: existingProfile?._id?.toString()
@@ -1505,9 +1517,9 @@ export class ProfileService {
     
     if (!existingProfile) {
       payload.createdAt = now;
-      console.log('✨ [PROFILE SERVICE] Creating new profile', { uid, payload: { ...payload, location: payload.location ? 'present' : 'not present' } });
+      logger.debug('✨ [PROFILE SERVICE] Creating new profile', { uid, payload: { ...payload, location: payload.location ? 'present' : 'not present' } });
     } else {
-      console.log('🔄 [PROFILE SERVICE] Updating existing profile', { uid, existingProfileId: existingProfile._id?.toString() });
+      logger.debug('🔄 [PROFILE SERVICE] Updating existing profile', { uid, existingProfileId: existingProfile._id?.toString() });
     }
 
     // Update onboarding status
@@ -1528,7 +1540,7 @@ export class ProfileService {
           : (profileData.onboardingStatus.isCompleted ? now : null),
         lastStep: profileData.onboardingStatus.lastStep || 'roles'
       };
-      console.log('✅ [PROFILE SERVICE] Using onboardingStatus from frontend:', payload.onboardingStatus);
+      logger.debug('✅ [PROFILE SERVICE] Using onboardingStatus from frontend:', payload.onboardingStatus);
     } else {
       // No onboardingStatus provided - calculate it based on data
       // ✨ REMOVED: Location check - location is completely removed from onboarding
@@ -1563,10 +1575,10 @@ export class ProfileService {
         completedAt: isOnboardingComplete ? now : null,
         lastStep
       };
-      console.log('🔄 [PROFILE SERVICE] Calculated onboardingStatus from data:', payload.onboardingStatus);
+      logger.debug('🔄 [PROFILE SERVICE] Calculated onboardingStatus from data:', payload.onboardingStatus);
     }
 
-    console.log('💾 [PROFILE SERVICE] Saving profile to MongoDB', {
+    logger.debug('💾 [PROFILE SERVICE] Saving profile to MongoDB', {
       uid,
       operation: existingProfile ? 'update' : 'create',
       payloadKeys: Object.keys(payload)
@@ -1574,7 +1586,7 @@ export class ProfileService {
     
     const updateResult = await Profile.updateOne({ uid }, { $set: payload }, { upsert: true });
     
-    console.log('✅ [PROFILE SERVICE] Profile saved to MongoDB', {
+    logger.debug('✅ [PROFILE SERVICE] Profile saved to MongoDB', {
       uid,
       matchedCount: updateResult.matchedCount,
       modifiedCount: updateResult.modifiedCount,
@@ -1585,11 +1597,11 @@ export class ProfileService {
 
     const savedProfile = await Profile.findOne({ uid }).lean();
     if (!savedProfile) {
-      console.error('❌ [PROFILE SERVICE] Profile was saved but could not be retrieved', { uid });
+      logger.error('❌ [PROFILE SERVICE] Profile was saved but could not be retrieved', { uid });
       throw new Error('Profile was saved but could not be retrieved');
     }
     
-    console.log('✅ [PROFILE SERVICE] Profile retrieved after save', {
+    logger.debug('✅ [PROFILE SERVICE] Profile retrieved after save', {
       uid,
       profileId: savedProfile._id?.toString(),
       hasRoles: !!savedProfile.roles && savedProfile.roles.length > 0,
@@ -1603,15 +1615,15 @@ export class ProfileService {
    * Update profile
    */
   static async updateProfile(uid: string, profileData: Partial<IProfile>): Promise<IProfileDocument> {
-    console.log('🔍 [PROFILE SERVICE] Finding profile to update', { uid });
+    logger.debug('🔍 [PROFILE SERVICE] Finding profile to update', { uid });
     
     const existingProfile = await Profile.findOne({ uid }).lean();
     if (!existingProfile) {
-      console.error('❌ [PROFILE SERVICE] Profile not found', { uid });
+      logger.error('❌ [PROFILE SERVICE] Profile not found', { uid });
       throw new NotFoundError('Profile not found. Please create a profile first.');
     }
     
-    console.log('✅ [PROFILE SERVICE] Found existing profile', {
+    logger.debug('✅ [PROFILE SERVICE] Found existing profile', {
       uid,
       currentIsAadhaarVerified: existingProfile.isAadhaarVerified,
       currentAadhaarVerifiedAt: existingProfile.aadhaarVerifiedAt,
@@ -1640,6 +1652,17 @@ export class ProfileService {
         };
       }
     }
+    if ((profileData as any).homeLocation) {
+      if ((profileData as any).homeLocation.coordinates && Array.isArray((profileData as any).homeLocation.coordinates) && (profileData as any).homeLocation.coordinates.length === 2) {
+        updatePayload.homeLocation = {
+          type: 'Point',
+          coordinates: (profileData as any).homeLocation.coordinates,
+          address: (profileData as any).homeLocation.address || null,
+          addressDetails: (profileData as any).homeLocation.addressDetails || {},
+          isPublic: true
+        };
+      }
+    }
 
     // Update fields
     if (profileData.name !== undefined) updatePayload.name = profileData.name;
@@ -1657,7 +1680,7 @@ export class ProfileService {
     // ✨ LOG: Aadhaar verification fields
     if (profileData.isAadhaarVerified !== undefined) {
       updatePayload.isAadhaarVerified = profileData.isAadhaarVerified;
-      console.log('📝 [PROFILE SERVICE] Setting isAadhaarVerified', {
+      logger.debug('📝 [PROFILE SERVICE] Setting isAadhaarVerified', {
         uid,
         value: profileData.isAadhaarVerified,
         previousValue: existingProfile.isAadhaarVerified
@@ -1665,7 +1688,7 @@ export class ProfileService {
     }
     if (profileData.aadhaarVerifiedAt !== undefined) {
       updatePayload.aadhaarVerifiedAt = profileData.aadhaarVerifiedAt;
-      console.log('📝 [PROFILE SERVICE] Setting aadhaarVerifiedAt', {
+      logger.debug('📝 [PROFILE SERVICE] Setting aadhaarVerifiedAt', {
               previousValue: existingProfile.aadhaarVerifiedAt
       });
     }
@@ -1676,7 +1699,7 @@ export class ProfileService {
     // ✨ Bank verification fields
     if (profileData.isBankVerified !== undefined) {
       updatePayload.isBankVerified = profileData.isBankVerified;
-      console.log('📝 [PROFILE SERVICE] Setting isBankVerified', {
+      logger.debug('📝 [PROFILE SERVICE] Setting isBankVerified', {
         uid,
         value: profileData.isBankVerified,
         previousValue: existingProfile.isBankVerified
@@ -1684,7 +1707,7 @@ export class ProfileService {
     }
     if (profileData.bankVerifiedAt !== undefined) {
       updatePayload.bankVerifiedAt = profileData.bankVerifiedAt;
-      console.log('📝 [PROFILE SERVICE] Setting bankVerifiedAt', {
+      logger.debug('📝 [PROFILE SERVICE] Setting bankVerifiedAt', {
         uid,
         value: profileData.bankVerifiedAt,
         previousValue: existingProfile.bankVerifiedAt
@@ -1700,7 +1723,7 @@ export class ProfileService {
     // ✨ PAN verification fields
     if (profileData.isPANVerified !== undefined) {
       updatePayload.isPANVerified = profileData.isPANVerified;
-      console.log('📝 [PROFILE SERVICE] Setting isPANVerified', {
+      logger.debug('📝 [PROFILE SERVICE] Setting isPANVerified', {
         uid,
         value: profileData.isPANVerified,
         previousValue: existingProfile.isPANVerified
@@ -1708,7 +1731,7 @@ export class ProfileService {
     }
     if (profileData.panVerifiedAt !== undefined) {
       updatePayload.panVerifiedAt = profileData.panVerifiedAt;
-      console.log('📝 [PROFILE SERVICE] Setting panVerifiedAt', {
+      logger.debug('📝 [PROFILE SERVICE] Setting panVerifiedAt', {
         uid,
         value: profileData.panVerifiedAt,
         previousValue: existingProfile.panVerifiedAt
@@ -1721,7 +1744,7 @@ export class ProfileService {
     // ✨ Email verification fields
     if (profileData.isEmailVerified !== undefined) {
       updatePayload.isEmailVerified = profileData.isEmailVerified;
-      console.log('📝 [PROFILE SERVICE] Setting isEmailVerified', {
+      logger.debug('📝 [PROFILE SERVICE] Setting isEmailVerified', {
         uid,
         value: profileData.isEmailVerified,
         previousValue: existingProfile.isEmailVerified
@@ -1729,7 +1752,7 @@ export class ProfileService {
     }
     if (profileData.emailVerifiedAt !== undefined) {
       updatePayload.emailVerifiedAt = profileData.emailVerifiedAt;
-      console.log('📝 [PROFILE SERVICE] Setting emailVerifiedAt', {
+      logger.debug('📝 [PROFILE SERVICE] Setting emailVerifiedAt', {
         uid,
         value: profileData.emailVerifiedAt,
         previousValue: existingProfile.emailVerifiedAt
@@ -1907,7 +1930,7 @@ export class ProfileService {
     };
 
     // ✨ LOG: Before MongoDB update
-    console.log('💾 [MONGODB] Updating profile in MongoDB', {
+    logger.debug('💾 [MONGODB] Updating profile in MongoDB', {
       uid,
       updatePayload: {
         ...updatePayload,
@@ -2776,7 +2799,7 @@ export class ProfileService {
       $set: stats,
     });
     
-    console.log(`✅ Updated profile ${profileId} with stats from task-service`);
+    logger.debug(`✅ Updated profile ${profileId} with stats from task-service`);
   }
 
   /**

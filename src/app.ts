@@ -57,15 +57,6 @@ export function createApp(): Application {
   // });
   // app.use('/api/', limiter);
 
-  app.use((req, _res, next) => {
-    console.log("🔍 [USER SERVICE] Incoming headers:", {
-      authorization: req.headers.authorization,
-      "x-service-auth": req.headers["x-service-auth"],
-      "x-service-name": req.headers["x-service-name"],
-    });
-    next();
-  });
-
   // Routes
   app.use("/api/v1", routes);
 

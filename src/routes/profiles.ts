@@ -6,6 +6,7 @@ import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 import { asyncHandler } from '../middleware/errorHandler';
 import profileStatsRoutes from './profileStats';
 import Profile from '../models/Profile';
+import { RewardsInternalController } from '../controllers/RewardsInternalController';
 
 const router = Router();
 
@@ -44,6 +45,11 @@ router.put(
   '/internal/:uid',
   serviceAuthMiddleware,
   asyncHandler(ProfileController.updateProfileInternal)
+);
+router.get(
+  '/internal/:uid/reward-context',
+  serviceAuthMiddleware,
+  asyncHandler(RewardsInternalController.getRewardContext)
 );
 
 // Profile Stats Routes - must come before /me to avoid conflicts
@@ -143,6 +149,12 @@ router.put('/me/keyword-alerts', authMiddleware, asyncHandler(ProfileController.
 
 // GET /api/v1/profiles/me/keyword-alerts - Get keyword alerts (requires auth)
 router.get('/me/keyword-alerts', authMiddleware, asyncHandler(ProfileController.getKeywordAlerts));
+
+// POST /api/v1/profiles/check-phone - Check phone availability (requires auth)
+router.post('/check-phone', authMiddleware, asyncHandler(ProfileController.checkPhoneAvailability));
+
+// PUT /api/v1/profiles/change-phone - Change phone number after OTP verification (requires auth)
+router.put('/change-phone', authMiddleware, asyncHandler(ProfileController.changePhone));
 
 // PUT /api/v1/profiles/me - Update profile (requires auth)
 router.put('/me', authMiddleware, asyncHandler(ProfileController.updateProfile));
