@@ -2449,4 +2449,44 @@ export class ProfileController {
       res.status(500).json({ success: false, error: 'Failed to update phone number' });
     }
   }
+
+  /**
+   * GET /api/v1/profiles/nearby-helpers
+   * Returns helpers (taskers) near the caller's location.
+   *
+   * Query params:
+   *   lat, lng      – coordinates (float)
+   *   radiusKm      – search radius in km (default 50, max 200)
+   *   city          – city name
+   *   area          – locality / area name (e.g. "Banjara Hills")
+   *   state         – state name
+   *   pinCode       – postal / pin code
+   *   fullAddress   – full geocoded address string (token source)
+   *   limit         – max results (default 20, max 50)
+   */
+  static async getNearbyHelpers(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const city = typeof req.query.city === 'string' ? req.query.city.trim() : undefined;
+      const limit = req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : 20;
+
+      const helpers = await ProfileService.getNearbyHelpers({
+        city,
+        limit,
+        excludeUid: req.user?.uid,
+      });
+
+      res.json({
+        success: true,
+        helpers,
+        count: helpers.length,
+        hasHelpers: helpers.length > 0,
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.getNearbyHelpers error', { error: error.message });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to fetch nearby helpers',
+      });
+    }
+  }
 }
