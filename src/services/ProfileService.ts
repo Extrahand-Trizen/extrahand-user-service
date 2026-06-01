@@ -10,11 +10,7 @@ import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 import { statsService } from './StatsService';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
-import {
-  citiesMatch,
-  normalizeProfileLocationParts,
-  resolveProfileCityForMatching,
-} from '../utils/normalizeProfileLocation';
+import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation';
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
 type CanonicalRole = 'helper' | 'customer';
 
@@ -1427,7 +1423,6 @@ export class ProfileService {
           pinCode: existingDetails.pinCode || rawLoc.pinCode,
           state: existingDetails.state || rawLoc.state,
           area: existingDetails.area || rawLoc.area,
-          country: existingDetails.country || rawLoc.country,
         },
       });
       processedLocation = {
