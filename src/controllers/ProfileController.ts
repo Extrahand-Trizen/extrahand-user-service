@@ -1646,7 +1646,15 @@ export class ProfileController {
    */
   static async updateAadhaarVerification(req: Request, res: Response): Promise<void> {
     const { uid } = req.params;
-    const { isAadhaarVerified, aadhaarVerifiedAt, maskedAadhaar } = req.body;
+    const {
+      isAadhaarVerified,
+      aadhaarVerifiedAt,
+      maskedAadhaar,
+      status,
+      internalStatus,
+      visibleStatus,
+      failureReason,
+    } = req.body;
 
     logger.debug('[USER SERVICE] Received Aadhaar verification update request', {
       uid,
@@ -1706,12 +1714,31 @@ export class ProfileController {
         logger.error('Failed to update badge after Aadhaar verification', badgeError);
       }
 
-      if (isAadhaarVerified === false) {
-        MainAdminNotificationClient.send({
-          type: 'aadhaar_verification_failed',
+      const aadhaarStatusText = String(
+        visibleStatus || internalStatus || status || '',
+      ).toLowerCase();
+      const shouldNotifyFailed =
+        isAadhaarVerified === false ||
+        ['failed', 'failure', 'rejected'].some((item) =>
+          aadhaarStatusText.includes(item),
+        );
+      const shouldNotifyUnderReview =
+        !shouldNotifyFailed &&
+        ['under_review', 'under review', 'review', 'pending'].some((item) =>
+          aadhaarStatusText.includes(item),
+        );
+
+      if (shouldNotifyFailed || shouldNotifyUnderReview) {
+        await MainAdminNotificationClient.send({
+          type: shouldNotifyFailed
+            ? 'aadhaar_verification_failed'
+            : 'aadhaar_verification_under_review',
           userId: updatedProfile.uid,
           userName: updatedProfile.name || undefined,
           userEmail: updatedProfile.email || undefined,
+          userPhone: updatedProfile.phone || undefined,
+          status: shouldNotifyFailed ? 'failed' : 'under_review',
+          failureReason: failureReason || undefined,
           occurredAt: new Date().toISOString(),
         });
       }
