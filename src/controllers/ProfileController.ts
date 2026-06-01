@@ -1729,7 +1729,7 @@ export class ProfileController {
         );
 
       if (shouldNotifyFailed || shouldNotifyUnderReview) {
-        MainAdminNotificationClient.send({
+        await MainAdminNotificationClient.send({
           type: shouldNotifyFailed
             ? 'aadhaar_verification_failed'
             : 'aadhaar_verification_under_review',

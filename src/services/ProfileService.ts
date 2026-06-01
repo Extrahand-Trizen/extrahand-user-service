@@ -59,23 +59,39 @@ function aadhaarOpsNotificationTypeFromSession(
   return null;
 }
 
-function notifyOpsForAadhaarKycState(profile: any, session: Record<string, unknown> | null): void {
+async function notifyOpsForAadhaarKycState(
+  profile: any,
+  session: Record<string, unknown> | null,
+): Promise<void> {
   const type = aadhaarOpsNotificationTypeFromSession(session);
   if (!type) return;
 
-  MainAdminNotificationClient.send({
-    type,
-    userId: profile.uid,
-    userName: profile.name || undefined,
-    userEmail: profile.email || undefined,
-    userPhone: profile.phone || undefined,
-    status: type === 'aadhaar_verification_failed' ? 'failed' : 'under_review',
-    failureReason:
-      typeof session?.failureReason === 'string'
-        ? session.failureReason
-        : undefined,
-    occurredAt: new Date().toISOString(),
-  });
+  try {
+    await MainAdminNotificationClient.send({
+      type,
+      userId: profile.uid,
+      userName: profile.name || undefined,
+      userEmail: profile.email || undefined,
+      userPhone: profile.phone || undefined,
+      status: type === 'aadhaar_verification_failed' ? 'failed' : 'under_review',
+      failureReason:
+        typeof session?.failureReason === 'string'
+          ? session.failureReason
+          : undefined,
+      occurredAt: new Date().toISOString(),
+    });
+    logger.info('Sent Aadhaar KYC operations notification', {
+      uid: profile.uid,
+      type,
+      status: session?.visibleStatus || session?.internalStatus || session?.status,
+    });
+  } catch (error: any) {
+    logger.error('Failed to send Aadhaar KYC operations notification', {
+      uid: profile.uid,
+      type,
+      error: error.message,
+    });
+  }
 }
 
 function normalizeRoles(roles: unknown): CanonicalRole[] {
@@ -2637,7 +2653,7 @@ export class ProfileService {
         : profile.rating ?? 0
     );
     result.aadhaarKyc = latestAadhaarKycSession;
-    notifyOpsForAadhaarKycState(profile, latestAadhaarKycSession);
+    await notifyOpsForAadhaarKycState(profile, latestAadhaarKycSession);
     
     return result;
   }
