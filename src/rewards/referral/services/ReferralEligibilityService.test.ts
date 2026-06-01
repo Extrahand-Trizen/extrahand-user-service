@@ -51,6 +51,60 @@ describe('ReferralEligibilityService.checkRefereeWelcomeEligibility', () => {
     expect(result).toEqual({ eligible: false, reason: 'no_enrollment' });
   });
 
+  it('returns welcome_already_received when phone consumed but enrollment grants partial', async () => {
+    mockProfileFindOne.mockReturnValue(
+      chainLean({ _id: 'profile1', phone: '+917416337859' }),
+    );
+    mockReferralFindOne.mockReturnValue(
+      chainLean({
+        referralChannel: 'tasker',
+        referralCode: 'ABC123',
+        refereePhoneHash: 'hash:+917416337859',
+        grantsStatus: 'partial',
+      }),
+    );
+    mockCheckRefereeWelcome.mockResolvedValue({
+      allowed: false,
+      blocked: [{ rewardType: 'referee_tasker_welcome', reason: 'already_consumed' }],
+    });
+
+    const result = await ReferralEligibilityService.checkRefereeWelcomeEligibility('uid-new');
+
+    expect(result).toEqual({
+      eligible: false,
+      reason: 'welcome_already_received',
+      welcomeFulfilled: true,
+      referralCode: 'ABC123',
+    });
+  });
+
+  it('returns welcome_already_received when phone consumed but enrollment grants completed', async () => {
+    mockProfileFindOne.mockReturnValue(
+      chainLean({ _id: 'profile1', phone: '+917416337859' }),
+    );
+    mockReferralFindOne.mockReturnValue(
+      chainLean({
+        referralChannel: 'tasker',
+        referralCode: 'ABC123',
+        refereePhoneHash: 'hash:+917416337859',
+        grantsStatus: 'completed',
+      }),
+    );
+    mockCheckRefereeWelcome.mockResolvedValue({
+      allowed: false,
+      blocked: [{ rewardType: 'referee_tasker_welcome', reason: 'already_consumed' }],
+    });
+
+    const result = await ReferralEligibilityService.checkRefereeWelcomeEligibility('uid-new');
+
+    expect(result).toEqual({
+      eligible: false,
+      reason: 'welcome_already_received',
+      welcomeFulfilled: true,
+      referralCode: 'ABC123',
+    });
+  });
+
   it('returns eligible when enrolled and phone not consumed', async () => {
     mockProfileFindOne.mockReturnValue(
       chainLean({ _id: 'profile1', phone: '+917416337859' }),

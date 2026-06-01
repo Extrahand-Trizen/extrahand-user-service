@@ -8,6 +8,8 @@ import {
 
   grantsStatusFromSummary,
 
+  markRefereeWelcomeCreditedIfIssued,
+
   summarizeGrantResults,
 
   updateEnrollmentGrantsStatus,
@@ -83,9 +85,12 @@ export class GrantCommandPublisher {
 
 
     if (options?.enrollmentId) {
-
       await updateEnrollmentGrantsStatus(options.enrollmentId, grantsStatus);
-
+      await markRefereeWelcomeCreditedIfIssued(
+        options.enrollmentId,
+        grants,
+        result.results
+      );
     }
 
 

@@ -12,6 +12,8 @@ import {
   ensureDemoVerificationProfile,
   mergeReviewBypassProfile,
 } from '../utils/reviewBypass';
+import { ReferralRecord } from '../models/ReferralRecord';
+import { ReferralStatus } from '../types/referral';
 
 type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only' | 'private';
 
@@ -1720,19 +1722,81 @@ export class ProfileController {
         try {
           const { createPlatformEvent } = await import('../rewards/events/InProcessEventBus');
           const { QualificationEngine } = await import('../rewards/qualification/QualificationEngine');
+          const { logReferralCoins } = await import('../rewards/referral/referralCoinsLogger');
+
+          const pendingEnrollment = await ReferralRecord.findOne({
+            $or: [{ refereeUid: updatedProfile.uid }, { referrerUid: updatedProfile.uid }],
+            status: ReferralStatus.PENDING,
+            referralChannel: 'tasker',
+          })
+            .select('_id refereeUid referrerUid grantsStatus')
+            .lean();
+
           const enrollmentCorrelationId =
             `aadhaar:${updatedProfile.uid}:${Date.now()}`;
           const event = createPlatformEvent(
             'IDENTITY_VERIFIED',
             {
               uid: updatedProfile.uid,
-              refereeUid: updatedProfile.uid,
-              referrerUid: updatedProfile.uid,
+              refereeUid: pendingEnrollment?.refereeUid || updatedProfile.uid,
+              referrerUid: pendingEnrollment?.referrerUid || updatedProfile.uid,
               verificationType: 'aadhaar',
             },
             enrollmentCorrelationId
           );
-          await QualificationEngine.processDomainEvent(event);
+          const processResult = await QualificationEngine.processDomainEvent(event);
+
+          logReferralCoins('aadhaar_identity_verified_processed', {
+            uid: updatedProfile.uid,
+            enrollmentId: pendingEnrollment?._id?.toString(),
+            grantsIssued: processResult.grantsIssued,
+            grantsFailed: processResult.grantsFailed,
+            qualified: processResult.qualified,
+          });
+
+          if (pendingEnrollment?._id) {
+            const refreshed = await ReferralRecord.findById(pendingEnrollment._id)
+              .select('grantsStatus')
+              .lean();
+            const grantsStatus = String(refreshed?.grantsStatus || 'pending');
+            const shouldReissue =
+              processResult.grantsFailed > 0 ||
+              (processResult.grantsIssued === 0 &&
+                grantsStatus !== 'completed' &&
+                grantsStatus !== 'partial');
+
+            if (shouldReissue) {
+              try {
+                const { ReferralGrantReissue } = await import(
+                  '../rewards/referral/ReferralGrantReissue'
+                );
+                const reissue = await ReferralGrantReissue.reissue(
+                  pendingEnrollment._id.toString()
+                );
+                logReferralCoins('aadhaar_auto_reissue_grants', {
+                  uid: updatedProfile.uid,
+                  enrollmentId: pendingEnrollment._id.toString(),
+                  priorGrantsStatus: pendingEnrollment.grantsStatus,
+                  reissueGrantsStatus: reissue.grantsStatus,
+                  reissueGrantsIssued: reissue.grantsIssued,
+                  reissueGrantsFailed: reissue.grantsFailed,
+                });
+              } catch (reissueErr: unknown) {
+                const message =
+                  reissueErr instanceof Error ? reissueErr.message : String(reissueErr);
+                logReferralCoins(
+                  'aadhaar_auto_reissue_failed',
+                  {
+                    uid: updatedProfile.uid,
+                    enrollmentId: pendingEnrollment._id.toString(),
+                    error: message,
+                    hint: 'Check PAYMENT_SERVICE_URL, SERVICE_AUTH_TOKEN, and payment-service [REFERRAL_COINS] logs for issue-grants',
+                  },
+                  'error'
+                );
+              }
+            }
+          }
         } catch (qualificationError: any) {
           logger.warn('[USER SERVICE] Aadhaar qualification event processing failed', {
             uid: updatedProfile.uid,
