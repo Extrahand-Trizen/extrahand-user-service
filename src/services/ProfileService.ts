@@ -10,8 +10,8 @@ import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 import { statsService } from './StatsService';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
+import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation';
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
-
 type CanonicalRole = 'helper' | 'customer';
 
 function toIsoString(value: unknown): string | null {
@@ -1452,12 +1452,39 @@ export class ProfileService {
     // Process location data
     let processedLocation: ILocation | null = null;
     if (profileData.location && profileData.location.coordinates) {
+      const rawLoc = profileData.location as ILocation & {
+        city?: string;
+        pinCode?: string;
+        state?: string;
+        area?: string;
+        country?: string;
+      };
+      const existingDetails = rawLoc.addressDetails || {};
+      const normalized = normalizeProfileLocationParts({
+        address: rawLoc.address,
+        city: rawLoc.city,
+        pinCode: rawLoc.pinCode,
+        addressDetails: {
+          ...existingDetails,
+          city: existingDetails.city || rawLoc.city,
+          pinCode: existingDetails.pinCode || rawLoc.pinCode,
+          state: existingDetails.state || rawLoc.state,
+          area: existingDetails.area || rawLoc.area,
+        },
+      });
       processedLocation = {
         type: 'Point',
         coordinates: profileData.location.coordinates,
         address: profileData.location.address || null,
-        addressDetails: profileData.location.addressDetails || {},
-        isPublic: true
+        addressDetails: {
+          ...existingDetails,
+          city: normalized.city || existingDetails.city || null,
+          pinCode: normalized.pinCode || existingDetails.pinCode || null,
+          state: existingDetails.state || rawLoc.state || null,
+          area: existingDetails.area || rawLoc.area || null,
+          country: existingDetails.country || rawLoc.country || 'India',
+        },
+        isPublic: true,
       };
     }
     // Process homeLocation data (source of truth for Home-screen-based nearby matching)
@@ -2889,6 +2916,141 @@ export class ProfileService {
     });
 
     return profile;
+  }
+
+  /**
+   * Check if any helpers (taskers) exist near the given location.
+   *
+   * Strategy (in order):
+   *  1. Geospatial $near — finds taskers within radiusKm of the customer's
+   *     coordinates. Most reliable since 115/135 taskers have coordinates
+   *     but no city field.
+   *  2. City-name text match — fallback when no coordinates available.
+   *     Matches against addressDetails.city, location.city, location.address.
+   */
+  static async getNearbyHelpers(params: {
+    city?: string;
+    lat?: number;
+    lng?: number;
+    radiusKm?: number;
+    limit?: number;
+    excludeUid?: string;
+  }): Promise<Array<{
+    _id: string;
+    uid: string;
+    name: string;
+    photoURL: string | null;
+    rating: number;
+    totalReviews: number;
+    skills: any;
+    location: { city?: string; state?: string; area?: string } | null;
+    isAadhaarVerified: boolean;
+    verificationBadge?: string;
+  }>> {
+    this.checkConnection();
+
+    const limit = Math.min(50, Math.max(1, Number(params.limit) || 20));
+    const radiusKm = Math.min(200, Math.max(1, Number(params.radiusKm) || 50));
+    const customerCity = params.city?.trim() || '';
+    const excludeUid = params.excludeUid?.trim();
+
+    logger.info('getNearbyHelpers: called', {
+      city: customerCity,
+      lat: params.lat,
+      lng: params.lng,
+      radiusKm,
+      limit,
+      excludeUid: excludeUid || null,
+    });
+
+    const baseFilter: Record<string, unknown> = {
+      roles: { $in: ['tasker'] },
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+      ...(excludeUid ? { uid: { $ne: excludeUid } } : {}),
+    };
+
+    const projection = {
+      _id: 1, uid: 1, name: 1, photoURL: 1, rating: 1,
+      totalReviews: 1, skills: 1, location: 1,
+      isAadhaarVerified: 1, verificationBadge: 1,
+    };
+
+    let profiles: any[] = [];
+
+    const hasCoords =
+      typeof params.lat === 'number' && Number.isFinite(params.lat) &&
+      typeof params.lng === 'number' && Number.isFinite(params.lng);
+
+    // ── Strategy 1: Geospatial (primary — works even when city field is empty) ──
+    if (hasCoords) {
+      try {
+        profiles = await Profile.find(
+          {
+            ...baseFilter,
+            'location.coordinates': {
+              $near: {
+                $geometry: { type: 'Point', coordinates: [params.lng!, params.lat!] },
+                $maxDistance: radiusKm * 1000,
+              },
+            },
+          },
+          projection,
+        ).limit(limit).lean();
+
+        logger.info('getNearbyHelpers: geospatial result', {
+          lat: params.lat, lng: params.lng, radiusKm, matchedCount: profiles.length,
+        });
+      } catch (geoErr: any) {
+        logger.warn('getNearbyHelpers: geospatial failed, falling back to city match', {
+          error: geoErr?.message,
+        });
+        profiles = [];
+      }
+    }
+
+    // ── Strategy 2: City-name text match (fallback) ─────────────────────────
+    if (profiles.length === 0 && customerCity) {
+      const cityRe = new RegExp(`^${escapeRegExp(customerCity)}$`, 'i');
+      const cityContainsRe = new RegExp(escapeRegExp(customerCity), 'i');
+
+      profiles = await Profile.find(
+        {
+          ...baseFilter,
+          $or: [
+            { 'location.addressDetails.city': cityRe },
+            { 'location.city': cityRe },
+            { 'location.address': cityContainsRe },
+          ],
+        },
+        projection,
+      ).limit(limit).lean();
+
+      logger.info('getNearbyHelpers: city-match result', {
+        customerCity, matchedCount: profiles.length,
+      });
+    }
+
+    logger.info('getNearbyHelpers: final result', {
+      customerCity, hasCoords, matchedCount: profiles.length,
+    });
+
+    return profiles.map((p: any) => ({
+      _id: String(p._id),
+      uid: p.uid,
+      name: p.name || 'Helper',
+      photoURL: p.photoURL || null,
+      rating: typeof p.rating === 'number' ? Math.round(p.rating * 10) / 10 : 0,
+      totalReviews: typeof p.totalReviews === 'number' ? p.totalReviews : 0,
+      skills: p.skills || null,
+      location: p.location ? {
+        city: p.location.addressDetails?.city || undefined,
+        state: p.location.addressDetails?.state || undefined,
+        area: p.location.addressDetails?.area || undefined,
+      } : null,
+      isAadhaarVerified: Boolean(p.isAadhaarVerified),
+      verificationBadge: p.verificationBadge || 'none',
+    }));
   }
 
   /**
