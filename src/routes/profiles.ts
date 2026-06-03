@@ -13,6 +13,9 @@ const router = Router();
 // GET /api/v1/profiles/search - Search profiles (requires auth)
 router.get('/search', authMiddleware, asyncHandler(ProfileController.searchProfiles));
 
+// GET /api/v1/profiles/nearby-helpers - Find helpers near user location (requires auth)
+router.get('/nearby-helpers', authMiddleware, asyncHandler(ProfileController.getNearbyHelpers));
+
 // POST /api/v1/profiles/internal/match-users - Service-to-service endpoint for matching users
 // Used by task-service to find taskers when a task is created
 router.post('/internal/match-users', serviceAuthMiddleware, asyncHandler(ProfileController.matchUsers));

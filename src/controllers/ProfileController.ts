@@ -1648,7 +1648,15 @@ export class ProfileController {
    */
   static async updateAadhaarVerification(req: Request, res: Response): Promise<void> {
     const { uid } = req.params;
-    const { isAadhaarVerified, aadhaarVerifiedAt, maskedAadhaar } = req.body;
+    const {
+      isAadhaarVerified,
+      aadhaarVerifiedAt,
+      maskedAadhaar,
+      status,
+      internalStatus,
+      visibleStatus,
+      failureReason,
+    } = req.body;
 
     logger.debug('[USER SERVICE] Received Aadhaar verification update request', {
       uid,
@@ -1708,12 +1716,31 @@ export class ProfileController {
         logger.error('Failed to update badge after Aadhaar verification', badgeError);
       }
 
-      if (isAadhaarVerified === false) {
-        MainAdminNotificationClient.send({
-          type: 'aadhaar_verification_failed',
+      const aadhaarStatusText = String(
+        visibleStatus || internalStatus || status || '',
+      ).toLowerCase();
+      const shouldNotifyFailed =
+        isAadhaarVerified === false ||
+        ['failed', 'failure', 'rejected'].some((item) =>
+          aadhaarStatusText.includes(item),
+        );
+      const shouldNotifyUnderReview =
+        !shouldNotifyFailed &&
+        ['under_review', 'under review', 'review', 'pending'].some((item) =>
+          aadhaarStatusText.includes(item),
+        );
+
+      if (shouldNotifyFailed || shouldNotifyUnderReview) {
+        await MainAdminNotificationClient.send({
+          type: shouldNotifyFailed
+            ? 'aadhaar_verification_failed'
+            : 'aadhaar_verification_under_review',
           userId: updatedProfile.uid,
           userName: updatedProfile.name || undefined,
           userEmail: updatedProfile.email || undefined,
+          userPhone: updatedProfile.phone || undefined,
+          status: shouldNotifyFailed ? 'failed' : 'under_review',
+          failureReason: failureReason || undefined,
           occurredAt: new Date().toISOString(),
         });
       }
@@ -2511,6 +2538,46 @@ export class ProfileController {
       }
       logger.error('changePhone error', { uid, error: error.message });
       res.status(500).json({ success: false, error: 'Failed to update phone number' });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/nearby-helpers
+   * Returns helpers (taskers) near the caller's location.
+   *
+   * Query params:
+   *   lat, lng      – coordinates (float)
+   *   radiusKm      – search radius in km (default 50, max 200)
+   *   city          – city name
+   *   area          – locality / area name (e.g. "Banjara Hills")
+   *   state         – state name
+   *   pinCode       – postal / pin code
+   *   fullAddress   – full geocoded address string (token source)
+   *   limit         – max results (default 20, max 50)
+   */
+  static async getNearbyHelpers(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const city = typeof req.query.city === 'string' ? req.query.city.trim() : undefined;
+      const limit = req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : 20;
+
+      const helpers = await ProfileService.getNearbyHelpers({
+        city,
+        limit,
+        excludeUid: req.user?.uid,
+      });
+
+      res.json({
+        success: true,
+        helpers,
+        count: helpers.length,
+        hasHelpers: helpers.length > 0,
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.getNearbyHelpers error', { error: error.message });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to fetch nearby helpers',
+      });
     }
   }
 }

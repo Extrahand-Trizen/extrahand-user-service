@@ -3,10 +3,16 @@ import logger from '../config/logger';
 import { validateEnv } from '../config/env';
 
 export type MainAdminNotificationEvent = {
-  type: 'aadhaar_verification_failed' | 'task_posted';
+  type:
+    | 'aadhaar_verification_failed'
+    | 'aadhaar_verification_under_review'
+    | 'task_posted';
   userId?: string;
   userName?: string;
   userEmail?: string;
+  userPhone?: string;
+  status?: string;
+  failureReason?: string;
   taskId?: string;
   taskTitle?: string;
   occurredAt?: string;
