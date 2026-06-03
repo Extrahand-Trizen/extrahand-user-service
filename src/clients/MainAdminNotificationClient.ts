@@ -13,6 +13,8 @@ export type MainAdminNotificationEvent = {
   userPhone?: string;
   status?: string;
   failureReason?: string;
+  verificationId?: string;
+  sessionId?: string;
   taskId?: string;
   taskTitle?: string;
   occurredAt?: string;

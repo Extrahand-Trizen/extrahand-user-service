@@ -20,8 +20,49 @@ function toIsoString(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function collectKycDocuments(source: unknown): Array<{ label: string; url: string }> {
+  const documents = new Map<string, { label: string; url: string }>();
+  const urlPattern = /^(https?:\/\/|data:image\/|\/uploads\/|uploads\/)/i;
+  const fieldPattern = /(aadhaar|aadhar|front|back|image|photo|document|file|url|s3|path)/i;
+
+  const visit = (value: unknown, path: string[], depth: number) => {
+    if (!value || depth > 5) return;
+
+    if (typeof value === 'string') {
+      const lastKey = path[path.length - 1] || '';
+      const pathText = path.join('.');
+      if (urlPattern.test(value) && fieldPattern.test(pathText)) {
+        documents.set(value, {
+          label: lastKey
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/[_-]+/g, ' ')
+            .replace(/\b\w/g, (char) => char.toUpperCase()) || 'Aadhaar image',
+          url: value,
+        });
+      }
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, [...path, String(index + 1)], depth + 1));
+      return;
+    }
+
+    if (typeof value === 'object') {
+      for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        if (key.startsWith('$')) continue;
+        visit(nestedValue, [...path, key], depth + 1);
+      }
+    }
+  };
+
+  visit(source, [], 0);
+  return Array.from(documents.values());
+}
+
 function serializeKycSession(session: IKycSession | null): Record<string, unknown> | null {
   if (!session) return null;
+  const documents = collectKycDocuments(session);
 
   return {
     id: session._id?.toString(),
@@ -34,6 +75,8 @@ function serializeKycSession(session: IKycSession | null): Record<string, unknow
     visibleFailureAt: toIsoString(session.visibleFailureAt),
     createdAt: toIsoString(session.createdAt),
     updatedAt: toIsoString(session.updatedAt),
+    documents,
+    imageUrls: documents.map((document) => document.url),
   };
 }
 
@@ -78,6 +121,10 @@ async function notifyOpsForAadhaarKycState(
         typeof session?.failureReason === 'string'
           ? session.failureReason
           : undefined,
+      verificationId:
+        typeof session?.verificationId === 'string' ? session.verificationId : undefined,
+      sessionId:
+        typeof session?.verificationId === 'string' ? session.verificationId : undefined,
       occurredAt: new Date().toISOString(),
     });
     logger.info('Sent Aadhaar KYC operations notification', {
@@ -2611,9 +2658,6 @@ export class ProfileService {
         userId: profile.uid,
         sessionType: { $regex: '^aadhaar', $options: 'i' },
       })
-        .select(
-          '_id verification_id sessionType status internalStatus visibleStatus failureReason visibleFailureAt createdAt updatedAt'
-        )
         .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
         .lean<IKycSession | null>();
 
