@@ -16,6 +16,29 @@ router.get('/search', authMiddleware, asyncHandler(ProfileController.searchProfi
 // GET /api/v1/profiles/nearby-helpers - Find helpers near user location (requires auth)
 router.get('/nearby-helpers', authMiddleware, asyncHandler(ProfileController.getNearbyHelpers));
 
+// Location notify-me requests (no helpers in area)
+router.post(
+  '/location-notify',
+  authMiddleware,
+  asyncHandler(ProfileController.createLocationNotifyRequest),
+);
+router.get(
+  '/location-notify/me',
+  authMiddleware,
+  asyncHandler(ProfileController.getLocationNotifyRequestStatus),
+);
+
+router.post(
+  '/instant-services-notify',
+  authMiddleware,
+  asyncHandler(ProfileController.createInstantServicesNotifyRequest),
+);
+router.get(
+  '/instant-services-notify/me',
+  authMiddleware,
+  asyncHandler(ProfileController.getInstantServicesNotifyRequestStatus),
+);
+
 // POST /api/v1/profiles/internal/match-users - Service-to-service endpoint for matching users
 // Used by task-service to find taskers when a task is created
 router.post('/internal/match-users', serviceAuthMiddleware, asyncHandler(ProfileController.matchUsers));
@@ -38,6 +61,11 @@ router.get(
   '/internal/stats/taskers/category-counts',
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalTaskerCategoryCounts)
+);
+router.delete(
+  '/internal/:uid/aadhaar-verification',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.resetAadhaarVerificationInternal)
 );
 router.get(
   '/internal/:uid',
@@ -158,6 +186,12 @@ router.post('/check-phone', authMiddleware, asyncHandler(ProfileController.check
 
 // PUT /api/v1/profiles/change-phone - Change phone number after OTP verification (requires auth)
 router.put('/change-phone', authMiddleware, asyncHandler(ProfileController.changePhone));
+
+// Alternate mobile number (optional, OTP-verified)
+router.post('/alternate-phone/send-otp', authMiddleware, asyncHandler(ProfileController.sendAlternatePhoneOtp));
+router.post('/alternate-phone/verify', authMiddleware, asyncHandler(ProfileController.verifyAlternatePhoneOtp));
+router.post('/alternate-phone/verify-firebase', asyncHandler(ProfileController.verifyAlternatePhoneFirebase));
+router.delete('/alternate-phone', authMiddleware, asyncHandler(ProfileController.removeAlternatePhone));
 
 // PUT /api/v1/profiles/me - Update profile (requires auth)
 router.put('/me', authMiddleware, asyncHandler(ProfileController.updateProfile));

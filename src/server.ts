@@ -5,6 +5,7 @@ import logger from './config/logger';
 import { scheduleExpiredReferralCheck } from './jobs/checkExpiredReferrals';
 import { scheduleDailyBadgeCheck } from './jobs/dailyBadgeCheck';
 import { scheduleDeletionExecutorJob } from './jobs/scheduledDeletionJob';
+import { scheduleLocationNotifyJob } from './jobs/locationNotifyJob';
 import { seedRewardProgramIfNeeded } from './rewards/seed/seedRewardProgram';
 import { registerRewardEventHandlers } from './rewards/events/registerRewardHandlers';
 import { validateRewardsConfiguration } from './rewards/config/rewardsFlags';
@@ -31,6 +32,7 @@ async function startServer() {
     scheduleExpiredReferralCheck();
     scheduleDailyBadgeCheck();
     scheduleDeletionExecutorJob();
+    scheduleLocationNotifyJob();
 
     // Start server
     const port = env.PORT;
@@ -41,7 +43,7 @@ async function startServer() {
       );
       logger.info(`📝 Environment: ${env.NODE_ENV}`);
       logger.info(`🔗 Health check: http://localhost:${port}/api/v1/health`);
-      logger.info(`⏰ Scheduled jobs: Badge checks, referral expiration checks, and deletion executor enabled`);
+      logger.info(`⏰ Scheduled jobs: Badge checks, referral expiration checks, deletion executor, and location notify enabled`);
     });
 
     // Graceful shutdown

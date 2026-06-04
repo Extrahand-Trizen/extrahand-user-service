@@ -1,6 +1,7 @@
 import { Response, Request } from "express";
 import { AuthenticatedRequest } from "../types";
 import { AuthService } from "../services/AuthService";
+import { AlternatePhoneService } from "../services/AlternatePhoneService";
 import { SessionService } from "../services/SessionService";
 import {
    setRefreshTokenCookie,
@@ -22,7 +23,61 @@ export class AuthController {
          success: true,
          exists: result.exists,
          phone: result.phone,
+         matchType: result.matchType,
       });
+   }
+
+   static async sendAlternateLoginOtp(req: Request, res: Response): Promise<void> {
+      const { phone } = req.body;
+      if (!phone || typeof phone !== "string") {
+         res.status(400).json({ success: false, error: "Phone number is required" });
+         return;
+      }
+
+      const result = await AlternatePhoneService.sendAlternateLoginOtp(phone);
+      res.json(result);
+   }
+
+   static async verifyAlternateLoginOtp(req: Request, res: Response): Promise<void> {
+      const { phone, otp } = req.body;
+      if (!phone || typeof phone !== "string" || !otp) {
+         res.status(400).json({
+            success: false,
+            error: "Phone number and OTP are required",
+         });
+         return;
+      }
+
+      const result = await AlternatePhoneService.verifyAlternateLoginOtp(phone, otp);
+      res.json(result);
+   }
+
+   static async completeAlternateLoginFirebase(req: Request, res: Response): Promise<void> {
+      const { phone, alternateIdToken } = req.body;
+      if (!phone || typeof phone !== "string" || !alternateIdToken) {
+         res.status(400).json({
+            success: false,
+            error: "Phone number and verification token are required",
+         });
+         return;
+      }
+
+      const result = await AlternatePhoneService.completeAlternateLoginFirebase(
+         phone,
+         alternateIdToken
+      );
+      res.json(result);
+   }
+
+   static async restoreFirebaseSession(req: Request, res: Response): Promise<void> {
+      const { idToken } = req.body;
+      if (!idToken || typeof idToken !== "string") {
+         res.status(400).json({ success: false, error: "Session token is required" });
+         return;
+      }
+
+      const result = await AlternatePhoneService.restoreFirebaseSession(idToken);
+      res.json(result);
    }
 
    /**

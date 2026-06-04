@@ -92,3 +92,13 @@ export function resolveProfileCityForMatching(location?: ProfileLocationLike): s
   const { city } = normalizeProfileLocationParts(location);
   return city || null;
 }
+
+/** Selected/detected location wins over saved profile (poster helper availability). */
+export function resolvePosterCityForHelperCheck(params: {
+  effective?: ProfileLocationLike;
+  profile?: ProfileLocationLike;
+}): string | null {
+  const fromEffective = normalizeProfileLocationParts(params.effective).city;
+  if (fromEffective) return fromEffective;
+  return resolveProfileCityForMatching(params.profile);
+}

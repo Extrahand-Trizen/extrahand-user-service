@@ -944,7 +944,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses dataPrivacy createdAt updatedAt')
+      .select('uid name profession email phone alternatePhone alternatePhoneVerified alternatePhoneVerifiedAt roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses dataPrivacy createdAt updatedAt')
       .lean();
 
     if (!profile) {
@@ -2984,6 +2984,75 @@ export class ProfileService {
   }
 
   /**
+   * Poster helper availability — same steps as check-taskers-from-my-profile.js:
+   * Profile.findOne({ uid: firebaseUid }) → normalize city → count taskers in city.
+   */
+  static async getTaskerAvailabilityForFirebaseUid(
+    firebaseUid: string,
+    limit = 1,
+  ): Promise<{
+    checkPerformed: boolean;
+    resolvedCity: string | null;
+    count: number;
+    hasHelpers: boolean;
+    helpers: Awaited<ReturnType<typeof ProfileService.getNearbyHelpers>>;
+  }> {
+    this.checkConnection();
+
+    const uid = String(firebaseUid || '').trim();
+    if (!uid) {
+      return {
+        checkPerformed: false,
+        resolvedCity: null,
+        count: 0,
+        hasHelpers: false,
+        helpers: [],
+      };
+    }
+
+    const profile = await Profile.findOne({ uid }).select('location').lean();
+    if (!profile) {
+      logger.warn('getTaskerAvailabilityForFirebaseUid: no profile for uid', { uid });
+      return {
+        checkPerformed: false,
+        resolvedCity: null,
+        count: 0,
+        hasHelpers: false,
+        helpers: [],
+      };
+    }
+
+    const { city } = normalizeProfileLocationParts(
+      profile.location as Parameters<typeof normalizeProfileLocationParts>[0],
+    );
+
+    if (!city) {
+      logger.info('getTaskerAvailabilityForFirebaseUid: could not resolve city', { uid });
+      return {
+        checkPerformed: false,
+        resolvedCity: null,
+        count: 0,
+        hasHelpers: false,
+        helpers: [],
+      };
+    }
+
+    const helpers = await this.getNearbyHelpers({
+      city,
+      limit,
+      excludeUid: uid,
+    });
+
+    return {
+      checkPerformed: true,
+      resolvedCity: city,
+      count: helpers.length,
+      hasHelpers: helpers.length > 0,
+      helpers,
+    };
+  }
+
+  /**
    * Check if any helpers (taskers) exist near the given location.
    *
    * Strategy (in order):
@@ -3047,8 +3116,8 @@ export class ProfileService {
       typeof params.lat === 'number' && Number.isFinite(params.lat) &&
       typeof params.lng === 'number' && Number.isFinite(params.lng);
 
-    // ── Strategy 1: Geospatial (primary — works even when city field is empty) ──
-    if (hasCoords) {
+    // ── Strategy 1: Geospatial — only when no city (poster availability uses city-only) ──
+    if (hasCoords && !customerCity) {
       try {
         profiles = await Profile.find(
           {
