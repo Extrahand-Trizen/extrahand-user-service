@@ -83,6 +83,7 @@ export class UserController {
         createdTo,
         sortBy = 'createdAt',
         sortOrder = 'desc',
+        area,
       } = req.query;
 
       const parsedAadhaarVerified =
@@ -110,6 +111,7 @@ export class UserController {
         status: status as string,
         role: role as string,
         category: category as string,
+        area: area as string,
         isAadhaarVerified: parsedAadhaarVerified,
         isCertified: parsedCertified,
         createdFrom: createdFrom as string,
@@ -133,6 +135,23 @@ export class UserController {
         success: false,
         error: error.message || 'Failed to list users',
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/users/areas/hyderabad
+   * List distinct Hyderabad sub-areas for admin filters.
+   */
+  static async getHyderabadSubAreasForAdmin(_req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const areas = await ProfileService.getHyderabadSubAreas();
+      res.json({ success: true, data: areas });
+    } catch (error: any) {
+      logger.error('Error in getHyderabadSubAreasForAdmin:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to list Hyderabad sub-areas',
       });
     }
   }

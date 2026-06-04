@@ -2260,6 +2260,7 @@ export class ProfileService {
     status?: string;
     role?: string;
     category?: string;
+    area?: string;
     isAadhaarVerified?: boolean;
     isCertified?: boolean;
     createdFrom?: string;
@@ -2286,6 +2287,7 @@ export class ProfileService {
       status,
       role,
       category,
+      area,
       isAadhaarVerified,
       isCertified,
       createdFrom,
@@ -2361,6 +2363,35 @@ export class ProfileService {
               { 'skills.list.category': categoryRegex },
               { 'skills.list.name': categoryNameRegex },
             ],
+          },
+        ],
+      });
+    }
+
+    if (area && area.trim() && area !== 'all') {
+      const areaRegex = buildFlexibleTextRegex(area.trim());
+      const hyderabadCityRegex = /^hyderabad$/i;
+      andConditions.push({
+        $or: [
+          {
+            'location.addressDetails.area': areaRegex,
+            'location.addressDetails.city': hyderabadCityRegex,
+          },
+          {
+            'homeLocation.addressDetails.area': areaRegex,
+            'homeLocation.addressDetails.city': hyderabadCityRegex,
+          },
+          {
+            savedAddresses: {
+              $elemMatch: {
+                'addressDetails.area': areaRegex,
+                'addressDetails.city': hyderabadCityRegex,
+              },
+            },
+          },
+          {
+            'location.addressDetails.area': areaRegex,
+            city: hyderabadCityRegex,
           },
         ],
       });
@@ -2504,6 +2535,40 @@ export class ProfileService {
         pages: Math.ceil(total / effectiveLimit),
       },
     };
+  }
+
+  /**
+   * Distinct Hyderabad sub-areas/localities from user profile locations.
+   */
+  static async getHyderabadSubAreas(): Promise<string[]> {
+    this.checkConnection();
+
+    const hyderabadCityMatch = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      $or: [
+        { 'location.addressDetails.city': /^hyderabad$/i },
+        { 'homeLocation.addressDetails.city': /^hyderabad$/i },
+        { city: /^hyderabad$/i },
+      ],
+    };
+
+    const profiles = await Profile.find(hyderabadCityMatch)
+      .select('location.addressDetails.area homeLocation.addressDetails.area savedAddresses.addressDetails.area')
+      .lean();
+
+    const areas = new Set<string>();
+    for (const profile of profiles) {
+      const locationArea = (profile as any)?.location?.addressDetails?.area;
+      const homeArea = (profile as any)?.homeLocation?.addressDetails?.area;
+      if (locationArea) areas.add(String(locationArea).trim());
+      if (homeArea) areas.add(String(homeArea).trim());
+      for (const saved of (profile as any)?.savedAddresses || []) {
+        const savedArea = saved?.addressDetails?.area;
+        if (savedArea) areas.add(String(savedArea).trim());
+      }
+    }
+
+    return Array.from(areas).filter(Boolean).sort((a, b) => a.localeCompare(b));
   }
 
   /**
