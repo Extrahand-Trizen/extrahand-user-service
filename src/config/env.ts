@@ -75,6 +75,9 @@ const envSchema = z.object({
   /** Comma-separated phones (+91… or 10 digits); same effect as UIDs when profile.phone matches. */
   PLAY_REVIEW_BYPASS_PHONES: z.string().optional(),
 
+  // SMS (alternate phone OTP)
+  FAST2SMS_API_KEY: z.string().optional(),
+
   // MinIO Configuration
   MINIO_ENDPOINT: z.string().optional(),
   MINIO_PORT: z.string().optional(),

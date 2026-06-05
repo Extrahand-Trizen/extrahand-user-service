@@ -1,6 +1,8 @@
 import { Response, Request } from 'express';
+import mongoose from 'mongoose';
 import { ProfileService } from '../services/ProfileService';
 import Profile, { IProfile } from '../models/Profile';
+import { getKycSessionModel } from '../models/KycSession';
 import { AuthenticatedRequest } from '../types';
 import logger from '../config/logger';
 import { validateEnv } from '../config/env';
@@ -1534,6 +1536,60 @@ export class ProfileController {
   }
 
   /**
+   * DELETE /api/v1/profiles/internal/:uid/aadhaar-verification
+   * Dev/support: remove Aadhaar KYC records and reset profile flags.
+   */
+  static async resetAadhaarVerificationInternal(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uid } = req.params;
+      if (!uid) {
+        res.status(400).json({ success: false, error: 'uid is required' });
+        return;
+      }
+
+      const db = mongoose.connection.db;
+      if (!db) {
+        res.status(503).json({ success: false, error: 'Database not connected' });
+        return;
+      }
+
+      const KycSession = getKycSessionModel();
+      const [verDel, kycDel] = await Promise.all([
+        db.collection('verifications').deleteMany({ userId: uid, type: 'aadhaar' }),
+        KycSession.deleteMany({ userId: uid, sessionType: 'aadhaar_ocr' }),
+      ]);
+
+      const updatedProfile = await ProfileService.updateProfile(uid, {
+        isAadhaarVerified: false,
+        maskedAadhaar: null,
+        aadhaarVerifiedAt: null,
+      });
+
+      res.json({
+        success: true,
+        message: 'Aadhaar verification records removed',
+        deletedVerifications: verDel.deletedCount,
+        deletedKycSessions: kycDel.deletedCount,
+        profile: {
+          uid: updatedProfile.uid,
+          isAadhaarVerified: updatedProfile.isAadhaarVerified,
+          maskedAadhaar: updatedProfile.maskedAadhaar,
+          aadhaarVerifiedAt: updatedProfile.aadhaarVerifiedAt,
+        },
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.resetAadhaarVerificationInternal failed', {
+        uid: req.params?.uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to remove Aadhaar verification records',
+      });
+    }
+  }
+
+  /**
    * DELETE /api/v1/profiles/me
    */
   static async deleteProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -2476,17 +2532,22 @@ export class ProfileController {
       return;
     }
 
-    const normalised = phone.trim();
+    const { normalizePhoneToE164, isPhoneUsedGlobally } = await import('../utils/phoneUtils');
+    const normalised = normalizePhoneToE164(phone.trim());
 
     try {
-      const existing = await Profile.findOne({ phone: normalised }).lean();
+      const usage = await isPhoneUsedGlobally(normalised, currentUid);
 
-      // Available if no profile owns it, or the only owner is the current user
-      if (!existing || existing.uid === currentUid) {
+      if (!usage.used) {
         res.json({ success: true, available: true });
-      } else {
-        res.json({ success: true, available: false, message: 'Phone number already registered' });
+        return;
       }
+
+      res.json({
+        success: true,
+        available: false,
+        message: 'This mobile number is already linked to another account. Please use a different number.',
+      });
     } catch (error: any) {
       logger.error('checkPhoneAvailability error', { error: error.message });
       res.status(500).json({ success: false, error: 'Failed to check phone availability' });
@@ -2507,13 +2568,16 @@ export class ProfileController {
       return;
     }
 
-    const normalised = phone.trim();
+    const { normalizePhoneToE164, isPhoneUsedGlobally } = await import('../utils/phoneUtils');
+    const normalised = normalizePhoneToE164(phone.trim());
 
     try {
-      // Double-check uniqueness before writing
-      const conflict = await Profile.findOne({ phone: normalised, uid: { $ne: uid } }).lean();
-      if (conflict) {
-        res.status(409).json({ success: false, error: 'Phone number already registered to another account' });
+      const usage = await isPhoneUsedGlobally(normalised, uid);
+      if (usage.used) {
+        res.status(409).json({
+          success: false,
+          error: 'This mobile number is already linked to another account. Please use a different number.',
+        });
         return;
       }
 
@@ -2533,11 +2597,123 @@ export class ProfileController {
     } catch (error: any) {
       // Handle MongoDB duplicate key error (race condition)
       if (error.code === 11000) {
-        res.status(409).json({ success: false, error: 'Phone number already registered to another account' });
+        res.status(409).json({
+          success: false,
+          error: 'This mobile number is already linked to another account. Please use a different number.',
+        });
         return;
       }
       logger.error('changePhone error', { uid, error: error.message });
       res.status(500).json({ success: false, error: 'Failed to update phone number' });
+    }
+  }
+
+  static async sendAlternatePhoneOtp(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const uid = req.user!.uid;
+    const { phone } = req.body;
+
+    if (!phone || typeof phone !== 'string') {
+      res.status(400).json({ success: false, error: 'Phone number is required' });
+      return;
+    }
+
+    try {
+      const { AlternatePhoneService } = await import('../services/AlternatePhoneService');
+      const result = await AlternatePhoneService.sendAlternateAddOtp(uid, phone);
+      if (!result.success) {
+        res.status(409).json(result);
+        return;
+      }
+      res.json(result);
+    } catch (error: any) {
+      const isCooldown = /please wait/i.test(String(error.message || ''));
+      if (isCooldown) {
+        logger.warn('sendAlternatePhoneOtp cooldown', { uid, error: error.message });
+      } else {
+        logger.error('sendAlternatePhoneOtp error', { uid, error: error.message });
+      }
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to send verification code',
+      });
+    }
+  }
+
+  static async verifyAlternatePhoneOtp(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const uid = req.user!.uid;
+    const { phone, otp } = req.body;
+
+    if (!phone || typeof phone !== 'string' || !otp) {
+      res.status(400).json({ success: false, error: 'Phone number and OTP are required' });
+      return;
+    }
+
+    try {
+      const { AlternatePhoneService } = await import('../services/AlternatePhoneService');
+      const result = await AlternatePhoneService.verifyAndSaveAlternate(uid, phone, otp);
+      if (!result.success) {
+        res.status(409).json(result);
+        return;
+      }
+      res.json(result);
+    } catch (error: any) {
+      logger.error('verifyAlternatePhoneOtp error', { uid, error: error.message });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to verify alternate phone number',
+      });
+    }
+  }
+
+  static async removeAlternatePhone(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const uid = req.user!.uid;
+
+    try {
+      const { AlternatePhoneService } = await import('../services/AlternatePhoneService');
+      const result = await AlternatePhoneService.removeAlternate(uid);
+      res.json(result);
+    } catch (error: any) {
+      logger.error('removeAlternatePhone error', { uid, error: error.message });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to remove alternate phone number',
+      });
+    }
+  }
+
+  static async verifyAlternatePhoneFirebase(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const authHeader = req.headers.authorization || '';
+    const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    const { phone, alternateIdToken, originalIdToken: bodyOriginalToken } = req.body || {};
+    const originalIdToken =
+      (typeof bodyOriginalToken === 'string' && bodyOriginalToken.trim()) || headerToken;
+
+    if (!phone || typeof phone !== 'string' || !alternateIdToken || !originalIdToken) {
+      res.status(400).json({
+        success: false,
+        error: 'Phone number and verification tokens are required',
+      });
+      return;
+    }
+
+    try {
+      const { AlternatePhoneService } = await import('../services/AlternatePhoneService');
+      const result = await AlternatePhoneService.verifyAndSaveAlternateFirebase(
+        originalIdToken,
+        phone,
+        alternateIdToken
+      );
+      if (!result.success) {
+        res.status(409).json(result);
+        return;
+      }
+      res.json(result);
+    } catch (error: any) {
+      logger.error('verifyAlternatePhoneFirebase error', { error: error.message });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to verify alternate phone number',
+      });
     }
   }
 
@@ -2557,26 +2733,199 @@ export class ProfileController {
    */
   static async getNearbyHelpers(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const city = typeof req.query.city === 'string' ? req.query.city.trim() : undefined;
       const limit = req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : 20;
+      const callerUid = req.user?.uid?.trim();
 
-      const helpers = await ProfileService.getNearbyHelpers({
-        city,
-        limit,
-        excludeUid: req.user?.uid,
-      });
+      if (!callerUid) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required',
+        });
+        return;
+      }
+
+      // Same as check-taskers-from-my-profile.js — city from Mongo profile by Firebase uid.
+      // Optional ?city= only when profile has no resolvable city (mobile cache fallback).
+      const queryCity =
+        typeof req.query.city === 'string' ? req.query.city.trim() : '';
+      let result = await ProfileService.getTaskerAvailabilityForFirebaseUid(callerUid, limit);
+
+      if (!result.checkPerformed && queryCity) {
+        const helpers = await ProfileService.getNearbyHelpers({
+          city: queryCity,
+          limit,
+          excludeUid: callerUid,
+        });
+        result = {
+          checkPerformed: true,
+          resolvedCity: queryCity,
+          count: helpers.length,
+          hasHelpers: helpers.length > 0,
+          helpers,
+        };
+      }
 
       res.json({
         success: true,
-        helpers,
-        count: helpers.length,
-        hasHelpers: helpers.length > 0,
+        helpers: result.helpers,
+        count: result.count,
+        hasHelpers: result.hasHelpers,
+        checkPerformed: result.checkPerformed,
+        resolvedCity: result.resolvedCity,
+        callerUid,
       });
     } catch (error: any) {
       logger.error('ProfileController.getNearbyHelpers error', { error: error.message });
       res.status(error.statusCode || 500).json({
         success: false,
         error: error.message || 'Failed to fetch nearby helpers',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/profiles/location-notify
+   * Save an active notify-me request for the caller's profile location.
+   */
+  static async createLocationNotifyRequest(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    const uid = req.user?.uid?.trim();
+    if (!uid) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    try {
+      const { LocationNotifyService } = await import('../services/LocationNotifyService');
+      const result = await LocationNotifyService.createNotifyRequest(uid);
+      res.status(result.created ? 201 : 200).json({
+        success: true,
+        created: result.created,
+        data: {
+          userId: result.request.userId,
+          city: result.request.city,
+          locality: result.request.locality,
+          coordinates: result.request.coordinates,
+          status: result.request.status,
+          createdAt: result.request.createdAt,
+          notifiedAt: result.request.notifiedAt,
+        },
+        message: result.created
+          ? 'We will notify you when helpers become available in your area.'
+          : 'You are already on the notify list for this location.',
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.createLocationNotifyRequest error', {
+        uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to save notify request',
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/location-notify/me
+   * Check whether the caller already has an active notify request for their location.
+   */
+  static async getLocationNotifyRequestStatus(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    const uid = req.user?.uid?.trim();
+    if (!uid) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    try {
+      const { LocationNotifyService } = await import('../services/LocationNotifyService');
+      const status = await LocationNotifyService.getNotifyRequestStatus(uid);
+      res.json({ success: true, data: status });
+    } catch (error: any) {
+      logger.error('ProfileController.getLocationNotifyRequestStatus error', {
+        uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to fetch notify request status',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/profiles/instant-services-notify
+   * Save a notify-me request for instant services launch.
+   */
+  static async createInstantServicesNotifyRequest(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    const uid = req.user?.uid?.trim();
+    if (!uid) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    try {
+      const { InstantServicesNotifyService } = await import('../services/InstantServicesNotifyService');
+      const result = await InstantServicesNotifyService.createNotifyRequest(uid);
+      res.status(result.created ? 201 : 200).json({
+        success: true,
+        created: result.created,
+        data: {
+          userId: result.request.userId,
+          status: result.request.status,
+          createdAt: result.request.createdAt,
+          notifiedAt: result.request.notifiedAt,
+        },
+        message: result.created
+          ? 'We will notify you when instant services launch.'
+          : 'You are already on the instant services notify list.',
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.createInstantServicesNotifyRequest error', {
+        uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to save instant services notify request',
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/instant-services-notify/me
+   * Check whether the caller already has an active instant services notify request.
+   */
+  static async getInstantServicesNotifyRequestStatus(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    const uid = req.user?.uid?.trim();
+    if (!uid) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    try {
+      const { InstantServicesNotifyService } = await import('../services/InstantServicesNotifyService');
+      const status = await InstantServicesNotifyService.getNotifyRequestStatus(uid);
+      res.json({ success: true, data: status });
+    } catch (error: any) {
+      logger.error('ProfileController.getInstantServicesNotifyRequestStatus error', {
+        uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to fetch instant services notify request status',
       });
     }
   }

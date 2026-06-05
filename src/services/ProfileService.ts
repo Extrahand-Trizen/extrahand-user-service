@@ -20,8 +20,49 @@ function toIsoString(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function collectKycDocuments(source: unknown): Array<{ label: string; url: string }> {
+  const documents = new Map<string, { label: string; url: string }>();
+  const urlPattern = /^(https?:\/\/|data:image\/|\/uploads\/|uploads\/)/i;
+  const fieldPattern = /(aadhaar|aadhar|front|back|image|photo|document|file|url|s3|path)/i;
+
+  const visit = (value: unknown, path: string[], depth: number) => {
+    if (!value || depth > 5) return;
+
+    if (typeof value === 'string') {
+      const lastKey = path[path.length - 1] || '';
+      const pathText = path.join('.');
+      if (urlPattern.test(value) && fieldPattern.test(pathText)) {
+        documents.set(value, {
+          label: lastKey
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/[_-]+/g, ' ')
+            .replace(/\b\w/g, (char) => char.toUpperCase()) || 'Aadhaar image',
+          url: value,
+        });
+      }
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, [...path, String(index + 1)], depth + 1));
+      return;
+    }
+
+    if (typeof value === 'object') {
+      for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        if (key.startsWith('$')) continue;
+        visit(nestedValue, [...path, key], depth + 1);
+      }
+    }
+  };
+
+  visit(source, [], 0);
+  return Array.from(documents.values());
+}
+
 function serializeKycSession(session: IKycSession | null): Record<string, unknown> | null {
   if (!session) return null;
+  const documents = collectKycDocuments(session);
 
   return {
     id: session._id?.toString(),
@@ -34,6 +75,8 @@ function serializeKycSession(session: IKycSession | null): Record<string, unknow
     visibleFailureAt: toIsoString(session.visibleFailureAt),
     createdAt: toIsoString(session.createdAt),
     updatedAt: toIsoString(session.updatedAt),
+    documents,
+    imageUrls: documents.map((document) => document.url),
   };
 }
 
@@ -78,6 +121,10 @@ async function notifyOpsForAadhaarKycState(
         typeof session?.failureReason === 'string'
           ? session.failureReason
           : undefined,
+      verificationId:
+        typeof session?.verificationId === 'string' ? session.verificationId : undefined,
+      sessionId:
+        typeof session?.verificationId === 'string' ? session.verificationId : undefined,
       occurredAt: new Date().toISOString(),
     });
     logger.info('Sent Aadhaar KYC operations notification', {
@@ -897,7 +944,7 @@ export class ProfileService {
     this.checkConnection();
     
     const profile = await Profile.findOne({ uid })
-      .select('uid name profession email phone roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses dataPrivacy createdAt updatedAt')
+      .select('uid name profession email phone alternatePhone alternatePhoneVerified alternatePhoneVerifiedAt roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses dataPrivacy createdAt updatedAt')
       .lean();
 
     if (!profile) {
@@ -2213,6 +2260,7 @@ export class ProfileService {
     status?: string;
     role?: string;
     category?: string;
+    area?: string;
     isAadhaarVerified?: boolean;
     isCertified?: boolean;
     createdFrom?: string;
@@ -2239,6 +2287,7 @@ export class ProfileService {
       status,
       role,
       category,
+      area,
       isAadhaarVerified,
       isCertified,
       createdFrom,
@@ -2314,6 +2363,35 @@ export class ProfileService {
               { 'skills.list.category': categoryRegex },
               { 'skills.list.name': categoryNameRegex },
             ],
+          },
+        ],
+      });
+    }
+
+    if (area && area.trim() && area !== 'all') {
+      const areaRegex = buildFlexibleTextRegex(area.trim());
+      const hyderabadCityRegex = /^hyderabad$/i;
+      andConditions.push({
+        $or: [
+          {
+            'location.addressDetails.area': areaRegex,
+            'location.addressDetails.city': hyderabadCityRegex,
+          },
+          {
+            'homeLocation.addressDetails.area': areaRegex,
+            'homeLocation.addressDetails.city': hyderabadCityRegex,
+          },
+          {
+            savedAddresses: {
+              $elemMatch: {
+                'addressDetails.area': areaRegex,
+                'addressDetails.city': hyderabadCityRegex,
+              },
+            },
+          },
+          {
+            'location.addressDetails.area': areaRegex,
+            city: hyderabadCityRegex,
           },
         ],
       });
@@ -2457,6 +2535,40 @@ export class ProfileService {
         pages: Math.ceil(total / effectiveLimit),
       },
     };
+  }
+
+  /**
+   * Distinct Hyderabad sub-areas/localities from user profile locations.
+   */
+  static async getHyderabadSubAreas(): Promise<string[]> {
+    this.checkConnection();
+
+    const hyderabadCityMatch = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      $or: [
+        { 'location.addressDetails.city': /^hyderabad$/i },
+        { 'homeLocation.addressDetails.city': /^hyderabad$/i },
+        { city: /^hyderabad$/i },
+      ],
+    };
+
+    const profiles = await Profile.find(hyderabadCityMatch)
+      .select('location.addressDetails.area homeLocation.addressDetails.area savedAddresses.addressDetails.area')
+      .lean();
+
+    const areas = new Set<string>();
+    for (const profile of profiles) {
+      const locationArea = (profile as any)?.location?.addressDetails?.area;
+      const homeArea = (profile as any)?.homeLocation?.addressDetails?.area;
+      if (locationArea) areas.add(String(locationArea).trim());
+      if (homeArea) areas.add(String(homeArea).trim());
+      for (const saved of (profile as any)?.savedAddresses || []) {
+        const savedArea = saved?.addressDetails?.area;
+        if (savedArea) areas.add(String(savedArea).trim());
+      }
+    }
+
+    return Array.from(areas).filter(Boolean).sort((a, b) => a.localeCompare(b));
   }
 
   /**
@@ -2638,9 +2750,6 @@ export class ProfileService {
         userId: profile.uid,
         sessionType: { $regex: '^aadhaar', $options: 'i' },
       })
-        .select(
-          '_id verification_id sessionType status internalStatus visibleStatus failureReason visibleFailureAt createdAt updatedAt'
-        )
         .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
         .lean<IKycSession | null>();
 
@@ -2875,6 +2984,75 @@ export class ProfileService {
   }
 
   /**
+   * Poster helper availability — same steps as check-taskers-from-my-profile.js:
+   * Profile.findOne({ uid: firebaseUid }) → normalize city → count taskers in city.
+   */
+  static async getTaskerAvailabilityForFirebaseUid(
+    firebaseUid: string,
+    limit = 1,
+  ): Promise<{
+    checkPerformed: boolean;
+    resolvedCity: string | null;
+    count: number;
+    hasHelpers: boolean;
+    helpers: Awaited<ReturnType<typeof ProfileService.getNearbyHelpers>>;
+  }> {
+    this.checkConnection();
+
+    const uid = String(firebaseUid || '').trim();
+    if (!uid) {
+      return {
+        checkPerformed: false,
+        resolvedCity: null,
+        count: 0,
+        hasHelpers: false,
+        helpers: [],
+      };
+    }
+
+    const profile = await Profile.findOne({ uid }).select('location').lean();
+    if (!profile) {
+      logger.warn('getTaskerAvailabilityForFirebaseUid: no profile for uid', { uid });
+      return {
+        checkPerformed: false,
+        resolvedCity: null,
+        count: 0,
+        hasHelpers: false,
+        helpers: [],
+      };
+    }
+
+    const { city } = normalizeProfileLocationParts(
+      profile.location as Parameters<typeof normalizeProfileLocationParts>[0],
+    );
+
+    if (!city) {
+      logger.info('getTaskerAvailabilityForFirebaseUid: could not resolve city', { uid });
+      return {
+        checkPerformed: false,
+        resolvedCity: null,
+        count: 0,
+        hasHelpers: false,
+        helpers: [],
+      };
+    }
+
+    const helpers = await this.getNearbyHelpers({
+      city,
+      limit,
+      excludeUid: uid,
+    });
+
+    return {
+      checkPerformed: true,
+      resolvedCity: city,
+      count: helpers.length,
+      hasHelpers: helpers.length > 0,
+      helpers,
+    };
+  }
+
+  /**
    * Check if any helpers (taskers) exist near the given location.
    *
    * Strategy (in order):
@@ -2938,8 +3116,8 @@ export class ProfileService {
       typeof params.lat === 'number' && Number.isFinite(params.lat) &&
       typeof params.lng === 'number' && Number.isFinite(params.lng);
 
-    // ── Strategy 1: Geospatial (primary — works even when city field is empty) ──
-    if (hasCoords) {
+    // ── Strategy 1: Geospatial — only when no city (poster availability uses city-only) ──
+    if (hasCoords && !customerCity) {
       try {
         profiles = await Profile.find(
           {

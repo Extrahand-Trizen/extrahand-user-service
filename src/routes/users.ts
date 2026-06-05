@@ -14,6 +14,9 @@ router.get('/', serviceAuthMiddleware, asyncHandler(UserController.listUsersForA
 // GET /api/v1/users/stats/roles - Role counts from profiles.roles (admin)
 router.get('/stats/roles', serviceAuthMiddleware, asyncHandler(UserController.getRoleCountsForAdmin));
 
+// GET /api/v1/users/areas/hyderabad - Hyderabad sub-areas for admin filters
+router.get('/areas/hyderabad', serviceAuthMiddleware, asyncHandler(UserController.getHyderabadSubAreasForAdmin));
+
 // GET /api/v1/users/cleanup/no-role - Preview users with no role (dry run)
 router.get('/cleanup/no-role', serviceAuthMiddleware, asyncHandler(UserController.cleanupUsersWithoutRoles));
 

@@ -30,5 +30,11 @@ router.post('/otp/complete', asyncHandler(AuthController.completeOTP));
 // POST /api/v1/auth/otp/complete-dev (DEV only - fixed test phone + OTP, no Firebase)
 router.post('/otp/complete-dev', asyncHandler(AuthController.completeOTPDev));
 
+// Alternate phone login (backend OTP + Firebase custom token)
+router.post('/alternate-login/send-otp', asyncHandler(AuthController.sendAlternateLoginOtp));
+router.post('/alternate-login/verify', asyncHandler(AuthController.verifyAlternateLoginOtp));
+router.post('/alternate-login/verify-firebase', asyncHandler(AuthController.completeAlternateLoginFirebase));
+router.post('/session/restore-firebase', asyncHandler(AuthController.restoreFirebaseSession));
+
 export default router;
 

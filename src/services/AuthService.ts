@@ -20,6 +20,13 @@ import {
    logReferralCoins,
    referralCoinsPaymentConfig,
 } from "../rewards/referral/referralCoinsLogger";
+import {
+   findProfileByAnyRegisteredPhone,
+   findProfileByVerifiedAlternatePhone,
+   isPhoneUsedGlobally,
+   normalizePhoneToE164,
+   profileHasVerifiedAlternate,
+} from "../utils/phoneUtils";
 
 export class AuthService {
    private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
@@ -214,66 +221,51 @@ export class AuthService {
     */
    static async checkPhoneExists(
       phone: string
-   ): Promise<{ exists: boolean; phone: string }> {
+   ): Promise<{ exists: boolean; phone: string; matchType?: "primary" | "alternate" }> {
       if (!phone || typeof phone !== "string") {
          throw new BadRequestError("Phone number is required");
       }
 
-      // Clean phone number (remove spaces, ensure +91 prefix)
-      const cleanPhone = phone.replace(/\D/g, "");
-      const formattedPhone = cleanPhone.startsWith("91")
-         ? `+${cleanPhone}`
-         : `+91${cleanPhone}`;
+      const formattedPhone = normalizePhoneToE164(phone);
 
-      // ✨ Check if profile exists with this phone number
-      // Try multiple formats to handle different storage formats
-      // Extract just the 10-digit number (last 10 digits)
-      const tenDigitNumber =
-         cleanPhone.length >= 10
-            ? cleanPhone.slice(-10) // Get last 10 digits
-            : cleanPhone;
+      const { profile, matchType } = await findProfileByAnyRegisteredPhone(formattedPhone);
 
-      // Build comprehensive search query covering all possible formats
-      const searchFormats = [
-         formattedPhone, // +919121577021
-         formattedPhone.replace("+91", "+91-"), // +91-9121577021
-         cleanPhone, // 919121577021 (without +)
-         `+${cleanPhone}`, // +919121577021 (alternative)
-         cleanPhone.startsWith("91") ? cleanPhone : `91${cleanPhone}`, // 919121577021 or 91XXXXXXXXXX
-         tenDigitNumber, // 9121577021 (10 digits only)
-         `+91${tenDigitNumber}`, // +919121577021 (with 10-digit number)
-         `91${tenDigitNumber}`, // 919121577021 (without +, with 10-digit)
-      ];
+      if (profile) {
+         logger.info("Phone check result", {
+            exists: true,
+            matchType,
+            foundUid: profile.uid,
+            searchedPhone: formattedPhone,
+         });
+         return {
+            exists: true,
+            phone: formattedPhone,
+            matchType: matchType || undefined,
+         };
+      }
 
-      // Remove duplicates
-      const uniqueFormats = [...new Set(searchFormats)];
-
-      const searchQuery = {
-         'dataPrivacy.accountDeleted': { $ne: true },
-         isActive: { $ne: false },
-         $or: uniqueFormats.map((format) => ({ phone: format })),
-      };
-
-      logger.info("Checking phone existence", {
-         formattedPhone,
-         cleanPhone,
-         tenDigitNumber,
-         searchFormats: uniqueFormats,
-         searchQuery: JSON.stringify(searchQuery),
-      });
-
-      // First try exact match with all formats
-      let profile = await Profile.findOne(searchQuery).lean();
+      const pendingUsage = await isPhoneUsedGlobally(formattedPhone);
+      if (pendingUsage.used) {
+         logger.info("Phone check result (pending reservation)", {
+            exists: true,
+            matchType: pendingUsage.matchType,
+            ownerUid: pendingUsage.ownerUid,
+            searchedPhone: formattedPhone,
+         });
+         return {
+            exists: true,
+            phone: formattedPhone,
+            matchType: pendingUsage.matchType,
+         };
+      }
 
       logger.info("Phone check result", {
-         exists: !!profile,
-         foundPhone: profile?.phone,
+         exists: false,
          searchedPhone: formattedPhone,
-         tenDigitNumber,
       });
 
       return {
-         exists: !!profile,
+         exists: false,
          phone: formattedPhone,
       };
    }
@@ -290,66 +282,13 @@ export class AuthService {
          return null;
       }
 
-      const cleanPhone = phone.replace(/\D/g, "");
-      const tenDigitNumber =
-         cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
-      const formattedPhone = cleanPhone.startsWith("91")
-         ? `+${cleanPhone}`
-         : `+91${cleanPhone}`;
-
-      // Match checkPhoneExists: try all common storage formats
-      const searchFormats = [
-         formattedPhone,
-         formattedPhone.replace("+91", "+91-"),
-         `+91 ${tenDigitNumber}`,
-         `91 ${tenDigitNumber}`,
-         cleanPhone,
-         `+${cleanPhone}`,
-         cleanPhone.startsWith("91") ? cleanPhone : `91${cleanPhone}`,
-         tenDigitNumber,
-         `+91${tenDigitNumber}`,
-         `91${tenDigitNumber}`,
-      ];
-      const uniqueFormats = [...new Set(searchFormats)];
-      let profile = await Profile.findOne({
-         'dataPrivacy.accountDeleted': { $ne: true },
-         isActive: { $ne: false },
-         $or: uniqueFormats.map((format) => ({ phone: format })),
-      })
-         .select("uid name isAadhaarVerified")
-         .lean();
-
-      // Fallback 1: match by last 10 digits (regex)
-      if (!profile && tenDigitNumber.length === 10) {
-         profile = await Profile.findOne({
-            'dataPrivacy.accountDeleted': { $ne: true },
-            isActive: { $ne: false },
-            $or: [
-               { phone: { $regex: new RegExp(`${tenDigitNumber}$`) } },
-               { phone: { $regex: new RegExp(`^\\+?91?\\s*${tenDigitNumber}`) } },
-            ],
-         })
-            .select("uid name isAadhaarVerified")
-            .lean();
-      }
-
-      // Fallback 2: phone contains the 10 digits (with optional spaces/dashes between)
-      if (!profile && tenDigitNumber.length === 10) {
-         const flexiblePattern = tenDigitNumber.split("").join("\\D*");
-         profile = await Profile.findOne({
-            'dataPrivacy.accountDeleted': { $ne: true },
-            isActive: { $ne: false },
-            phone: { $regex: new RegExp(flexiblePattern) },
-         })
-            .select("uid name isAadhaarVerified")
-            .lean();
-      }
+      const formattedPhone = normalizePhoneToE164(phone);
+      const { profile } = await findProfileByAnyRegisteredPhone(formattedPhone);
 
       if (!profile) {
          logger.warn("getProfileByPhone: no profile found", {
             requestedPhone: phone,
-            tenDigitNumber,
-            searchFormats: uniqueFormats,
+            formattedPhone,
          });
          return null;
       }
@@ -609,20 +548,31 @@ export class AuthService {
             cleanFirebasePhone.length >= 10
                ? cleanFirebasePhone.slice(-10)
                : cleanFirebasePhone;
+         const formattedPhone = normalizePhoneToE164(phone);
 
          if (phoneLast10 !== firebaseLast10 && firebasePhone) {
-            logger.warn("Phone mismatch", {
-               provided: phone,
-               firebase: firebasePhone,
+            const alternateProfile = await findProfileByVerifiedAlternatePhone(formattedPhone);
+            const loginViaAlternate =
+               !!alternateProfile &&
+               alternateProfile.uid === uid &&
+               profileHasVerifiedAlternate(alternateProfile, formattedPhone);
+
+            if (!loginViaAlternate) {
+               logger.warn("Phone mismatch", {
+                  provided: phone,
+                  firebase: firebasePhone,
+               });
+               throw new BadRequestError("Phone number mismatch");
+            }
+
+            logger.info("Alternate phone login accepted", {
+               uid,
+               alternatePhone: formattedPhone,
             });
-            throw new BadRequestError("Phone number mismatch");
          }
 
          // 3. Get or create profile based on mode
          let profile = await Profile.findOne({ uid }).lean();
-         const formattedPhone = cleanPhone.startsWith("91")
-            ? `+${cleanPhone}`
-            : `+91${cleanPhone}`;
 
          // Auto-heal: if profile was deleted/recreated and UID drifted, rebind by phone.
          if (!profile) {
@@ -738,6 +688,15 @@ export class AuthService {
                   referralChannel
                );
             } else {
+               sendSignupWelcomeWhatsApp = true;
+
+               const phoneUsage = await isPhoneUsedGlobally(formattedPhone, uid);
+               if (phoneUsage.used) {
+                  throw new BadRequestError(
+                     "This mobile number is already linked to another account. Please use a different number."
+                  );
+               }
+
                const now = Date.now();
                
                try {
