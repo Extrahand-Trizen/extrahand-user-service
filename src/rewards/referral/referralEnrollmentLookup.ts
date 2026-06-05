@@ -1,6 +1,6 @@
 import type { Types } from 'mongoose';
 import ReferralRecord, { type IReferralRecord } from '../../models/ReferralRecord';
-import logger from '../../utils/logger';
+import logger from '../../config/logger';
 
 /**
  * Find helper referee enrollment by current profile id, then Firebase uid.

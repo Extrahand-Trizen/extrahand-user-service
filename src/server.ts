@@ -8,12 +8,14 @@ import { scheduleDeletionExecutorJob } from './jobs/scheduledDeletionJob';
 import { seedRewardProgramIfNeeded } from './rewards/seed/seedRewardProgram';
 import { registerRewardEventHandlers } from './rewards/events/registerRewardHandlers';
 import { validateRewardsConfiguration } from './rewards/config/rewardsFlags';
+import { MessagingServiceClient } from './clients/MessagingServiceClient';
 
 const env = validateEnv();
 
 async function startServer() {
   try {
     validateRewardsConfiguration();
+    MessagingServiceClient.initialize();
 
     // Connect to MongoDB
     if (env.MONGODB_URI) {
