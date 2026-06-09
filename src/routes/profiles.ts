@@ -175,6 +175,17 @@ router.put('/me/category-alerts', authMiddleware, asyncHandler(ProfileController
 // GET /api/v1/profiles/me/category-alerts - Get category alerts (requires auth)
 router.get('/me/category-alerts', authMiddleware, asyncHandler(ProfileController.getCategoryAlerts));
 
+// Book Now cart (requires auth)
+router.get('/me/book-now-cart', authMiddleware, asyncHandler(ProfileController.getBookNowCart));
+router.post('/me/book-now-cart/items', authMiddleware, asyncHandler(ProfileController.addBookNowCartItem));
+router.patch('/me/book-now-cart/items', authMiddleware, asyncHandler(ProfileController.updateBookNowCartItemQuantity));
+router.delete(
+  '/me/book-now-cart/items/:catalogId/:packageId',
+  authMiddleware,
+  asyncHandler(ProfileController.removeBookNowCartItem),
+);
+router.delete('/me/book-now-cart', authMiddleware, asyncHandler(ProfileController.clearBookNowCart));
+
 // PUT /api/v1/profiles/me/keyword-alerts - Save keyword alerts (requires auth)
 router.put('/me/keyword-alerts', authMiddleware, asyncHandler(ProfileController.updateKeywordAlerts));
 

@@ -106,6 +106,18 @@ export interface IProfile extends Document {
     }>;
     updatedAt?: Date;
   };
+  bookNowCart?: {
+    items?: Array<{
+      catalogId: string;
+      packageId: string;
+      name: string;
+      price: number;
+      postTitleTemplate: string;
+      taskDescription: string;
+      quantity: number;
+    }>;
+    updatedAt?: Date;
+  };
   verificationTier?: number;
   verificationBadge?: 'none' | 'basic' | 'verified' | 'trusted';
   lastVerifiedAt?: Date;
@@ -655,6 +667,18 @@ const ProfileSchema = new Schema<IProfile>({
     categories: [{
       slug: String,
       name: String
+    }],
+    updatedAt: Date
+  },
+  bookNowCart: {
+    items: [{
+      catalogId: { type: String, required: true, trim: true },
+      packageId: { type: String, required: true, trim: true },
+      name: { type: String, required: true, trim: true },
+      price: { type: Number, required: true, min: 0 },
+      postTitleTemplate: { type: String, required: true, trim: true },
+      taskDescription: { type: String, required: true, trim: true },
+      quantity: { type: Number, required: true, min: 1, default: 1 },
     }],
     updatedAt: Date
   }
