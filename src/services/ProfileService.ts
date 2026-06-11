@@ -1265,15 +1265,12 @@ export class ProfileService {
 
       const users = await Profile.find({
         isActive: true,
-        // Some profiles have skills configured but incomplete role flags.
+        roles: { $in: ['tasker', 'helper', 'performer'] },
+        $or: [
+          { 'roleVerifications.tasker.canAcceptTasks': true },
+          { canAcceptTasks: true },
+        ],
         $and: [
-          {
-            $or: [
-              { roles: 'tasker' },
-              { 'skills.primaryCategory': { $exists: true, $ne: null } },
-              { 'skills.list.0': { $exists: true } },
-            ],
-          },
           {
             $or: [
               { 'skills.primaryCategory': { $in: tokens } },
@@ -1301,9 +1298,9 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          eligibility: "roles contains 'tasker' OR has skills configured",
+          eligibility: "verified helper/tasker roles only",
           isActive: true,
-          isVerified: 'not-required',
+          isVerified: 'canAcceptTasks',
         },
         count: userIds.length
       });
@@ -2981,6 +2978,209 @@ export class ProfileService {
     });
 
     return profile;
+  }
+
+  static formatBookNowCartResponse(profile: any) {
+    return {
+      items: profile?.bookNowCart?.items || [],
+    };
+  }
+
+  static normalizeBookNowCartItem(raw: any) {
+    const catalogId = String(raw?.catalogId || '').trim();
+    const packageId = String(raw?.packageId || '').trim();
+    const name = String(raw?.name || '').trim();
+    const postTitleTemplate = String(raw?.postTitleTemplate || '').trim();
+    const taskDescription = String(raw?.taskDescription || '').trim();
+    const price = Number(raw?.price);
+    const quantity = Math.max(1, Math.floor(Number(raw?.quantity) || 1));
+
+    if (!catalogId || !packageId || !name || !postTitleTemplate || !taskDescription) {
+      throw new Error('Invalid cart item payload');
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      throw new Error('Invalid cart item price');
+    }
+
+    return {
+      catalogId,
+      packageId,
+      name,
+      price,
+      postTitleTemplate,
+      taskDescription,
+      quantity,
+    };
+  }
+
+  static async getBookNowCart(uid: string): Promise<any> {
+    this.checkConnection();
+    const profile = await Profile.findOne({ uid }).lean();
+    if (!profile) {
+      throw new Error(`Profile not found for UID: ${uid}`);
+    }
+    return this.formatBookNowCartResponse(profile);
+  }
+
+  static async addBookNowCartItem(uid: string, rawItem: any): Promise<any> {
+    this.checkConnection();
+    const item = this.normalizeBookNowCartItem(rawItem);
+    const profile = await Profile.findOne({ uid });
+    if (!profile) {
+      throw new Error(`Profile not found for UID: ${uid}`);
+    }
+
+    const items = [...(profile.bookNowCart?.items || [])];
+    const existingIndex = items.findIndex(
+      (line) => line.catalogId === item.catalogId && line.packageId === item.packageId,
+    );
+
+    if (existingIndex >= 0) {
+      items[existingIndex] = {
+        ...items[existingIndex],
+        ...item,
+        quantity: items[existingIndex].quantity + 1,
+      };
+    } else {
+      items.push({ ...item, quantity: 1 });
+    }
+
+    profile.bookNowCart = {
+      items,
+      updatedAt: new Date(),
+    };
+    await profile.save();
+
+    logger.info('ProfileService.addBookNowCartItem: Item added', {
+      uid,
+      catalogId: item.catalogId,
+      packageId: item.packageId,
+      itemCount: items.length,
+    });
+
+    return this.formatBookNowCartResponse(profile);
+  }
+
+  static async removeBookNowCartItem(
+    uid: string,
+    catalogId: string,
+    packageId: string,
+  ): Promise<any> {
+    this.checkConnection();
+    const normalizedCatalogId = String(catalogId || '').trim();
+    const normalizedPackageId = String(packageId || '').trim();
+    if (!normalizedCatalogId || !normalizedPackageId) {
+      throw new Error('catalogId and packageId are required');
+    }
+
+    const profile = await Profile.findOne({ uid });
+    if (!profile) {
+      throw new Error(`Profile not found for UID: ${uid}`);
+    }
+
+    const items = (profile.bookNowCart?.items || []).filter(
+      (line) =>
+        !(
+          line.catalogId === normalizedCatalogId &&
+          line.packageId === normalizedPackageId
+        ),
+    );
+
+    profile.bookNowCart = {
+      items,
+      updatedAt: new Date(),
+    };
+    await profile.save();
+
+    logger.info('ProfileService.removeBookNowCartItem: Item removed', {
+      uid,
+      catalogId: normalizedCatalogId,
+      packageId: normalizedPackageId,
+      itemCount: items.length,
+    });
+
+    return this.formatBookNowCartResponse(profile);
+  }
+
+  static async updateBookNowCartItemQuantity(
+    uid: string,
+    catalogId: string,
+    packageId: string,
+    quantity: number,
+  ): Promise<any> {
+    this.checkConnection();
+    const normalizedCatalogId = String(catalogId || '').trim();
+    const normalizedPackageId = String(packageId || '').trim();
+    const normalizedQuantity = Math.floor(Number(quantity));
+
+    if (!normalizedCatalogId || !normalizedPackageId) {
+      throw new Error('catalogId and packageId are required');
+    }
+    if (!Number.isFinite(normalizedQuantity)) {
+      throw new Error('quantity must be a number');
+    }
+
+    if (normalizedQuantity <= 0) {
+      return this.removeBookNowCartItem(uid, normalizedCatalogId, normalizedPackageId);
+    }
+
+    const profile = await Profile.findOne({ uid });
+    if (!profile) {
+      throw new Error(`Profile not found for UID: ${uid}`);
+    }
+
+    const items = [...(profile.bookNowCart?.items || [])];
+    const existingIndex = items.findIndex(
+      (line) =>
+        line.catalogId === normalizedCatalogId &&
+        line.packageId === normalizedPackageId,
+    );
+
+    if (existingIndex < 0) {
+      throw new Error('Cart item not found');
+    }
+
+    items[existingIndex] = {
+      ...items[existingIndex],
+      quantity: normalizedQuantity,
+    };
+
+    profile.bookNowCart = {
+      items,
+      updatedAt: new Date(),
+    };
+    await profile.save();
+
+    logger.info('ProfileService.updateBookNowCartItemQuantity: Quantity updated', {
+      uid,
+      catalogId: normalizedCatalogId,
+      packageId: normalizedPackageId,
+      quantity: normalizedQuantity,
+    });
+
+    return this.formatBookNowCartResponse(profile);
+  }
+
+  static async clearBookNowCart(uid: string): Promise<any> {
+    this.checkConnection();
+    const profile = await Profile.findOneAndUpdate(
+      { uid },
+      {
+        $set: {
+          'bookNowCart.items': [],
+          'bookNowCart.updatedAt': new Date(),
+        },
+      },
+      { new: true },
+    );
+
+    if (!profile) {
+      throw new Error(`Profile not found for UID: ${uid}`);
+    }
+
+    logger.info('ProfileService.clearBookNowCart: Cart cleared', { uid });
+
+    return this.formatBookNowCartResponse(profile);
   }
 
   /**

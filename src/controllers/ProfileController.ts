@@ -1561,8 +1561,8 @@ export class ProfileController {
 
       const updatedProfile = await ProfileService.updateProfile(uid, {
         isAadhaarVerified: false,
-        maskedAadhaar: null,
-        aadhaarVerifiedAt: null,
+        maskedAadhaar: undefined,
+        aadhaarVerifiedAt: undefined,
       });
 
       res.json({
@@ -2441,6 +2441,142 @@ export class ProfileController {
       res.status(500).json({
         success: false,
         error: 'Failed to get category alerts'
+      });
+    }
+  }
+
+  /**
+   * GET /api/v1/profiles/me/book-now-cart
+   */
+  static async getBookNowCart(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const data = await ProfileService.getBookNowCart(uid);
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error: any) {
+      logger.error('Error getting book now cart', {
+        uid: req.user?.uid,
+        error: error.message,
+      });
+      res.status(error.message?.includes('not found') ? 404 : 500).json({
+        success: false,
+        error: error.message || 'Failed to get book now cart',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/profiles/me/book-now-cart/items
+   */
+  static async addBookNowCartItem(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const data = await ProfileService.addBookNowCartItem(uid, req.body);
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error: any) {
+      logger.error('Error adding book now cart item', {
+        uid: req.user?.uid,
+        error: error.message,
+      });
+      res.status(error.message?.includes('Invalid') ? 400 : 500).json({
+        success: false,
+        error: error.message || 'Failed to add cart item',
+      });
+    }
+  }
+
+  /**
+   * PATCH /api/v1/profiles/me/book-now-cart/items
+   */
+  static async updateBookNowCartItemQuantity(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const { catalogId, packageId, quantity } = req.body || {};
+      const data = await ProfileService.updateBookNowCartItemQuantity(
+        uid,
+        catalogId,
+        packageId,
+        quantity,
+      );
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error: any) {
+      logger.error('Error updating book now cart item quantity', {
+        uid: req.user?.uid,
+        error: error.message,
+      });
+      const status = error.message?.includes('not found')
+        ? 404
+        : error.message?.includes('required') || error.message?.includes('quantity')
+          ? 400
+          : 500;
+      res.status(status).json({
+        success: false,
+        error: error.message || 'Failed to update cart item quantity',
+      });
+    }
+  }
+
+  /**
+   * DELETE /api/v1/profiles/me/book-now-cart/items/:catalogId/:packageId
+   */
+  static async removeBookNowCartItem(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const catalogId = String(req.params.catalogId || '');
+      const packageId = String(req.params.packageId || '');
+      const data = await ProfileService.removeBookNowCartItem(uid, catalogId, packageId);
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error: any) {
+      logger.error('Error removing book now cart item', {
+        uid: req.user?.uid,
+        error: error.message,
+      });
+      res.status(error.message?.includes('required') ? 400 : 500).json({
+        success: false,
+        error: error.message || 'Failed to remove cart item',
+      });
+    }
+  }
+
+  /**
+   * DELETE /api/v1/profiles/me/book-now-cart
+   */
+  static async clearBookNowCart(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const uid = req.user!.uid;
+      const data = await ProfileService.clearBookNowCart(uid);
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error: any) {
+      logger.error('Error clearing book now cart', {
+        uid: req.user?.uid,
+        error: error.message,
+      });
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Failed to clear book now cart',
       });
     }
   }
