@@ -1265,15 +1265,12 @@ export class ProfileService {
 
       const users = await Profile.find({
         isActive: true,
-        // Some profiles have skills configured but incomplete role flags.
+        roles: { $in: ['tasker', 'helper', 'performer'] },
+        $or: [
+          { 'roleVerifications.tasker.canAcceptTasks': true },
+          { canAcceptTasks: true },
+        ],
         $and: [
-          {
-            $or: [
-              { roles: 'tasker' },
-              { 'skills.primaryCategory': { $exists: true, $ne: null } },
-              { 'skills.list.0': { $exists: true } },
-            ],
-          },
           {
             $or: [
               { 'skills.primaryCategory': { $in: tokens } },
@@ -1301,9 +1298,9 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          eligibility: "roles contains 'tasker' OR has skills configured",
+          eligibility: "verified helper/tasker roles only",
           isActive: true,
-          isVerified: 'not-required',
+          isVerified: 'canAcceptTasks',
         },
         count: userIds.length
       });
