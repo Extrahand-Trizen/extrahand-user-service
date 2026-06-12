@@ -539,14 +539,33 @@ export class ProfileController {
       let userIds: string[] = [];
 
       if (type === 'skill') {
-        if (!criteria.category) {
+        if (Array.isArray(criteria.categories) && criteria.categories.length > 0) {
+          userIds = await ProfileService.findUsersBySkillCategories(criteria.categories);
+        } else if (criteria.category) {
+          userIds = await ProfileService.findUsersBySkillCategory(criteria.category);
+        } else {
           res.status(400).json({
             success: false,
-            error: 'Missing category in criteria for skill matching'
+            error: 'Missing category or categories in criteria for skill matching',
           });
           return;
         }
-        userIds = await ProfileService.findUsersBySkillCategory(criteria.category);
+      } else if (type === 'nearby') {
+        const longitude = Number(criteria.longitude);
+        const latitude = Number(criteria.latitude);
+        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+          res.status(400).json({
+            success: false,
+            error: 'Missing or invalid longitude/latitude in criteria for nearby matching',
+          });
+          return;
+        }
+        userIds = await ProfileService.findNearbyTaskerUids({
+          longitude,
+          latitude,
+          radiusMeters: criteria.radiusMeters,
+          excludeUids: Array.isArray(criteria.excludeUids) ? criteria.excludeUids : undefined,
+        });
       } else if (type === 'keywords') {
         if (!criteria.keywords || !Array.isArray(criteria.keywords)) {
           res.status(400).json({
@@ -568,7 +587,7 @@ export class ProfileController {
       } else {
         res.status(400).json({
           success: false,
-          error: `Invalid matching type: ${type}. Must be 'skill', 'keywords', or 'categories'`
+          error: `Invalid matching type: ${type}. Must be 'skill', 'nearby', 'keywords', or 'categories'`
         });
         return;
       }

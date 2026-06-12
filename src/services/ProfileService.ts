@@ -1214,6 +1214,10 @@ export class ProfileService {
 
       const categoryAliasMap: Record<string, string[]> = {
         cleaning: ['cleaning', 'house_cleaning', 'home_cleaning', 'deep_cleaning', 'maid', 'housekeeping', 'car_wash', 'car_washing', 'laundry'],
+        home_cleaning: ['home_cleaning', 'house_cleaning', 'cleaning', 'deep_cleaning', 'maid', 'housekeeping'],
+        bathroom_cleaning: ['bathroom_cleaning', 'bathroom', 'cleaning', 'home_cleaning', 'house_cleaning'],
+        kitchen_cleaning: ['kitchen_cleaning', 'kitchen', 'cleaning', 'home_cleaning', 'house_cleaning'],
+        beauty: ['beauty', 'beauty_services', 'salon', 'spa', 'makeup', 'hair', 'grooming', 'facial', 'manicure', 'pedicure'],
         repair: ['repair', 'handyperson', 'handyman', 'plumbing', 'electrical', 'carpentry', 'painting', 'appliances', 'it_support', 'laptop_repair', 'computer_repair', 'device_repair'],
         it_support: ['it_support', 'tech_support', 'computer_repair', 'laptop_repair', 'software_installation', 'network_setup'],
         delivery: ['delivery', 'courier', 'moving', 'removals', 'driving', 'driver'],
@@ -1265,21 +1269,14 @@ export class ProfileService {
 
       const users = await Profile.find({
         isActive: true,
-        roles: { $in: ['tasker', 'helper', 'performer'] },
+        roles: { $in: ['tasker', 'helper', 'performer', 'both'] },
+        'dataPrivacy.accountDeleted': { $ne: true },
         $or: [
-          { 'roleVerifications.tasker.canAcceptTasks': true },
-          { canAcceptTasks: true },
-        ],
-        $and: [
-          {
-            $or: [
-              { 'skills.primaryCategory': { $in: tokens } },
-              { 'skills.primaryCategory': { $in: exactTokenRegexes } },
-              { 'skills.list.category': { $in: tokens } },
-              { 'skills.list.category': { $in: exactTokenRegexes } },
-              { 'skills.list.name': tokenRegex },
-            ],
-          },
+          { 'skills.primaryCategory': { $in: tokens } },
+          { 'skills.primaryCategory': { $in: exactTokenRegexes } },
+          { 'skills.list.category': { $in: tokens } },
+          { 'skills.list.category': { $in: exactTokenRegexes } },
+          { 'skills.list.name': tokenRegex },
         ],
       })
         .select('uid skills.primaryCategory skills.list.name skills.list.category')
@@ -1298,9 +1295,8 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          eligibility: "verified helper/tasker roles only",
+          eligibility: 'active helper/tasker roles with matching skills',
           isActive: true,
-          isVerified: 'canAcceptTasks',
         },
         count: userIds.length
       });
@@ -1310,6 +1306,120 @@ export class ProfileService {
       logger.error('ProfileService.findUsersBySkillCategory error:', {
         category,
         error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Union skill matches across multiple category/subcategory labels from a task post.
+   */
+  static async findUsersBySkillCategories(categories: string[]): Promise<string[]> {
+    const uniqueCategories = Array.from(
+      new Set(
+        (categories || [])
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .map((value) => value.trim()),
+      ),
+    );
+
+    if (uniqueCategories.length === 0) return [];
+
+    const matched = new Set<string>();
+    for (const category of uniqueCategories) {
+      const userIds = await this.findUsersBySkillCategory(category);
+      userIds.forEach((uid) => matched.add(uid));
+    }
+
+    logger.info('ProfileService: Found users by skill categories (batch)', {
+      categories: uniqueCategories,
+      count: matched.size,
+    });
+
+    return Array.from(matched);
+  }
+
+  /**
+   * Find active helpers/taskers whose profile or home location is within radius of a task.
+   * Used by task-service for TASK_NEARBY discovery alerts.
+   */
+  static async findNearbyTaskerUids(params: {
+    longitude: number;
+    latitude: number;
+    radiusMeters?: number;
+    excludeUids?: string[];
+  }): Promise<string[]> {
+    this.checkConnection();
+
+    const longitude = Number(params.longitude);
+    const latitude = Number(params.latitude);
+    const radiusMeters = Math.min(
+      200_000,
+      Math.max(500, Number(params.radiusMeters) || 10_000),
+    );
+
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+      logger.warn('ProfileService.findNearbyTaskerUids: Invalid coordinates', params);
+      return [];
+    }
+
+    const excludeSet = new Set(
+      (params.excludeUids || []).filter(
+        (uid): uid is string => typeof uid === 'string' && uid.trim().length > 0,
+      ),
+    );
+
+    const baseFilter = {
+      roles: { $in: ['tasker', 'helper', 'performer', 'both'] },
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+    };
+
+    const geoNear = (field: 'location.coordinates' | 'homeLocation.coordinates') => ({
+      ...baseFilter,
+      [field]: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [longitude, latitude],
+          },
+          $maxDistance: radiusMeters,
+        },
+      },
+    });
+
+    try {
+      const [byProfileLocation, byHomeLocation] = await Promise.all([
+        Profile.find(geoNear('location.coordinates')).select('uid').lean(),
+        Profile.find(geoNear('homeLocation.coordinates')).select('uid').lean(),
+      ]);
+
+      const userIds = Array.from(
+        new Set(
+          [...byProfileLocation, ...byHomeLocation]
+            .map((profile: { uid?: string }) => profile.uid)
+            .filter(
+              (uid): uid is string => typeof uid === 'string' && uid.trim().length > 0,
+            )
+            .filter((uid) => !excludeSet.has(uid)),
+        ),
+      );
+
+      logger.info('ProfileService.findNearbyTaskerUids', {
+        coordinates: [longitude, latitude],
+        radiusMeters,
+        matchedByProfileLocationCount: byProfileLocation.length,
+        matchedByHomeLocationCount: byHomeLocation.length,
+        matchedCount: userIds.length,
+        excludedCount: excludeSet.size,
+      });
+
+      return userIds;
+    } catch (error) {
+      logger.error('ProfileService.findNearbyTaskerUids error:', {
+        coordinates: [longitude, latitude],
+        radiusMeters,
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
       return [];
     }
