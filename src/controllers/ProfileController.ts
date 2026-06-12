@@ -1578,8 +1578,8 @@ export class ProfileController {
 
       const updatedProfile = await ProfileService.updateProfile(uid, {
         isAadhaarVerified: false,
-        maskedAadhaar: null,
-        aadhaarVerifiedAt: null,
+        maskedAadhaar: undefined,
+        aadhaarVerifiedAt: undefined,
       });
 
       res.json({
