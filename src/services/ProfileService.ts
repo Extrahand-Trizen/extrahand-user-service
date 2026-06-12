@@ -3363,6 +3363,148 @@ export class ProfileService {
   }
 
   /**
+   * Book Now + poster helper availability (city tasker count, same rules as nearby-helpers).
+   *
+   * Order:
+   * 1) Profile city for authenticated customer (Firebase uid)
+   * 2) Profile coordinates geospatial search (when city text is missing/wrong)
+   * 3) Normalized request city / pin (poster ?city= fallback)
+   * 4) Request coordinates geospatial search (booking payload)
+   * 5) Normalized city-only search
+   */
+  static async resolveBookNowHelperAvailability(params: {
+    firebaseUid?: string;
+    city?: string;
+    pinCode?: string;
+    lat?: number;
+    lng?: number;
+    limit?: number;
+  }): Promise<{
+    checkPerformed: boolean;
+    resolvedCity: string | null;
+    count: number;
+    hasHelpers: boolean;
+    helpers: Awaited<ReturnType<typeof ProfileService.getNearbyHelpers>>;
+  }> {
+    const limit = Math.min(50, Math.max(1, Number(params.limit) || 1));
+    const uid = String(params.firebaseUid || '').trim();
+    const queryCity =
+      normalizeProfileLocationParts({
+        city: params.city,
+        pinCode: params.pinCode,
+        address: params.city,
+      }).city || String(params.city || '').trim();
+
+    if (uid) {
+      const profileResult = await this.getTaskerAvailabilityForFirebaseUid(uid, limit);
+      if (profileResult.checkPerformed && profileResult.hasHelpers) {
+        return profileResult;
+      }
+
+      const profile = await Profile.findOne({ uid }).select('location').lean();
+      const coords = (profile?.location as { coordinates?: unknown } | undefined)?.coordinates;
+      if (Array.isArray(coords) && coords.length >= 2) {
+        const lng = Number(coords[0]);
+        const lat = Number(coords[1]);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const geoHelpers = await this.getNearbyHelpers({
+            lat,
+            lng,
+            limit,
+            excludeUid: uid,
+          });
+          if (geoHelpers.length > 0) {
+            return {
+              checkPerformed: true,
+              resolvedCity: queryCity || profileResult.resolvedCity,
+              count: geoHelpers.length,
+              hasHelpers: true,
+              helpers: geoHelpers,
+            };
+          }
+        }
+      }
+
+      if (profileResult.checkPerformed) {
+        return profileResult;
+      }
+
+      if (queryCity) {
+        const cityHelpers = await this.getNearbyHelpers({
+          city: queryCity,
+          limit,
+          excludeUid: uid,
+        });
+        return {
+          checkPerformed: true,
+          resolvedCity: queryCity,
+          count: cityHelpers.length,
+          hasHelpers: cityHelpers.length > 0,
+          helpers: cityHelpers,
+        };
+      }
+    }
+
+    const reqLat = typeof params.lat === 'number' ? params.lat : Number(params.lat);
+    const reqLng = typeof params.lng === 'number' ? params.lng : Number(params.lng);
+    if (Number.isFinite(reqLat) && Number.isFinite(reqLng)) {
+      const geoHelpers = await this.getNearbyHelpers({
+        lat: reqLat,
+        lng: reqLng,
+        limit,
+        excludeUid: uid || undefined,
+      });
+      return {
+        checkPerformed: true,
+        resolvedCity: queryCity || null,
+        count: geoHelpers.length,
+        hasHelpers: geoHelpers.length > 0,
+        helpers: geoHelpers,
+      };
+    }
+
+    if (queryCity) {
+      const cityHelpers = await this.getNearbyHelpers({ city: queryCity, limit });
+      return {
+        checkPerformed: true,
+        resolvedCity: queryCity,
+        count: cityHelpers.length,
+        hasHelpers: cityHelpers.length > 0,
+        helpers: cityHelpers,
+      };
+    }
+
+    return {
+      checkPerformed: false,
+      resolvedCity: null,
+      count: 0,
+      hasHelpers: false,
+      helpers: [],
+    };
+  }
+
+  /**
+   * Shared poster helper availability — mirrors GET nearby-helpers.
+   */
+  static async resolvePosterHelperAvailability(params: {
+    firebaseUid?: string;
+    city?: string;
+    limit?: number;
+  }): Promise<{
+    checkPerformed: boolean;
+    resolvedCity: string | null;
+    count: number;
+    hasHelpers: boolean;
+    helpers: Awaited<ReturnType<typeof ProfileService.getNearbyHelpers>>;
+  }> {
+    return this.resolveBookNowHelperAvailability({
+      firebaseUid: params.firebaseUid,
+      city: params.city,
+      limit: params.limit,
+    });
+  }
+
+  /**
    * Check if any helpers (taskers) exist near the given location.
    *
    * Strategy (in order):
