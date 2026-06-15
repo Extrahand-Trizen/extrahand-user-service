@@ -196,7 +196,7 @@ export class ProfileService {
     return Profile.countDocuments({
       'dataPrivacy.accountDeleted': { $ne: true },
       isAadhaarVerified: true,
-      roles: 'tasker',
+      roles: { $in: ['tasker', 'both', 'helper'] },
     });
   }
 
@@ -212,7 +212,7 @@ export class ProfileService {
 
     const baseMatch = {
       'dataPrivacy.accountDeleted': { $ne: true },
-      roles: { $in: ['tasker', 'both'] },
+      roles: { $in: ['tasker', 'both', 'helper'] },
     };
 
     const [totalHelpers, categorizedHelpersAgg, rows] = await Promise.all([
@@ -2465,7 +2465,7 @@ export class ProfileService {
     // Execute query
     const [profiles, total] = await Promise.all([
       Profile.find(query)
-        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt')
+        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills')
         .sort(sort)
         .skip(skip)
         .limit(effectiveLimit)
@@ -2520,6 +2520,7 @@ export class ProfileService {
         isBankVerified: profile.isBankVerified || false,
         bannedAt: profile.bannedAt || null,
         suspendedAt: profile.suspendedAt || null,
+        skills: profile.skills || null,
       };
     });
 
@@ -3298,7 +3299,7 @@ export class ProfileService {
     });
 
     const baseFilter: Record<string, unknown> = {
-      roles: { $in: ['tasker'] },
+      roles: { $in: ['tasker', 'both', 'helper'] },
       isActive: true,
       'dataPrivacy.accountDeleted': { $ne: true },
       ...(excludeUid ? { uid: { $ne: excludeUid } } : {}),
