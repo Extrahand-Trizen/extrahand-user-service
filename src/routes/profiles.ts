@@ -5,6 +5,7 @@ import { optionalAuthMiddleware, authMiddleware } from '../middleware/auth';
 import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 import { asyncHandler } from '../middleware/errorHandler';
 import profileStatsRoutes from './profileStats';
+import supplyRoutes from './supply';
 import Profile from '../models/Profile';
 import { RewardsInternalController } from '../controllers/RewardsInternalController';
 
@@ -82,6 +83,9 @@ router.get(
   serviceAuthMiddleware,
   asyncHandler(RewardsInternalController.getRewardContext)
 );
+
+// Supply layer routes (partner profile, capabilities, applications)
+router.use('/', supplyRoutes);
 
 // Profile Stats Routes - must come before /me to avoid conflicts
 router.use('/me/stats', authMiddleware, profileStatsRoutes);
