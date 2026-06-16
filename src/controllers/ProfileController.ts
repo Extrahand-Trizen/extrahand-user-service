@@ -14,6 +14,7 @@ import {
   ensureDemoVerificationProfile,
   mergeReviewBypassProfile,
 } from '../utils/reviewBypass';
+import { resolveLocationServiceability } from '../constants/locations/isHardcodedSupportedLocation';
 
 type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only' | 'private';
 
@@ -2834,12 +2835,36 @@ export class ProfileController {
         limit,
       });
 
+      const profileLocation = firebaseUid
+        ? await Profile.findOne({ uid: firebaseUid }).select('location').lean()
+        : null;
+      const loc = profileLocation?.location as {
+        address?: string;
+        city?: string;
+        state?: string;
+        addressDetails?: { city?: string; area?: string; state?: string };
+      } | undefined;
+
+      const serviceability = resolveLocationServiceability({
+        checkPerformed: result.checkPerformed,
+        hasHelpers: result.hasHelpers,
+        location: {
+          city: result.resolvedCity ?? city,
+          area: loc?.addressDetails?.area,
+          state: loc?.addressDetails?.state ?? loc?.state,
+          address: loc?.address,
+        },
+      });
+
       res.json({
         success: true,
         data: {
           city: result.resolvedCity ?? city,
           resolvedCity: result.resolvedCity,
-          serviceable: result.checkPerformed ? result.hasHelpers : true,
+          serviceable: serviceability.isServiceable,
+          canPostTask: serviceability.canPostTask,
+          canBookService: serviceability.canBookService,
+          isHardcodedSupported: serviceability.isHardcodedSupported,
           hasHelpers: result.hasHelpers,
           count: result.count,
           checkPerformed: result.checkPerformed,
