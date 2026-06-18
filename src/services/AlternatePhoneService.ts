@@ -3,6 +3,7 @@ import PhoneOTP from '../models/PhoneOTP';
 import Profile from '../models/Profile';
 import { Fast2SMSClient } from '../clients/Fast2SMSClient';
 import { auth as firebaseAuth } from '../config/firebase';
+import { verifyFirebaseIdToken } from '../utils/verifyFirebaseIdToken';
 import logger from '../config/logger';
 import { BadRequestError } from '../errors/AppError';
 import {
@@ -332,8 +333,8 @@ export class AlternatePhoneService {
     let originalDecoded;
     let alternateDecoded;
     try {
-      originalDecoded = await firebaseAuth.verifyIdToken(originalIdToken);
-      alternateDecoded = await firebaseAuth.verifyIdToken(alternateIdToken);
+      originalDecoded = await verifyFirebaseIdToken(originalIdToken);
+      alternateDecoded = await verifyFirebaseIdToken(alternateIdToken);
     } catch {
       throw new BadRequestError('Invalid or expired verification. Please try again.');
     }
@@ -406,7 +407,7 @@ export class AlternatePhoneService {
 
     let alternateDecoded;
     try {
-      alternateDecoded = await firebaseAuth.verifyIdToken(alternateIdToken);
+      alternateDecoded = await verifyFirebaseIdToken(alternateIdToken);
     } catch {
       throw new BadRequestError('Invalid or expired verification. Please try again.');
     }
@@ -427,7 +428,7 @@ export class AlternatePhoneService {
   static async restoreFirebaseSession(idToken: string) {
     let decoded;
     try {
-      decoded = await firebaseAuth.verifyIdToken(idToken);
+      decoded = await verifyFirebaseIdToken(idToken);
     } catch {
       throw new BadRequestError('Invalid or expired session. Please log in again.');
     }

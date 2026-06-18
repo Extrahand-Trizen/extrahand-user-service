@@ -9,6 +9,7 @@ import { scheduleLocationNotifyJob } from './jobs/locationNotifyJob';
 import { seedRewardProgramIfNeeded } from './rewards/seed/seedRewardProgram';
 import { registerRewardEventHandlers } from './rewards/events/registerRewardHandlers';
 import { validateRewardsConfiguration } from './rewards/config/rewardsFlags';
+import { hasMobileFirebase } from './config/firebase';
 
 const env = validateEnv();
 
@@ -38,6 +39,13 @@ async function startServer() {
     const port = env.PORT;
     app.listen(port, () => {
       logger.info(`🚀 User Service running on port ${port}`);
+      if (env.NODE_ENV === 'development' && !hasMobileFirebase) {
+        logger.warn(
+          '⚠️ Mobile Firebase (extrahand-ca02c) is not configured. ' +
+            'React Native OTP login will fail until you add serviceAccountKey-mobile.json ' +
+            'or FIREBASE_MOBILE_* env vars. See SETUP.md.',
+        );
+      }
       logger.info(
         '[REFERRAL_COINS] user-service ready — grep console or logs/combined.log for [REFERRAL_COINS]'
       );

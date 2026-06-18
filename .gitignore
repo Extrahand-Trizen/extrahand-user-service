@@ -29,6 +29,7 @@ Thumbs.db
 
 # Firebase
 serviceAccountKey.json
+serviceAccountKey-mobile.json
 *-firebase-adminsdk-*.json
 
 # Testing

@@ -1,4 +1,7 @@
-import { auth } from "../config/firebase";
+import {
+   getFirebaseTokenVerificationHint,
+   verifyFirebaseIdToken,
+} from "../utils/verifyFirebaseIdToken";
 import Profile from "../models/Profile";
 import { BadRequestError, InternalServerError } from "../errors/AppError";
 import logger from "../config/logger";
@@ -447,11 +450,12 @@ export class AuthService {
          // 1. Verify Firebase ID token
          let decodedToken;
          try {
-            decodedToken = await auth.verifyIdToken(idToken);
+            decodedToken = await verifyFirebaseIdToken(idToken);
          } catch (error: any) {
             logger.error("Invalid ID token:", error);
+            const hint = getFirebaseTokenVerificationHint(idToken);
             throw new BadRequestError(
-               "Invalid or expired authentication token"
+               hint || "Invalid or expired authentication token"
             );
          }
 
