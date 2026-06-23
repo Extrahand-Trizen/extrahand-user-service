@@ -48,7 +48,10 @@ export type ReferralCoinsStep =
   | 'api_apply_request'
   | 'api_apply_response'
   | 'api_retry_grants_request'
-  | 'api_retry_grants_response';
+  | 'api_retry_grants_response'
+  | 'aadhaar_identity_verified_processed'
+  | 'aadhaar_auto_reissue_grants'
+  | 'aadhaar_auto_reissue_failed';
 
 function maskToken(token: string | undefined): string {
   if (!token) return '(missing)';
