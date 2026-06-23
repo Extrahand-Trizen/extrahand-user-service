@@ -196,7 +196,7 @@ export class ProfileService {
     return Profile.countDocuments({
       'dataPrivacy.accountDeleted': { $ne: true },
       isAadhaarVerified: true,
-      roles: 'tasker',
+      roles: { $in: ['tasker', 'both', 'helper'] },
     });
   }
 
@@ -212,7 +212,7 @@ export class ProfileService {
 
     const baseMatch = {
       'dataPrivacy.accountDeleted': { $ne: true },
-      roles: { $in: ['tasker', 'both'] },
+      roles: { $in: ['tasker', 'both', 'helper'] },
     };
 
     const [totalHelpers, categorizedHelpersAgg, rows] = await Promise.all([
@@ -1214,6 +1214,10 @@ export class ProfileService {
 
       const categoryAliasMap: Record<string, string[]> = {
         cleaning: ['cleaning', 'house_cleaning', 'home_cleaning', 'deep_cleaning', 'maid', 'housekeeping', 'car_wash', 'car_washing', 'laundry'],
+        home_cleaning: ['home_cleaning', 'house_cleaning', 'cleaning', 'deep_cleaning', 'maid', 'housekeeping'],
+        bathroom_cleaning: ['bathroom_cleaning', 'bathroom', 'cleaning', 'home_cleaning', 'house_cleaning'],
+        kitchen_cleaning: ['kitchen_cleaning', 'kitchen', 'cleaning', 'home_cleaning', 'house_cleaning'],
+        beauty: ['beauty', 'beauty_services', 'salon', 'spa', 'makeup', 'hair', 'grooming', 'facial', 'manicure', 'pedicure'],
         repair: ['repair', 'handyperson', 'handyman', 'plumbing', 'electrical', 'carpentry', 'painting', 'appliances', 'it_support', 'laptop_repair', 'computer_repair', 'device_repair'],
         it_support: ['it_support', 'tech_support', 'computer_repair', 'laptop_repair', 'software_installation', 'network_setup'],
         delivery: ['delivery', 'courier', 'moving', 'removals', 'driving', 'driver'],
@@ -1265,21 +1269,14 @@ export class ProfileService {
 
       const users = await Profile.find({
         isActive: true,
-        roles: { $in: ['tasker', 'helper', 'performer'] },
+        roles: { $in: ['tasker', 'helper', 'performer', 'both'] },
+        'dataPrivacy.accountDeleted': { $ne: true },
         $or: [
-          { 'roleVerifications.tasker.canAcceptTasks': true },
-          { canAcceptTasks: true },
-        ],
-        $and: [
-          {
-            $or: [
-              { 'skills.primaryCategory': { $in: tokens } },
-              { 'skills.primaryCategory': { $in: exactTokenRegexes } },
-              { 'skills.list.category': { $in: tokens } },
-              { 'skills.list.category': { $in: exactTokenRegexes } },
-              { 'skills.list.name': tokenRegex },
-            ],
-          },
+          { 'skills.primaryCategory': { $in: tokens } },
+          { 'skills.primaryCategory': { $in: exactTokenRegexes } },
+          { 'skills.list.category': { $in: tokens } },
+          { 'skills.list.category': { $in: exactTokenRegexes } },
+          { 'skills.list.name': tokenRegex },
         ],
       })
         .select('uid skills.primaryCategory skills.list.name skills.list.category')
@@ -1298,9 +1295,8 @@ export class ProfileService {
         normalizedCategory: compactCategory,
         searchTokens: tokens,
         filters: {
-          eligibility: "verified helper/tasker roles only",
+          eligibility: 'active helper/tasker roles with matching skills',
           isActive: true,
-          isVerified: 'canAcceptTasks',
         },
         count: userIds.length
       });
@@ -1310,6 +1306,120 @@ export class ProfileService {
       logger.error('ProfileService.findUsersBySkillCategory error:', {
         category,
         error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Union skill matches across multiple category/subcategory labels from a task post.
+   */
+  static async findUsersBySkillCategories(categories: string[]): Promise<string[]> {
+    const uniqueCategories = Array.from(
+      new Set(
+        (categories || [])
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .map((value) => value.trim()),
+      ),
+    );
+
+    if (uniqueCategories.length === 0) return [];
+
+    const matched = new Set<string>();
+    for (const category of uniqueCategories) {
+      const userIds = await this.findUsersBySkillCategory(category);
+      userIds.forEach((uid) => matched.add(uid));
+    }
+
+    logger.info('ProfileService: Found users by skill categories (batch)', {
+      categories: uniqueCategories,
+      count: matched.size,
+    });
+
+    return Array.from(matched);
+  }
+
+  /**
+   * Find active helpers/taskers whose profile or home location is within radius of a task.
+   * Used by task-service for TASK_NEARBY discovery alerts.
+   */
+  static async findNearbyTaskerUids(params: {
+    longitude: number;
+    latitude: number;
+    radiusMeters?: number;
+    excludeUids?: string[];
+  }): Promise<string[]> {
+    this.checkConnection();
+
+    const longitude = Number(params.longitude);
+    const latitude = Number(params.latitude);
+    const radiusMeters = Math.min(
+      200_000,
+      Math.max(500, Number(params.radiusMeters) || 10_000),
+    );
+
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+      logger.warn('ProfileService.findNearbyTaskerUids: Invalid coordinates', params);
+      return [];
+    }
+
+    const excludeSet = new Set(
+      (params.excludeUids || []).filter(
+        (uid): uid is string => typeof uid === 'string' && uid.trim().length > 0,
+      ),
+    );
+
+    const baseFilter = {
+      roles: { $in: ['tasker', 'helper', 'performer', 'both'] },
+      isActive: true,
+      'dataPrivacy.accountDeleted': { $ne: true },
+    };
+
+    const geoNear = (field: 'location.coordinates' | 'homeLocation.coordinates') => ({
+      ...baseFilter,
+      [field]: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [longitude, latitude],
+          },
+          $maxDistance: radiusMeters,
+        },
+      },
+    });
+
+    try {
+      const [byProfileLocation, byHomeLocation] = await Promise.all([
+        Profile.find(geoNear('location.coordinates')).select('uid').lean(),
+        Profile.find(geoNear('homeLocation.coordinates')).select('uid').lean(),
+      ]);
+
+      const userIds = Array.from(
+        new Set(
+          [...byProfileLocation, ...byHomeLocation]
+            .map((profile: { uid?: string }) => profile.uid)
+            .filter(
+              (uid): uid is string => typeof uid === 'string' && uid.trim().length > 0,
+            )
+            .filter((uid) => !excludeSet.has(uid)),
+        ),
+      );
+
+      logger.info('ProfileService.findNearbyTaskerUids', {
+        coordinates: [longitude, latitude],
+        radiusMeters,
+        matchedByProfileLocationCount: byProfileLocation.length,
+        matchedByHomeLocationCount: byHomeLocation.length,
+        matchedCount: userIds.length,
+        excludedCount: excludeSet.size,
+      });
+
+      return userIds;
+    } catch (error) {
+      logger.error('ProfileService.findNearbyTaskerUids error:', {
+        coordinates: [longitude, latitude],
+        radiusMeters,
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
       return [];
     }
@@ -2465,7 +2575,7 @@ export class ProfileService {
     // Execute query
     const [profiles, total] = await Promise.all([
       Profile.find(query)
-        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt')
+        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills')
         .sort(sort)
         .skip(skip)
         .limit(effectiveLimit)
@@ -2520,6 +2630,7 @@ export class ProfileService {
         isBankVerified: profile.isBankVerified || false,
         bannedAt: profile.bannedAt || null,
         suspendedAt: profile.suspendedAt || null,
+        skills: profile.skills || null,
       };
     });
 
@@ -3253,6 +3364,148 @@ export class ProfileService {
   }
 
   /**
+   * Book Now + poster helper availability (city tasker count, same rules as nearby-helpers).
+   *
+   * Order:
+   * 1) Profile city for authenticated customer (Firebase uid)
+   * 2) Profile coordinates geospatial search (when city text is missing/wrong)
+   * 3) Normalized request city / pin (poster ?city= fallback)
+   * 4) Request coordinates geospatial search (booking payload)
+   * 5) Normalized city-only search
+   */
+  static async resolveBookNowHelperAvailability(params: {
+    firebaseUid?: string;
+    city?: string;
+    pinCode?: string;
+    lat?: number;
+    lng?: number;
+    limit?: number;
+  }): Promise<{
+    checkPerformed: boolean;
+    resolvedCity: string | null;
+    count: number;
+    hasHelpers: boolean;
+    helpers: Awaited<ReturnType<typeof ProfileService.getNearbyHelpers>>;
+  }> {
+    const limit = Math.min(50, Math.max(1, Number(params.limit) || 1));
+    const uid = String(params.firebaseUid || '').trim();
+    const queryCity =
+      normalizeProfileLocationParts({
+        city: params.city,
+        pinCode: params.pinCode,
+        address: params.city,
+      }).city || String(params.city || '').trim();
+
+    if (uid) {
+      const profileResult = await this.getTaskerAvailabilityForFirebaseUid(uid, limit);
+      if (profileResult.checkPerformed && profileResult.hasHelpers) {
+        return profileResult;
+      }
+
+      const profile = await Profile.findOne({ uid }).select('location').lean();
+      const coords = (profile?.location as { coordinates?: unknown } | undefined)?.coordinates;
+      if (Array.isArray(coords) && coords.length >= 2) {
+        const lng = Number(coords[0]);
+        const lat = Number(coords[1]);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const geoHelpers = await this.getNearbyHelpers({
+            lat,
+            lng,
+            limit,
+            excludeUid: uid,
+          });
+          if (geoHelpers.length > 0) {
+            return {
+              checkPerformed: true,
+              resolvedCity: queryCity || profileResult.resolvedCity,
+              count: geoHelpers.length,
+              hasHelpers: true,
+              helpers: geoHelpers,
+            };
+          }
+        }
+      }
+
+      if (profileResult.checkPerformed) {
+        return profileResult;
+      }
+
+      if (queryCity) {
+        const cityHelpers = await this.getNearbyHelpers({
+          city: queryCity,
+          limit,
+          excludeUid: uid,
+        });
+        return {
+          checkPerformed: true,
+          resolvedCity: queryCity,
+          count: cityHelpers.length,
+          hasHelpers: cityHelpers.length > 0,
+          helpers: cityHelpers,
+        };
+      }
+    }
+
+    const reqLat = typeof params.lat === 'number' ? params.lat : Number(params.lat);
+    const reqLng = typeof params.lng === 'number' ? params.lng : Number(params.lng);
+    if (Number.isFinite(reqLat) && Number.isFinite(reqLng)) {
+      const geoHelpers = await this.getNearbyHelpers({
+        lat: reqLat,
+        lng: reqLng,
+        limit,
+        excludeUid: uid || undefined,
+      });
+      return {
+        checkPerformed: true,
+        resolvedCity: queryCity || null,
+        count: geoHelpers.length,
+        hasHelpers: geoHelpers.length > 0,
+        helpers: geoHelpers,
+      };
+    }
+
+    if (queryCity) {
+      const cityHelpers = await this.getNearbyHelpers({ city: queryCity, limit });
+      return {
+        checkPerformed: true,
+        resolvedCity: queryCity,
+        count: cityHelpers.length,
+        hasHelpers: cityHelpers.length > 0,
+        helpers: cityHelpers,
+      };
+    }
+
+    return {
+      checkPerformed: false,
+      resolvedCity: null,
+      count: 0,
+      hasHelpers: false,
+      helpers: [],
+    };
+  }
+
+  /**
+   * Shared poster helper availability — mirrors GET nearby-helpers.
+   */
+  static async resolvePosterHelperAvailability(params: {
+    firebaseUid?: string;
+    city?: string;
+    limit?: number;
+  }): Promise<{
+    checkPerformed: boolean;
+    resolvedCity: string | null;
+    count: number;
+    hasHelpers: boolean;
+    helpers: Awaited<ReturnType<typeof ProfileService.getNearbyHelpers>>;
+  }> {
+    return this.resolveBookNowHelperAvailability({
+      firebaseUid: params.firebaseUid,
+      city: params.city,
+      limit: params.limit,
+    });
+  }
+
+  /**
    * Check if any helpers (taskers) exist near the given location.
    *
    * Strategy (in order):
@@ -3298,7 +3551,7 @@ export class ProfileService {
     });
 
     const baseFilter: Record<string, unknown> = {
-      roles: { $in: ['tasker'] },
+      roles: { $in: ['tasker', 'both', 'helper'] },
       isActive: true,
       'dataPrivacy.accountDeleted': { $ne: true },
       ...(excludeUid ? { uid: { $ne: excludeUid } } : {}),

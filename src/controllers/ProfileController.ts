@@ -16,6 +16,7 @@ import {
 } from '../utils/reviewBypass';
 import { ReferralRecord } from '../models/ReferralRecord';
 import { ReferralStatus } from '../types/referral';
+import { resolveLocationServiceability } from '../constants/locations/isHardcodedSupportedLocation';
 
 type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only' | 'private';
 
@@ -541,14 +542,33 @@ export class ProfileController {
       let userIds: string[] = [];
 
       if (type === 'skill') {
-        if (!criteria.category) {
+        if (Array.isArray(criteria.categories) && criteria.categories.length > 0) {
+          userIds = await ProfileService.findUsersBySkillCategories(criteria.categories);
+        } else if (criteria.category) {
+          userIds = await ProfileService.findUsersBySkillCategory(criteria.category);
+        } else {
           res.status(400).json({
             success: false,
-            error: 'Missing category in criteria for skill matching'
+            error: 'Missing category or categories in criteria for skill matching',
           });
           return;
         }
-        userIds = await ProfileService.findUsersBySkillCategory(criteria.category);
+      } else if (type === 'nearby') {
+        const longitude = Number(criteria.longitude);
+        const latitude = Number(criteria.latitude);
+        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+          res.status(400).json({
+            success: false,
+            error: 'Missing or invalid longitude/latitude in criteria for nearby matching',
+          });
+          return;
+        }
+        userIds = await ProfileService.findNearbyTaskerUids({
+          longitude,
+          latitude,
+          radiusMeters: criteria.radiusMeters,
+          excludeUids: Array.isArray(criteria.excludeUids) ? criteria.excludeUids : undefined,
+        });
       } else if (type === 'keywords') {
         if (!criteria.keywords || !Array.isArray(criteria.keywords)) {
           res.status(400).json({
@@ -570,7 +590,7 @@ export class ProfileController {
       } else {
         res.status(400).json({
           success: false,
-          error: `Invalid matching type: ${type}. Must be 'skill', 'keywords', or 'categories'`
+          error: `Invalid matching type: ${type}. Must be 'skill', 'nearby', 'keywords', or 'categories'`
         });
         return;
       }
@@ -2854,6 +2874,78 @@ export class ProfileController {
   }
 
   /**
+   * GET /api/v1/profiles/internal/helper-availability-by-city
+   * Service-to-service: Book Now / catalog area checks use live tasker counts by city.
+   */
+  static async checkHelperAvailabilityByCity(req: Request, res: Response): Promise<void> {
+    try {
+      const city = typeof req.query.city === 'string' ? req.query.city.trim() : '';
+      const pinCode = typeof req.query.pinCode === 'string' ? req.query.pinCode.trim() : '';
+      const firebaseUid =
+        typeof req.query.firebaseUid === 'string' ? req.query.firebaseUid.trim() : '';
+      const lat =
+        req.query.lat !== undefined ? parseFloat(String(req.query.lat)) : undefined;
+      const lng =
+        req.query.lng !== undefined ? parseFloat(String(req.query.lng)) : undefined;
+      const limit =
+        req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : 1;
+
+      const result = await ProfileService.resolveBookNowHelperAvailability({
+        firebaseUid: firebaseUid || undefined,
+        city: city || undefined,
+        pinCode: pinCode || undefined,
+        lat: Number.isFinite(lat) ? lat : undefined,
+        lng: Number.isFinite(lng) ? lng : undefined,
+        limit,
+      });
+
+      const profileLocation = firebaseUid
+        ? await Profile.findOne({ uid: firebaseUid }).select('location').lean()
+        : null;
+      const loc = profileLocation?.location as {
+        address?: string;
+        city?: string;
+        state?: string;
+        addressDetails?: { city?: string; area?: string; state?: string };
+      } | undefined;
+
+      const serviceability = resolveLocationServiceability({
+        checkPerformed: result.checkPerformed,
+        hasHelpers: result.hasHelpers,
+        location: {
+          city: result.resolvedCity ?? city,
+          area: loc?.addressDetails?.area,
+          state: loc?.addressDetails?.state ?? loc?.state,
+          address: loc?.address,
+        },
+      });
+
+      res.json({
+        success: true,
+        data: {
+          city: result.resolvedCity ?? city,
+          resolvedCity: result.resolvedCity,
+          serviceable: serviceability.isServiceable,
+          canPostTask: serviceability.canPostTask,
+          canBookService: serviceability.canBookService,
+          isHardcodedSupported: serviceability.isHardcodedSupported,
+          hasHelpers: result.hasHelpers,
+          count: result.count,
+          checkPerformed: result.checkPerformed,
+        },
+      });
+    } catch (error: any) {
+      logger.error('ProfileController.checkHelperAvailabilityByCity error', {
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to check helper availability',
+      });
+    }
+  }
+
+  /**
    * GET /api/v1/profiles/nearby-helpers
    * Returns helpers (taskers) near the caller's location.
    *
@@ -2884,22 +2976,11 @@ export class ProfileController {
       // Optional ?city= only when profile has no resolvable city (mobile cache fallback).
       const queryCity =
         typeof req.query.city === 'string' ? req.query.city.trim() : '';
-      let result = await ProfileService.getTaskerAvailabilityForFirebaseUid(callerUid, limit);
-
-      if (!result.checkPerformed && queryCity) {
-        const helpers = await ProfileService.getNearbyHelpers({
-          city: queryCity,
-          limit,
-          excludeUid: callerUid,
-        });
-        result = {
-          checkPerformed: true,
-          resolvedCity: queryCity,
-          count: helpers.length,
-          hasHelpers: helpers.length > 0,
-          helpers,
-        };
-      }
+      const result = await ProfileService.resolvePosterHelperAvailability({
+        firebaseUid: callerUid,
+        city: queryCity || undefined,
+        limit,
+      });
 
       res.json({
         success: true,

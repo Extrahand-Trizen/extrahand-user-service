@@ -43,6 +43,11 @@ router.get(
 // Used by task-service to find taskers when a task is created
 router.post('/internal/match-users', serviceAuthMiddleware, asyncHandler(ProfileController.matchUsers));
 router.get(
+  '/internal/helper-availability-by-city',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.checkHelperAvailabilityByCity),
+);
+router.get(
   '/internal/certificates/queue',
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getInternalCertificateQueue)
