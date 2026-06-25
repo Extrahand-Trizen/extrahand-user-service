@@ -202,7 +202,7 @@ export class AuthService {
     */
    static async getProfileByPhone(
       phone: string
-   ): Promise<{ uid: string; isAadhaarVerified: boolean; name?: string } | null> {
+    ): Promise<{ uid: string; isAadhaarVerified: boolean; name?: string; createdAt?: Date } | null> {
       if (!phone || typeof phone !== "string") {
          return null;
       }
@@ -222,6 +222,7 @@ export class AuthService {
          uid: profile.uid,
          isAadhaarVerified: !!profile.isAadhaarVerified,
          name: profile.name || undefined,
+         createdAt: profile.createdAt,
       };
    }
 
@@ -676,8 +677,6 @@ export class AuthService {
                   referralChannel
                );
             } else {
-               sendSignupWelcomeWhatsApp = true;
-
                const phoneUsage = await isPhoneUsedGlobally(formattedPhone, uid);
                if (phoneUsage.used) {
                   throw new BadRequestError(

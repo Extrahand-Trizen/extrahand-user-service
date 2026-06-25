@@ -118,6 +118,9 @@ export interface IProfile extends Document {
     }>;
     updatedAt?: Date;
   };
+  referralCode?: string;
+  partnerProfile?: PartnerProfile;
+  supplyPrograms?: SupplyProgram[];
   verificationTier?: number;
   verificationBadge?: 'none' | 'basic' | 'verified' | 'trusted';
   lastVerifiedAt?: Date;
@@ -681,7 +684,30 @@ const ProfileSchema = new Schema<IProfile>({
       quantity: { type: Number, required: true, min: 1, default: 1 },
     }],
     updatedAt: Date
-  }
+  },
+  referralCode: {
+    type: String,
+    trim: true,
+    default: null,
+  },
+  partnerProfile: {
+    status: {
+      type: String,
+      enum: ['not_applied', 'draft', 'pending_review', 'approved', 'rejected', 'suspended'],
+      default: 'not_applied',
+      index: true,
+    },
+    approvedAt: Date,
+    approvedBy: String,
+    onboardingCompleted: { type: Boolean, default: false },
+    languages: { type: [String], default: [] },
+    gender: String,
+    dob: Date,
+  },
+  supplyPrograms: {
+    type: [{ type: String, enum: ['marketplace', 'book_now'] }],
+    default: undefined,
+  },
 }, {
   timestamps: true
 });
