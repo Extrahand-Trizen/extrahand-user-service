@@ -11,6 +11,7 @@ import { ensureDualReferralCodes, lookupReferralCodeChannel } from '../services/
 import { CreditTransactionType, ReferralStatus } from '../types/referral';
 import { ReferralApplyOrchestrator } from '../rewards/referral/ReferralApplyOrchestrator';
 import { ReferralGrantReissue } from '../rewards/referral/ReferralGrantReissue';
+import { findRefereeEnrollmentForProfile } from '../rewards/referral/referralEnrollmentLookup';
 import { ReferralEligibilityService } from '../rewards/referral/services/ReferralEligibilityService';
 import { rewardsFlags } from '../rewards/config/rewardsFlags';
 import { RewardConfigProvider } from '../rewards/config/RewardConfigProvider';
@@ -242,9 +243,13 @@ export class ReferralController {
         return;
       }
 
-      const enrollment = await ReferralRecord.findOne({ refereeId: profile._id });
+      const enrollment = await findRefereeEnrollmentForProfile(profile._id, uid);
       if (!enrollment) {
-        res.status(404).json({ success: false, error: 'No referral enrollment found' });
+        res.status(404).json({
+          success: false,
+          error: 'No referral enrollment found',
+          code: 'no_enrollment',
+        });
         return;
       }
 

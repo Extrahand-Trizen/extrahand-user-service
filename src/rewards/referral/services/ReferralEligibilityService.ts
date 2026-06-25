@@ -3,11 +3,13 @@ import { ReferralRecord } from '../../../models/ReferralRecord';
 import { BadRequestError } from '../../../errors/AppError';
 import { hashReferralPhone } from '../../antiAbuse/utils/phoneHash.util';
 import { ReferralConsumptionService } from '../../antiAbuse/services/ReferralConsumptionService';
+import { findRefereeEnrollmentForProfile } from '../referralEnrollmentLookup';
 import type { ReferralChannel } from '../../utils/walletRole';
 import mongoose from 'mongoose';
 
 export type RefereeWelcomeIneligibleReason =
   | 'already_consumed'
+  | 'welcome_already_received'
   | 'no_phone'
   | 'no_enrollment'
   | 'not_tasker_referral';
@@ -17,6 +19,18 @@ export interface RefereeWelcomeEligibilityResult {
   reason?: RefereeWelcomeIneligibleReason;
   referralCode?: string;
   refereeCoins?: number;
+  /** True when signup welcome was already credited on this enrollment (not a new-user block). */
+  welcomeFulfilled?: boolean;
+}
+
+function isEnrollmentRefereeWelcomeFulfilled(enrollment: {
+  grantsStatus?: string | null;
+  refereeRewardCredited?: Date | null;
+} | null): boolean {
+  if (!enrollment) return false;
+  if (enrollment.refereeRewardCredited) return true;
+  const status = String(enrollment.grantsStatus || '').toLowerCase();
+  return status === 'completed' || status === 'partial';
 }
 
 export interface ReferralApplyEligibilityInput {
@@ -106,11 +120,16 @@ export class ReferralEligibilityService {
 
     const profilePhoneHash = hashReferralPhone((profile as { phone?: string }).phone);
 
-    const enrollment = await ReferralRecord.findOne({
-      refereeId: profile._id,
-    })
-      .select('referralChannel referralCode refereePhoneHash')
-      .lean();
+    const enrollmentDoc = await findRefereeEnrollmentForProfile(profile._id, uid);
+    const enrollment = enrollmentDoc
+      ? {
+          referralChannel: enrollmentDoc.referralChannel,
+          referralCode: enrollmentDoc.referralCode,
+          refereePhoneHash: enrollmentDoc.refereePhoneHash,
+          grantsStatus: enrollmentDoc.grantsStatus,
+          refereeRewardCredited: enrollmentDoc.refereeRewardCredited,
+        }
+      : null;
 
     const channel = enrollment
       ? String(enrollment.referralChannel || '').toLowerCase()
@@ -132,6 +151,14 @@ export class ReferralEligibilityService {
       'tasker'
     );
     if (!consumption.allowed) {
+      if (enrollment && isEnrollmentRefereeWelcomeFulfilled(enrollment)) {
+        return {
+          eligible: false,
+          reason: 'welcome_already_received',
+          welcomeFulfilled: true,
+          referralCode: enrollment.referralCode,
+        };
+      }
       return {
         eligible: false,
         reason: 'already_consumed',

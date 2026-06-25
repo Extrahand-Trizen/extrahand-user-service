@@ -45,7 +45,7 @@ export class BadgeNotificationService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': env.SERVICE_AUTH_TOKEN,
+          'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
           'x-service-name': 'user-service'
         },
         body: JSON.stringify({
@@ -118,7 +118,7 @@ export class BadgeNotificationService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': env.SERVICE_AUTH_TOKEN,
+          'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
           'x-service-name': 'user-service'
         },
         body: JSON.stringify({
@@ -166,7 +166,7 @@ export class BadgeNotificationService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': env.SERVICE_AUTH_TOKEN,
+          'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
           'x-service-name': 'user-service'
         },
         body: JSON.stringify({
@@ -216,7 +216,7 @@ export class BadgeNotificationService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-service-token': env.SERVICE_AUTH_TOKEN,
+          'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
           'x-service-name': 'user-service'
         },
         body: JSON.stringify({

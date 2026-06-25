@@ -41,5 +41,4 @@ router.use("/notification-preferences", notificationPreferencesRoutes);
 router.use("/user", referralRoutes);
 router.use("/user", badgeRoutes);
 router.use("/inquiries", inquiriesRoutes);
-
 export default router;

@@ -10,6 +10,7 @@ import {
 import type { ClientType } from "../models/SessionToken";
 import { logReferralCoins } from "../rewards/referral/referralCoinsLogger";
 import { parseReferralChannel } from "../rewards/utils/walletRole";
+import logger from "../config/logger";
 
 export class AuthController {
    static async checkPhone(
@@ -172,6 +173,14 @@ export class AuthController {
                phoneLast4: String(phone).replace(/\D/g, "").slice(-4),
             });
          }
+
+         const phoneLast10 = String(phone).replace(/\D/g, "").slice(-10);
+         logger.info("[Signup][WA] otp/complete received", {
+            mode,
+            clientType: normalizedClient,
+            phoneLast4: phoneLast10.slice(-4),
+            willRunMyOperator: mode === "signup",
+         });
 
          const result = await AuthService.completeOTPAuth(
             idToken,

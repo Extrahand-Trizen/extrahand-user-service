@@ -1,5 +1,7 @@
 import { ReferralRecord } from '../../models/ReferralRecord';
 import type { ReferralGrantsStatus } from '../types/GrantsStatus';
+import type { GrantSpec } from '../types/GrantSpec';
+import { grantTargetsRefereeWelcome } from '../antiAbuse/services/ReferralConsumptionService';
 import logger from '../../config/logger';
 
 export interface GrantIssueSummary {
@@ -49,6 +51,31 @@ export async function updateEnrollmentGrantsStatus(
     logger.warn('[grantEnrollmentTracker] Failed to update grantsStatus', {
       enrollmentId,
       status,
+      err,
+    });
+  }
+}
+
+/** Set refereeRewardCredited when a successful grant paid the referee signup welcome. */
+export async function markRefereeWelcomeCreditedIfIssued(
+  enrollmentId: string,
+  grants: GrantSpec[],
+  results: Array<{ success?: boolean }> | undefined
+): Promise<void> {
+  const list = results || [];
+  const credited = grants.some(
+    (grant, index) => list[index]?.success && grantTargetsRefereeWelcome(grant)
+  );
+  if (!credited) return;
+
+  try {
+    await ReferralRecord.updateOne(
+      { _id: enrollmentId },
+      { $set: { refereeRewardCredited: new Date() } }
+    );
+  } catch (err) {
+    logger.warn('[grantEnrollmentTracker] Failed to set refereeRewardCredited', {
+      enrollmentId,
       err,
     });
   }

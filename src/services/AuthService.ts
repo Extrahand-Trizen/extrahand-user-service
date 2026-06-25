@@ -6,7 +6,7 @@ import Profile from "../models/Profile";
 import { BadRequestError, InternalServerError } from "../errors/AppError";
 import logger from "../config/logger";
 import { EmailServiceClient } from "../clients/EmailServiceClient";
-import { MyOperatorClient } from "../clients/MyOperatorClient";
+import { MessagingServiceClient } from "../clients/MessagingServiceClient";
 import NotificationPreferencesService from "./NotificationPreferencesService";
 import {
    findActiveProfileByUidOrPhone,
@@ -70,6 +70,84 @@ export class AuthService {
          });
       }
    }
+
+   /** On signup, prefer the name from the form over an existing profile / Firebase display name. */
+   private static async applySignupNameFromRequest(
+      uid: string,
+      profile: any,
+      name?: string
+   ): Promise<any> {
+      const trimmed = name?.trim();
+      if (!trimmed || trimmed === "User") return profile;
+      if (profile?.name === trimmed) return profile;
+      await Profile.updateOne({ uid }, { $set: { name: trimmed, updatedAt: Date.now() } });
+      const updated = await Profile.findOne({ uid }).lean();
+      logger.info("Signup name updated from request", {
+         uid,
+         previousName: profile?.name,
+         newName: trimmed,
+      });
+      return updated || { ...profile, name: trimmed };
+   }
+
+   /**
+    * Non-blocking MyOperator contact + signup WhatsApp template (used on signup).
+    */
+   private static triggerSignupMyOperatorIntegrations(args: {
+      uid: string;
+      profile: any;
+      phoneLast10: string;
+      name?: string;
+      email?: string;
+   }): void {
+      const { uid, profile, phoneLast10, name, email } = args;
+      const trimmedRequestName = name?.trim();
+      const profileName =
+         trimmedRequestName && trimmedRequestName !== "User"
+            ? trimmedRequestName
+            : profile?.name || "User";
+      const emailForContact = email || "";
+
+      if (!phoneLast10 || phoneLast10.length < 10) return;
+
+      const roles = (profile as { roles?: string[] })?.roles;
+      let signupRole: string | undefined;
+      if (Array.isArray(roles)) {
+         if (roles.includes("tasker") && !roles.includes("poster")) {
+            signupRole = "helper";
+         } else if (roles.includes("poster") && !roles.includes("tasker")) {
+            signupRole = "poster";
+         }
+      }
+
+      logger.info("Triggering signup WhatsApp (contact + template)", {
+         uid,
+         whatsAppName: profileName,
+         signupRole,
+      });
+
+      void MessagingServiceClient.sendSignupWelcome({
+         uid,
+         name: profileName,
+         email: emailForContact,
+         role: signupRole,
+         templateBody: { var_1: String(profileName) },
+      })
+         .then((sent) => {
+            if (sent) {
+               logger.info("Signup WhatsApp template: sent", { uid });
+            } else {
+               logger.warn("Signup WhatsApp template: not sent", { uid });
+            }
+         })
+         .catch((err: unknown) => {
+            logger.warn("Signup WhatsApp template failed (non-blocking)", {
+               uid,
+               error: err instanceof Error ? err.message : String(err),
+            });
+         });
+   }
+
    /**
     * Sync profile data based on Firebase UID (from session token)
     */
@@ -444,8 +522,8 @@ export class AuthService {
       user?: { uid: string; phone: string | null };
       error?: string;
    }> {
-      /** True only when signup creates a new profile (not "profile already exists" retry). */
-      let sendSignupWelcomeWhatsApp = false;
+      /** True when signup flow creates a profile in this request (login zombie create does not set this). */
+      let isNewProfileThisRequest = false;
 
       try {
          // 1. Verify Firebase ID token
@@ -556,6 +634,7 @@ export class AuthService {
                   });
 
                   profile = created.toObject() as any;
+                  isNewProfileThisRequest = true;
                } catch (error: any) {
                   // Handle duplicate key error (race condition)
                   if (error.code === 11000) {
@@ -592,80 +671,17 @@ export class AuthService {
                   profile = await Profile.findOne({ uid }).lean();
                }
 
-               // If user retries signup or profile was created before this feature,
-               // still create MyOperator contact if we haven't yet.
-               if (profile && !(profile as any).myOperatorContactId) {
-                  const nameForContact = name || profile?.name || "User";
-                  const countryCode = process.env.MYOPERATOR_COUNTRY_CODE || "91";
-                  const phoneForContact = phoneLast10 || "";
-                  const emailForContact = firebaseEmail || "";
-                  const marketingOptIn = true;
-
-                  logger.info("Triggering MyOperator contact creation for existing signup profile", {
-                     uid,
-                     phoneForContact,
-                     emailForContact,
-                  });
-
-                  void MyOperatorClient.createContact({
-                     name: String(nameForContact),
-                     countryCode,
-                     phoneNumber: phoneForContact,
-                     emailId: String(emailForContact),
-                     marketingOptIn,
-                  })
-                     .then(async (result) => {
-                        if (!result) return;
-                        if (!result.contactId) {
-                           logger.warn("MyOperator createContact returned no contactId; skipping profile update", {
-                              uid,
-                           });
-                           return;
-                        }
-                        await Profile.updateOne(
-                           { uid },
-                           {
-                              $set: {
-                                 myOperatorContactId: result.contactId,
-                                 myOperatorContactCreatedAt: new Date(),
-                              },
-                           }
-                        );
-                     })
-                     .catch((error) => {
-                        logger.warn("MyOperator contact creation failed (non-blocking)", {
-                           uid,
-                           error: error instanceof Error ? error.message : error,
-                        });
-                     });
-               }
-
                await AuthService.ensureSignupNotificationDefaults(uid);
 
-               if (phoneLast10 && phoneLast10.length >= 10) {
-                  const waCountry = process.env.MYOPERATOR_COUNTRY_CODE || "91";
-                  logger.info("Triggering MyOperator signup WhatsApp template (existing signup profile)", { uid });
-                  void MyOperatorClient.sendSignupWelcomeWhatsAppTemplate({
-                     customerCountryCode: waCountry,
-                     customerNumber: phoneLast10,
-                     templateBody: { name: String((profile as any)?.name || name || "User") },
-                  })
-                     .then((sent) => {
-                        if (sent) {
-                           logger.info("Signup WhatsApp template (existing signup profile): sent", { uid });
-                           console.log("[Signup][WhatsApp] Template sent successfully (existing signup profile)", { uid });
-                        } else {
-                           logger.warn("Signup WhatsApp template (existing signup profile): not sent", { uid });
-                           console.warn("[Signup][WhatsApp] Template NOT sent (existing signup profile)", { uid });
-                        }
-                     })
-                     .catch((error) => {
-                        logger.warn("MyOperator signup WhatsApp template threw (non-blocking, existing signup profile)", {
-                           uid,
-                           error: error instanceof Error ? error.message : error,
-                        });
-                     });
-               }
+               profile = await AuthService.applySignupNameFromRequest(uid, profile, name);
+
+               AuthService.triggerSignupMyOperatorIntegrations({
+                  uid,
+                  profile,
+                  phoneLast10,
+                  name,
+                  email: firebaseEmail || "",
+               });
 
                // Return existing profile instead of creating duplicate
                return AuthService.buildOtpSuccessResponse(
@@ -708,6 +724,7 @@ export class AuthService {
                   });
 
                   profile = created.toObject() as any;
+                  isNewProfileThisRequest = true;
                } catch (error: any) {
                   // Handle duplicate key error (race condition)
                   if (error.code === 11000) {
@@ -738,81 +755,29 @@ export class AuthService {
             await AuthService.ensureSignupNotificationDefaults(uid);
          }
 
-         // MyOperator contact creation (signup only)
-         // Non-blocking: failures should not break OTP signup/login/profile creation.
-         if (mode === "signup" && profile && !(profile as any).myOperatorContactId) {
-            const nameForContact = name || profile.name || "User";
-            const countryCode = process.env.MYOPERATOR_COUNTRY_CODE || "91";
-            const phoneForContact = phoneLast10 || "";
-            const emailForContact = firebaseEmail || "";
-            const marketingOptIn = true;
-
-            logger.info("Triggering MyOperator contact creation for new signup profile", {
-               uid,
-               phoneForContact,
-               emailForContact,
-            });
-
-            void MyOperatorClient.createContact({
-               name: String(nameForContact),
-               countryCode,
-               phoneNumber: phoneForContact,
-               emailId: String(emailForContact),
-               marketingOptIn,
-            })
-               .then(async (result) => {
-                  if (!result) return;
-                  if (!result.contactId) {
-                     logger.warn("MyOperator createContact returned no contactId; skipping profile update", {
-                        uid,
-                     });
-                     return;
-                  }
-                  await Profile.updateOne(
-                     { uid },
-                     {
-                        $set: {
-                           myOperatorContactId: result.contactId,
-                           myOperatorContactCreatedAt: new Date(),
-                        },
-                     }
-                  );
-               })
-               .catch((error) => {
-                  logger.warn("MyOperator contact creation failed (non-blocking)", {
-                     uid,
-                     error: error instanceof Error ? error.message : error,
-                  });
-               });
-         }
-
          if (profile) {
             profile = await ensureDemoVerificationProfile(profile);
          }
 
-         if (sendSignupWelcomeWhatsApp && phoneLast10 && phoneLast10.length >= 10) {
-            const waCountry = process.env.MYOPERATOR_COUNTRY_CODE || "91";
-            logger.info("Triggering MyOperator signup WhatsApp template (new signup profile)", { uid });
-            void MyOperatorClient.sendSignupWelcomeWhatsAppTemplate({
-               customerCountryCode: waCountry,
-               customerNumber: phoneLast10,
-               templateBody: { name: String(profile?.name || name || "User") },
-            })
-               .then((sent) => {
-                  if (sent) {
-                     logger.info("Signup WhatsApp template (new signup profile): sent", { uid });
-                     console.log("[Signup][WhatsApp] Template sent successfully (new signup profile)", { uid });
-                  } else {
-                     logger.warn("Signup WhatsApp template (new signup profile): not sent", { uid });
-                     console.warn("[Signup][WhatsApp] Template NOT sent (new signup profile)", { uid });
-                  }
-               })
-               .catch((error) => {
-                  logger.warn("MyOperator signup WhatsApp template threw (non-blocking, new signup profile)", {
-                     uid,
-                     error: error instanceof Error ? error.message : error,
-                  });
-               });
+         // Signup: always run MyOperator (new profile, retry signup, or existing profile path already triggered above).
+         if (mode === "signup" && profile) {
+            profile = await AuthService.applySignupNameFromRequest(uid, profile, name);
+            AuthService.triggerSignupMyOperatorIntegrations({
+               uid,
+               profile,
+               phoneLast10,
+               name,
+               email: firebaseEmail || "",
+            });
+         } else if (mode === "login" && isNewProfileThisRequest && profile) {
+            logger.info("Login created new profile — running signup MyOperator flow", { uid });
+            AuthService.triggerSignupMyOperatorIntegrations({
+               uid,
+               profile,
+               phoneLast10,
+               name: name || profile?.name,
+               email: firebaseEmail || "",
+            });
          }
 
          logger.info("OTP auth completed successfully", {
@@ -880,6 +845,7 @@ export class AuthService {
       { phoneLast10: "9999999999", phoneE164: "+919999999999", otps: ["123456"], displayName: "Local Test User" },
       { phoneLast10: "9876543210", phoneE164: "+919876543210", otps: ["654321", "123456"], displayName: "Local Test User" },
       { phoneLast10: "9876543211", phoneE164: "+919876543211", otps: ["654321", "123456"], displayName: "Local Test User 2" },
+      { phoneLast10: "7416337859", phoneE164: "+917416337859", otps: ["123456"], displayName: "WA Test User" },
    ];
 
    static async completeOTPDevAuth(
@@ -1038,6 +1004,17 @@ export class AuthService {
          phone: formattedPhone,
          mode,
       });
+
+      if (mode === "signup") {
+         await AuthService.ensureSignupNotificationDefaults(verifiedProfile.uid);
+         AuthService.triggerSignupMyOperatorIntegrations({
+            uid: verifiedProfile.uid,
+            profile: verifiedProfile,
+            phoneLast10,
+            name: displayName,
+            email: "",
+         });
+      }
 
       return AuthService.buildOtpSuccessResponse(
          verifiedProfile.uid,

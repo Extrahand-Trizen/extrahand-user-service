@@ -3,6 +3,7 @@ import { ReferralStatus } from '../../../types/referral';
 import type { RewardProgramSnapshot } from '../../types/RewardProgram';
 import { GrantResolver, type ResolveGrantsContext } from '../../grants/GrantResolver';
 import { ReferralEligibilityService } from '../../referral/services/ReferralEligibilityService';
+import { logReferralCoins } from '../../referral/referralCoinsLogger';
 import type { QualificationEvaluation } from '../QualificationEngine';
 
 type EnrollmentSlice = {
@@ -86,6 +87,18 @@ export class BothKycStaggeredEvaluator {
     const refereeKyc = ReferralEligibilityService.isAadhaarVerified(refereeProfile);
 
     if (!referrerKyc || !refereeKyc) {
+      logReferralCoins(
+        'both_kyc_blocked_referee_welcome',
+        {
+          enrollmentRefereeUid: enrollment.refereeUid,
+          enrollmentReferrerUid: enrollment.referrerUid,
+          refereeKyc,
+          referrerKyc,
+          hint:
+            'Referee welcome coins issue only after BOTH referrer and referee complete Aadhaar. If referee verified first, coins issue when referrer completes KYC (or use POST /referral/retry-grants).',
+        },
+        'warn'
+      );
       return { shouldQualify: false, grants: [], reason: 'both_kyc_required' };
     }
 
