@@ -1,5 +1,5 @@
 import mongoose, { Schema, Model, Document } from 'mongoose';
-import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, ProfilePrivacy, SavedAddress, PortfolioItem } from '../types';
+import { Location, OnboardingStatus, BusinessProfile, DataPrivacy, ProfilePrivacy, SavedAddress, PortfolioItem, PartnerProfile, SupplyProgram } from '../types';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 
 export interface IProfile extends Document {
