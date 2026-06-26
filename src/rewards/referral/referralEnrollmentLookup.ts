@@ -1,5 +1,5 @@
 import type { Types } from 'mongoose';
-import ReferralRecord, { type IReferralRecord } from '../../models/ReferralRecord';
+import { ReferralRecord, type IReferralRecord } from '../../models/ReferralRecord';
 import logger from '../../config/logger';
 
 /**

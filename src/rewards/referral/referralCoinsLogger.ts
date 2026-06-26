@@ -51,7 +51,8 @@ export type ReferralCoinsStep =
   | 'api_retry_grants_response'
   | 'aadhaar_identity_verified_processed'
   | 'aadhaar_auto_reissue_grants'
-  | 'aadhaar_auto_reissue_failed';
+  | 'aadhaar_auto_reissue_failed'
+  | 'both_kyc_blocked_referee_welcome';
 
 function maskToken(token: string | undefined): string {
   if (!token) return '(missing)';

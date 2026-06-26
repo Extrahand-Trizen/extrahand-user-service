@@ -688,8 +688,6 @@ export class AuthService {
                   referralChannel
                );
             } else {
-               sendSignupWelcomeWhatsApp = true;
-
                const phoneUsage = await isPhoneUsedGlobally(formattedPhone, uid);
                if (phoneUsage.used) {
                   throw new BadRequestError(
