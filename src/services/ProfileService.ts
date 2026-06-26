@@ -942,9 +942,40 @@ export class ProfileService {
    */
   static async getMyProfile(uid: string): Promise<IProfileDocument> {
     this.checkConnection();
-    
     const profile = await Profile.findOne({ uid })
-      .select('uid name profession email phone alternatePhone alternatePhoneVerified alternatePhoneVerifiedAt roles userType skills rating totalReviews isVerified isAadhaarVerified aadhaarVerifiedAt maskedAadhaar isEmailVerified emailVerifiedAt isPANVerified panVerifiedAt maskedPan isBankVerified bankVerifiedAt maskedBankAccount bankAccount location photoURL bio portfolio totalTasks completedTasks postedTasks earnedAmount business onboardingStatus profilePrivacy savedAddresses dataPrivacy createdAt updatedAt')
+      .select([
+        // Core identity
+        'uid', 'name', 'profession', 'email', 'phone',
+        'alternatePhone', 'alternatePhoneVerified', 'alternatePhoneVerifiedAt',
+        'client_type', 'roles', 'userType', 'isActive', 'status',
+        'photoURL', 'bio', 'portfolio',
+        // Verification
+        'isEmailVerified', 'emailVerifiedAt',
+        'isAadhaarVerified', 'aadhaarVerifiedAt', 'maskedAadhaar',
+        'isPANVerified', 'panVerifiedAt', 'maskedPan',
+        'isBankVerified', 'bankVerifiedAt', 'maskedBankAccount', 'bankAccount',
+        'isFaceVerified', 'isAdminVerified', 'phoneVerified',
+        'verificationTier', 'verificationBadge', 'lastVerifiedAt', 'roleVerifications',
+        // Skills & tasks
+        'skills', 'rating', 'totalReviews', 'totalTasks', 'completedTasks',
+        'postedTasks', 'earnedAmount',
+        // Location & addresses
+        'location', 'homeLocation', 'savedAddresses',
+        // Onboarding & business
+        'onboardingStatus', 'business',
+        // ─── PARTNER ──────────────────────────────────────────────────────────
+        // partnerProfile MUST be included so the frontend can detect approved
+        // partners and show the partner shell (was missing → caused cold-start bug)
+        'partnerProfile', 'supplyPrograms',
+        // ──────────────────────────────────────────────────────────────────────
+        // Privacy & preferences
+        'profilePrivacy', 'dataPrivacy',
+        'savedKeywords', 'savedCategories', 'bookNowCart',
+        'agreeTerms', 'agreeUpdates',
+        'myOperatorContactId', 'myOperatorContactCreatedAt',
+        // Timestamps
+        'createdAt', 'updatedAt', 'lastActive',
+      ].join(' '))
       .lean();
 
     if (!profile) {
@@ -2089,6 +2120,27 @@ export class ProfileService {
     }
     if (profileData.agreeUpdates !== undefined) updatePayload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) updatePayload.agreeTerms = profileData.agreeTerms;
+    if ((profileData as any).referralCode !== undefined) updatePayload.referralCode = (profileData as any).referralCode;
+    // Map top-level gender/dob into partnerProfile subdocument so callers sending
+    // { gender: 'male', dateOfBirth: '1990-01-01' } get correct persistence.
+    const topGender = (profileData as any).gender;
+    const topDob = (profileData as any).dateOfBirth;
+    if (topGender !== undefined || topDob !== undefined) {
+      const incomingPartnerMerge: Record<string, unknown> = {};
+      if (topGender !== undefined) incomingPartnerMerge.gender = topGender;
+      if (topDob !== undefined) incomingPartnerMerge.dob = topDob;
+      const existingPartner = existingProfile.partnerProfile
+        ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
+        : {};
+      updatePayload.partnerProfile = { ...existingPartner, ...incomingPartnerMerge };
+    }
+    if (profileData.partnerProfile !== undefined) {
+      const mergedPartnerProfile = {
+        ...(existingProfile.partnerProfile ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile : {}),
+        ...profileData.partnerProfile,
+      };
+      updatePayload.partnerProfile = mergedPartnerProfile;
+    }
 
     // Update onboarding status
     // ✨ REMOVED: Location check - location is completely removed from onboarding
@@ -2604,6 +2656,8 @@ export class ProfileService {
       const normalizedRoles = normalizeRoles(profile.roles);
       
       return {
+        _id: profile._id.toString(),
+        profileId: profile._id.toString(),
         userId: profile.uid,
         uid: profile.uid,
         name: profile.name || '',

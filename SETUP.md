@@ -96,7 +96,28 @@ Set `FIREBASE_SERVICE_ACCOUNT_PATH` to the full path of your service account fil
 
 Set `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
 
-## 🗄️ MongoDB Setup
+### Mobile apps (extrahand-ca02c) — required for React Native OTP login
+
+The customer/helper mobile apps authenticate with Firebase project **`extrahand-ca02c`**.  
+The web app uses **`extrahand-app`**. The user-service verifies tokens against **both** when mobile credentials are configured.
+
+1. Open [Firebase Console](https://console.firebase.google.com/) → project **extrahand-ca02c**
+2. Project settings → Service accounts → **Generate new private key**
+3. Save the JSON as:
+
+```
+extrahand-user-service/serviceAccountKey-mobile.json
+```
+
+4. Restart user-service. On startup you should see:
+
+```
+✅ Firebase mobile project initialized
+```
+
+Alternatively set `FIREBASE_MOBILE_PROJECT_ID`, `FIREBASE_MOBILE_CLIENT_EMAIL`, and `FIREBASE_MOBILE_PRIVATE_KEY` in `.env`.
+
+Without this, mobile OTP login fails with `Invalid or expired authentication token` (audience mismatch).
 
 ### Local MongoDB
 

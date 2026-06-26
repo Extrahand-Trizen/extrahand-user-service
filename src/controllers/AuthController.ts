@@ -110,6 +110,7 @@ export class AuthController {
             uid: profile.uid,
             isAadhaarVerified: profile.isAadhaarVerified,
             name: profile.name,
+            createdAt: profile.createdAt,
          },
       });
    }

@@ -177,6 +177,21 @@ export interface LoginResponse {
 
 // IProfileDocument is exported from models/Profile.ts
 
+export type PartnerProfileStatus = 'not_applied' | 'draft' | 'pending_review' | 'approved' | 'rejected' | 'suspended';
+
+export interface PartnerProfile {
+  status: PartnerProfileStatus;
+  approvedAt?: Date;
+  approvedBy?: string;
+  onboardingCompleted?: boolean;
+  languages?: string[];
+  gender?: string;
+  dob?: Date;
+  [key: string]: unknown;
+}
+
+export type SupplyProgram = 'marketplace' | 'book_now';
+
 export interface ILocation {
    type: "Point";
    coordinates: [number, number];
