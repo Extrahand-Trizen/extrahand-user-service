@@ -1737,6 +1737,23 @@ export class ProfileService {
     if (profileData.agreeUpdates !== undefined) payload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) payload.agreeTerms = profileData.agreeTerms;
 
+    if ((profileData as any).referralCode !== undefined) payload.referralCode = (profileData as any).referralCode;
+    if ((profileData as any).gender !== undefined) payload.gender = (profileData as any).gender;
+    if ((profileData as any).dateOfBirth !== undefined) payload.dob = (profileData as any).dateOfBirth;
+    if ((profileData as any).dob !== undefined) payload.dob = (profileData as any).dob;
+    if ((profileData as any).supplyPrograms !== undefined) payload.supplyPrograms = (profileData as any).supplyPrograms;
+
+    // Handle partnerProfile: merge with existing
+    if ((profileData as any).partnerProfile !== undefined) {
+      const existingPartner = existingProfile?.partnerProfile
+        ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
+        : {};
+      payload.partnerProfile = {
+        ...existingPartner,
+        ...(profileData as any).partnerProfile,
+      };
+    }
+
     logger.debug('🔍 [PROFILE SERVICE] Checking if profile exists', {
       uid,
       exists: !!existingProfile,
@@ -2121,25 +2138,36 @@ export class ProfileService {
     if (profileData.agreeUpdates !== undefined) updatePayload.agreeUpdates = profileData.agreeUpdates;
     if (profileData.agreeTerms !== undefined) updatePayload.agreeTerms = profileData.agreeTerms;
     if ((profileData as any).referralCode !== undefined) updatePayload.referralCode = (profileData as any).referralCode;
+    if ((profileData as any).supplyPrograms !== undefined) updatePayload.supplyPrograms = (profileData as any).supplyPrograms;
     // Map top-level gender/dob into partnerProfile subdocument so callers sending
     // { gender: 'male', dateOfBirth: '1990-01-01' } get correct persistence.
+    // Also sync top-level gender/dob for direct schema access.
+    // IMPORTANT: Must merge these into partnerProfile AFTER the partnerProfile merge
+    // so they are not lost when both top-level and partnerProfile are sent.
     const topGender = (profileData as any).gender;
     const topDob = (profileData as any).dateOfBirth;
-    if (topGender !== undefined || topDob !== undefined) {
-      const incomingPartnerMerge: Record<string, unknown> = {};
-      if (topGender !== undefined) incomingPartnerMerge.gender = topGender;
-      if (topDob !== undefined) incomingPartnerMerge.dob = topDob;
-      const existingPartner = existingProfile.partnerProfile
-        ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
-        : {};
-      updatePayload.partnerProfile = { ...existingPartner, ...incomingPartnerMerge };
+    const incomingPartnerMerge: Record<string, unknown> = {};
+    if (topGender !== undefined) {
+      incomingPartnerMerge.gender = topGender;
+      updatePayload.gender = topGender;
     }
+    if (topDob !== undefined) {
+      incomingPartnerMerge.dob = topDob;
+      updatePayload.dob = topDob;
+    }
+
     if (profileData.partnerProfile !== undefined) {
       const mergedPartnerProfile = {
         ...(existingProfile.partnerProfile ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile : {}),
         ...profileData.partnerProfile,
+        ...incomingPartnerMerge,
       };
       updatePayload.partnerProfile = mergedPartnerProfile;
+    } else if (Object.keys(incomingPartnerMerge).length > 0) {
+      const existingPartner = existingProfile.partnerProfile
+        ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
+        : {};
+      updatePayload.partnerProfile = { ...existingPartner, ...incomingPartnerMerge };
     }
 
     // Update onboarding status

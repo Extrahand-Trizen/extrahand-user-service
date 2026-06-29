@@ -119,6 +119,8 @@ export interface IProfile extends Document {
     updatedAt?: Date;
   };
   referralCode?: string;
+  gender?: string;
+  dob?: Date;
   partnerProfile?: PartnerProfile;
   supplyPrograms?: SupplyProgram[];
   verificationTier?: number;
@@ -690,6 +692,13 @@ const ProfileSchema = new Schema<IProfile>({
     trim: true,
     default: null,
   },
+  gender: {
+    type: String,
+    trim: true,
+  },
+  dob: {
+    type: Date,
+  },
   partnerProfile: {
     status: {
       type: String,
@@ -703,6 +712,24 @@ const ProfileSchema = new Schema<IProfile>({
     languages: { type: [String], default: [] },
     gender: String,
     dob: Date,
+    categories: { type: [String], default: [] },
+    skills: { type: Schema.Types.Mixed, default: {} },
+    workAreas: { type: [String], default: [] },
+    experience: { type: Schema.Types.Mixed, default: {} },
+    vehicle: {
+      type: { type: String },
+      number: String,
+    },
+    qualification: String,
+    professionalExperience: String,
+    careLanguages: String,
+    careAgeGroups: String,
+    workPlace: { type: Schema.Types.Mixed, default: {} },
+    workPhotos: { type: [String], default: [] },
+    dlFront: String,
+    dlBack: String,
+    rc: String,
+    experienceProofs: { type: Schema.Types.Mixed, default: {} },
   },
   supplyPrograms: {
     type: [{ type: String, enum: ['marketplace', 'book_now'] }],

@@ -187,7 +187,21 @@ export interface PartnerProfile {
   languages?: string[];
   gender?: string;
   dob?: Date;
-  [key: string]: unknown;
+  categories?: string[];
+  skills?: Record<string, string[]>;
+  workAreas?: string[];
+  experience?: Record<string, string>;
+  vehicle?: { type?: string; number?: string };
+  qualification?: string;
+  professionalExperience?: string;
+  careLanguages?: string;
+  careAgeGroups?: string;
+  workPlace?: Record<string, string>;
+  workPhotos?: string[];
+  dlFront?: string;
+  dlBack?: string;
+  rc?: string;
+  experienceProofs?: Record<string, string[]>;
 }
 
 export type SupplyProgram = 'marketplace' | 'book_now';
