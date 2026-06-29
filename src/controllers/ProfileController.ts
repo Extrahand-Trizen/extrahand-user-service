@@ -17,6 +17,7 @@ import {
 import { ReferralRecord } from '../models/ReferralRecord';
 import { ReferralStatus } from '../types/referral';
 import { resolveLocationServiceability } from '../constants/locations/isHardcodedSupportedLocation';
+import { normalizePartnerProfileDlNumber } from '../utils/validateDrivingLicense';
 
 type ProfileVisibilityLevel = 'public' | 'registered_users' | 'connections_only' | 'private';
 
@@ -1410,6 +1411,19 @@ export class ProfileController {
     const uid = req.user.uid;
     const profileData: Partial<IProfile> = req.body;
 
+    const dlError = normalizePartnerProfileDlNumber(
+      (profileData as { partnerProfile?: Record<string, unknown> }).partnerProfile,
+    );
+    if (dlError) {
+      res.status(400).json({
+        success: false,
+        error: 'Validation error',
+        message: dlError,
+        field: 'partnerProfile.dlNumber',
+      });
+      return;
+    }
+
     logger.debug('[ProfileController.updateProfile] Request data', {
       uid,
       hasSavedAddresses: !!profileData.savedAddresses,
@@ -1536,6 +1550,20 @@ export class ProfileController {
       }
 
       const profileData: Partial<IProfile> = req.body || {};
+
+      const dlError = normalizePartnerProfileDlNumber(
+        (profileData as { partnerProfile?: Record<string, unknown> }).partnerProfile,
+      );
+      if (dlError) {
+        res.status(400).json({
+          success: false,
+          error: 'Validation error',
+          message: dlError,
+          field: 'partnerProfile.dlNumber',
+        });
+        return;
+      }
+
       const updatedProfile = await ProfileService.updateProfile(uid, profileData);
 
       res.json({

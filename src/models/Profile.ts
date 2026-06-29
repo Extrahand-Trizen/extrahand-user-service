@@ -726,6 +726,7 @@ const ProfileSchema = new Schema<IProfile>({
     careAgeGroups: String,
     workPlace: { type: Schema.Types.Mixed, default: {} },
     workPhotos: { type: [String], default: [] },
+    dlNumber: String,
     dlFront: String,
     dlBack: String,
     rc: String,
