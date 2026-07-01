@@ -151,6 +151,9 @@ export class ProfileController {
   static async getMyProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const uid = req.user!.uid;
+      logger.info(`🔍 [ProfileController.getMyProfile] Request received for uid: "${uid}"`);
+      logger.info(`🔍 Request Headers: ${JSON.stringify(req.headers)}`);
+      
       let profile = await ProfileService.getMyProfile(uid);
       profile = await ensureDemoVerificationProfile(profile);
 
@@ -1464,6 +1467,8 @@ export class ProfileController {
           field: key,
           message: error.errors[key].message
         }));
+
+        console.error('\n\n🚨 VALIDATION ERROR DETAILS:', JSON.stringify(validationErrors, null, 2), '\n\n');
 
         res.status(400).json({
           success: false,

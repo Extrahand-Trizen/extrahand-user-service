@@ -123,6 +123,8 @@ export interface IProfile extends Document {
   dob?: Date;
   partnerProfile?: PartnerProfile;
   supplyPrograms?: SupplyProgram[];
+  /** Top-level work areas for helper registration (NOT inside partnerProfile). */
+  helperWorkAreas?: string[];
   verificationTier?: number;
   verificationBadge?: 'none' | 'basic' | 'verified' | 'trusted';
   lastVerifiedAt?: Date;
@@ -170,7 +172,7 @@ const ProfileSchema = new Schema<IProfile>({
   },
   name: {
     type: String,
-    required: true,
+    required: false,
     trim: true
   },
   profession: {
@@ -735,6 +737,11 @@ const ProfileSchema = new Schema<IProfile>({
   supplyPrograms: {
     type: [{ type: String, enum: ['marketplace', 'book_now'] }],
     default: undefined,
+  },
+  /** Top-level work areas for helper registration (NOT inside partnerProfile). */
+  helperWorkAreas: {
+    type: [String],
+    default: [],
   },
 }, {
   timestamps: true

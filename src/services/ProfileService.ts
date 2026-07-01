@@ -966,7 +966,7 @@ export class ProfileService {
         // ─── PARTNER ──────────────────────────────────────────────────────────
         // partnerProfile MUST be included so the frontend can detect approved
         // partners and show the partner shell (was missing → caused cold-start bug)
-        'partnerProfile', 'supplyPrograms',
+        'partnerProfile', 'supplyPrograms', 'helperWorkAreas',
         // ──────────────────────────────────────────────────────────────────────
         // Privacy & preferences
         'profilePrivacy', 'dataPrivacy',
@@ -979,6 +979,7 @@ export class ProfileService {
       .lean();
 
     if (!profile) {
+      logger.error(`❌ [ProfileService.getMyProfile] Profile not found in DB for uid: "${uid}". This means either the profile wasn't created, or the uid doesn't match.`);
       throw new NotFoundError('Profile not found. Please complete the onboarding process.');
     }
 
@@ -1572,19 +1573,7 @@ export class ProfileService {
    */
   static async upsertProfile(uid: string, profileData: Partial<IProfile>): Promise<IProfileDocument> {
     this.checkConnection();
-    
-    logger.debug('💾 [PROFILE SERVICE] upsertProfile called', {
-      uid,
-      profileData: {
-        name: profileData.name,
-        email: profileData.email,
-        phone: profileData.phone ? 'present' : 'not present',
-        roles: profileData.roles,
-        hasLocation: !!profileData.location,
-        hasSkills: !!profileData.skills
-      }
-    });
-
+    logger.info('dY"? [PROFILE SERVICE] upsertProfile called', { uid, payload: profileData });
     const now = Date.now();
 
     // Process location data
@@ -1910,7 +1899,10 @@ export class ProfileService {
     }
 
     // Update fields
-    if (profileData.name !== undefined) updatePayload.name = profileData.name;
+    // Only update name if it's a non-empty string - never overwrite with empty string
+    if (profileData.name && String(profileData.name).trim().length > 0) {
+      updatePayload.name = String(profileData.name).trim();
+    }
     if (profileData.profession !== undefined) updatePayload.profession = profileData.profession;
     if (profileData.email !== undefined) updatePayload.email = profileData.email;
     if (profileData.phone !== undefined) updatePayload.phone = profileData.phone;
@@ -2139,6 +2131,12 @@ export class ProfileService {
     if (profileData.agreeTerms !== undefined) updatePayload.agreeTerms = profileData.agreeTerms;
     if ((profileData as any).referralCode !== undefined) updatePayload.referralCode = (profileData as any).referralCode;
     if ((profileData as any).supplyPrograms !== undefined) updatePayload.supplyPrograms = (profileData as any).supplyPrograms;
+    // Helper-specific top-level work areas (saved outside partnerProfile for helper registration)
+    if ((profileData as any).helperWorkAreas !== undefined) {
+      updatePayload.helperWorkAreas = Array.isArray((profileData as any).helperWorkAreas)
+        ? (profileData as any).helperWorkAreas.filter((id: unknown) => typeof id === 'string' && id.trim())
+        : [];
+    }
     // Map top-level gender/dob into partnerProfile subdocument so callers sending
     // { gender: 'male', dateOfBirth: '1990-01-01' } get correct persistence.
     // Also sync top-level gender/dob for direct schema access.
@@ -2225,7 +2223,7 @@ export class ProfileService {
         { $set: updatePayload },
         { 
           new: true, 
-          runValidators: true,
+          runValidators: false,
           setDefaultsOnInsert: true
         }
       ).lean();
