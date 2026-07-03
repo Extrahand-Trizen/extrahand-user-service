@@ -208,6 +208,7 @@ export class AuthController {
 
          const tokens = await SessionService.createSession({
             uid: firebaseUid,  // Use Firebase UID, not MongoDB _id
+            profileId: result.profile?._id ? String(result.profile._id) : undefined,
             clientType: normalizedClient,
             deviceId,
             userAgent: req.get("user-agent") ?? undefined,
@@ -317,6 +318,7 @@ export class AuthController {
 
          const tokens = await SessionService.createSession({
             uid: firebaseUid,
+            profileId: result.profile?._id ? String(result.profile._id) : undefined,
             clientType: normalizedClient,
             deviceId,
             userAgent: req.get("user-agent") ?? undefined,
