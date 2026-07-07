@@ -197,23 +197,31 @@ export function getCorsConfig(env: z.infer<typeof envSchema>) {
 }
 
 export function validateEnv() {
+  // Cache the parsed environment after first successful parse to avoid repeated
+  // parsing and repeated informational logs when validateEnv() is called from
+  // request-time code paths. This preserves the original validation behavior
+  // while ensuring the expensive/verbose parts run only once.
+  if ((global as any).__CACHED_ENV__) {
+    return (global as any).__CACHED_ENV__ as z.infer<typeof envSchema>;
+  }
+
   try {
     const env = envSchema.parse(process.env);
-    
+
     // Check for Firebase credentials
     const hasFirebaseEnvVars = env.FIREBASE_PROJECT_ID && env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PRIVATE_KEY;
     const hasFirebaseServiceAccountPath = env.FIREBASE_SERVICE_ACCOUNT_PATH;
     const hasGoogleCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    
+
     const serviceAccountPath = path.join(__dirname, '..', '..', 'serviceAccountKey.json');
     const hasServiceAccountFile = fs.existsSync(serviceAccountPath);
-    
+
     const hasFirebaseCredentials = hasFirebaseEnvVars || hasFirebaseServiceAccountPath || hasGoogleCredentials || hasServiceAccountFile;
-    
+
     if (!hasFirebaseCredentials && env.NODE_ENV === 'production') {
       throw new Error('Firebase credentials must be provided in production. Either set environment variables or ensure serviceAccountKey.json exists.');
     }
-    
+
     if (hasServiceAccountFile) {
       console.log('✅ Firebase service account file found: serviceAccountKey.json');
     } else if (hasFirebaseEnvVars) {
@@ -223,7 +231,10 @@ export function validateEnv() {
     } else if (hasGoogleCredentials) {
       console.log('✅ Google Application Credentials found');
     }
-    
+
+    // Store in global cache so subsequent calls return quickly without re-logging
+    (global as any).__CACHED_ENV__ = env;
+
     return env;
   } catch (error) {
     console.error('❌ Environment validation failed:');
@@ -239,3 +250,9 @@ export function validateEnv() {
 }
 
 export type EnvConfig = z.infer<typeof envSchema>;
+
+// Eagerly evaluate and export a single `config` instance so application
+// bootstrap can import and ensure validation runs once at startup. Other
+// modules may still call `validateEnv()` but it now returns the cached value
+// without re-parsing or re-logging.
+export const config: EnvConfig = validateEnv();

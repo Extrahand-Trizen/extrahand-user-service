@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { validateEnv } from '../config/env';
+import { config } from '../config/env';
 
 /**
  * Service-to-Service Authentication Middleware
@@ -11,8 +11,7 @@ export function serviceAuthMiddleware(
   next: NextFunction
 ): void {
   try {
-    const env = validateEnv();
-    const serviceAuthToken = env.SERVICE_AUTH_TOKEN;
+    const serviceAuthToken = config.SERVICE_AUTH_TOKEN;
 
     if (!serviceAuthToken) {
       res.status(500).json({

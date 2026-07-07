@@ -94,6 +94,9 @@ router.use('/me/stats', authMiddleware, profileStatsRoutes);
 // GET /api/v1/profiles/me - Get current user's profile (requires auth)
 router.get('/me', authMiddleware, asyncHandler(ProfileController.getMyProfile));
 
+// GET /api/v1/profiles/me/registration/status - Get resumable registration status (requires auth)
+router.get('/me/registration/status', authMiddleware, asyncHandler(ProfileController.getRegistrationStatus));
+
 // GET /api/v1/profiles/completion - Get profile completion (requires auth)
 router.get('/completion', authMiddleware, asyncHandler(ProfileController.getProfileCompletion));
 

@@ -1400,6 +1400,47 @@ export class ProfileController {
   }
 
   /**
+   * GET /api/v1/profiles/me/registration/status
+   */
+  static async getRegistrationStatus(req: AuthenticatedRequest, res: Response): Promise<void> {
+    if (!req.user || !req.user.uid) {
+      res.status(401).json({
+        error: 'Authentication required',
+        message: 'Please log in to continue'
+      });
+      return;
+    }
+
+    try {
+      const uid = req.user.uid;
+      const profile = await Profile.findOne({ uid }).lean();
+
+      if (!profile) {
+        res.status(404).json({ success: false, error: 'Profile not found' });
+        return;
+      }
+
+      res.json({
+        success: true,
+        registrationStatus: profile.registrationStatus || { currentStep: 'MOBILE_NUMBER', completedSteps: [], categoryIndex: 0 },
+        data: {
+          name: profile.name,
+          phone: profile.phone,
+          roles: profile.roles,
+          location: profile.location,
+          skills: profile.skills,
+          helperWorkAreas: profile.helperWorkAreas,
+          dob: profile.dob,
+          gender: profile.gender,
+        }
+      });
+    } catch (error: any) {
+      logger.error('[ProfileController.getRegistrationStatus] Error', { error: error.message });
+      res.status(500).json({ success: false, error: 'Failed to fetch registration status' });
+    }
+  }
+
+  /**
    * PUT /api/v1/profiles/me
    */
   static async updateProfile(req: AuthenticatedRequest, res: Response): Promise<void> {

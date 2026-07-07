@@ -1818,7 +1818,13 @@ export class ProfileService {
       payloadKeys: Object.keys(payload)
     });
     
-    const updateResult = await Profile.updateOne({ uid }, { $set: payload }, { upsert: true });
+    const mongoUpdate: any = { $set: { ...payload } };
+    if (payload.roles !== undefined) {
+      mongoUpdate.$addToSet = { roles: { $each: payload.roles } };
+      delete mongoUpdate.$set.roles;
+    }
+
+    const updateResult = await Profile.updateOne({ uid }, mongoUpdate, { upsert: true });
     
     logger.debug('✅ [PROFILE SERVICE] Profile saved to MongoDB', {
       uid,
@@ -2217,10 +2223,16 @@ export class ProfileService {
     });
 
     try {
+      const mongoUpdate: any = { $set: updatePayload };
+      if (updatePayload.roles !== undefined) {
+        mongoUpdate.$addToSet = { roles: { $each: updatePayload.roles } };
+        delete mongoUpdate.$set.roles;
+      }
+
       // Use findOneAndUpdate instead of updateOne for better validation support
       const updatedProfile = await Profile.findOneAndUpdate(
         { uid },
-        { $set: updatePayload },
+        mongoUpdate,
         { 
           new: true, 
           runValidators: false,
@@ -2348,6 +2360,40 @@ export class ProfileService {
         }
       } else {
         logger.warn(`⚠️ TASK_SERVICE_URL or SERVICE_AUTH_TOKEN not configured, skipping cascade delete`);
+      }
+
+      // Step 1.5: Delete all associated data in Payment Service (cascading delete)
+      if (env.PAYMENT_SERVICE_URL && env.SERVICE_AUTH_TOKEN) {
+        try {
+          logger.info(`📞 Calling Payment Service to delete user data: ${uid}`);
+          const headers: Record<string, string> = {
+            'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+            'X-Service-Name': 'user-service',
+            'X-User-Id': uid,
+          };
+
+          const paymentServiceUrl = env.PAYMENT_SERVICE_URL;
+          await axios.delete(
+            `${paymentServiceUrl}/api/v1/cascade-delete/user/${uid}`,
+            {
+              headers,
+              timeout: 30000 // 30 second timeout for cascade delete
+            }
+          );
+          logger.info(`✅ Payment Service cascade delete completed`);
+        } catch (error: any) {
+          logger.error(`⚠️ Failed to delete user data in Payment Service:`, {
+            error: error.message,
+            status: error.response?.status,
+            data: error.response?.data
+          });
+          
+          if (error.response?.status === 404) {
+            logger.info(`ℹ️ User has no data in Payment Service, continuing with profile deletion`);
+          }
+        }
+      } else {
+        logger.warn(`⚠️ PAYMENT_SERVICE_URL or SERVICE_AUTH_TOKEN not configured, skipping Payment cascade delete`);
       }
 
       // Step 2: Delete the profile
@@ -2857,6 +2903,24 @@ export class ProfileService {
           } catch (err: any) {
             // Non-fatal — log and continue
             logger.warn(`[cleanup] Task Service cascade failed for ${user.uid}:`, err.message);
+          }
+        }
+
+        // 1.5 Cascade delete in Payment Service
+        if (env.PAYMENT_SERVICE_URL && env.SERVICE_AUTH_TOKEN) {
+          try {
+            const headers: Record<string, string> = {
+              'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+              'X-Service-Name': 'user-service',
+              'X-User-Id': user.uid,
+            };
+
+            await axios.delete(`${env.PAYMENT_SERVICE_URL}/api/v1/cascade-delete/user/${user.uid}`, {
+              headers,
+              timeout: 15000,
+            });
+          } catch (err: any) {
+            logger.warn(`[cleanup] Payment Service cascade failed for ${user.uid}:`, err.message);
           }
         }
 

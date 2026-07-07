@@ -151,6 +151,11 @@ export interface IProfile extends Document {
       };
     };
   };
+  registrationStatus?: {
+    currentStep: 'MOBILE_NUMBER' | 'OTP_VERIFY' | 'PERSONAL_DETAILS' | 'LOCATION' | 'WORK_AREAS' | 'CATEGORIES' | 'SKILLS' | 'EXPERIENCE' | 'REVIEW_PROFILE' | 'COMPLETED';
+    completedSteps: string[];
+    categoryIndex?: number;
+  };
   createdAt?: Date;
   updatedAt?: Date;
   lastActive?: Date;
@@ -495,6 +500,21 @@ const ProfileSchema = new Schema<IProfile>({
       type: String,
       enum: ['location', 'roles', 'profile'],
       default: 'location'
+    }
+  },
+  registrationStatus: {
+    currentStep: {
+      type: String,
+      enum: ['MOBILE_NUMBER', 'OTP_VERIFY', 'PERSONAL_DETAILS', 'LOCATION', 'WORK_AREAS', 'CATEGORIES', 'SKILLS', 'EXPERIENCE', 'REVIEW_PROFILE', 'COMPLETED'],
+      default: 'MOBILE_NUMBER'
+    },
+    completedSteps: {
+      type: [String],
+      default: []
+    },
+    categoryIndex: {
+      type: Number,
+      default: 0
     }
   },
   business: {

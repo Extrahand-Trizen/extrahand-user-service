@@ -224,7 +224,7 @@ export class AuthService {
     */
    static async checkPhoneExists(
       phone: string
-   ): Promise<{ exists: boolean; phone: string; matchType?: "primary" | "alternate" }> {
+   ): Promise<{ exists: boolean; phone: string; matchType?: "primary" | "alternate"; hasTaskerRole?: boolean }> {
       if (!phone || typeof phone !== "string") {
          throw new BadRequestError("Phone number is required");
       }
@@ -244,6 +244,12 @@ export class AuthService {
             exists: true,
             phone: formattedPhone,
             matchType: matchType || undefined,
+            hasTaskerRole: Array.isArray(profile.roles) && (
+              profile.roles.includes("tasker") ||
+              profile.roles.includes("helper") ||
+              profile.roles.includes("performer") ||
+              profile.roles.includes("both")
+            ),
          };
       }
 

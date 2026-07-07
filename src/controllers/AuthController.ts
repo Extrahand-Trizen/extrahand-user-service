@@ -25,6 +25,7 @@ export class AuthController {
          exists: result.exists,
          phone: result.phone,
          matchType: result.matchType,
+         hasTaskerRole: result.hasTaskerRole,
       });
    }
 

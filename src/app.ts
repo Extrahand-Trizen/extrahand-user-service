@@ -5,13 +5,13 @@ import compression from "compression";
 import morgan from "morgan";
 import mongoSanitize from "express-mongo-sanitize";
 import cookieParser from 'cookie-parser';
-import { validateEnv, getCorsConfig } from "./config/env";
+import { config, getCorsConfig } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
 import routes from "./routes";
 import logger from "./config/logger";
 import { EmailServiceClient } from "./clients/EmailServiceClient";
 
-const env = validateEnv();
+const env = config;
 
 // Initialize service clients
 EmailServiceClient.initialize();

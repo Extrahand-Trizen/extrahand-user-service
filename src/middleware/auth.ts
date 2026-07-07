@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../types';
-import { validateEnv } from '../config/env';
+import { config } from '../config/env';
 import { extractAccessToken } from '../utils/sessionCookies';
 import { SessionService } from '../services/SessionService';
 
@@ -24,9 +24,8 @@ export async function authMiddleware(
   
   if (serviceAuthToken && userId) {
     try {
-      // Validate service auth token
-      const env = validateEnv();
-      if (serviceAuthToken === env.SERVICE_AUTH_TOKEN) {
+      // Validate service auth token using cached startup config
+      if (serviceAuthToken === config.SERVICE_AUTH_TOKEN) {
         // Set user from service auth - API Gateway already verified the token
         req.user = { uid: userId, token: null as any };
         next();
@@ -111,8 +110,7 @@ export async function optionalAuthMiddleware(
   
   if (serviceAuthToken && userId) {
     try {
-      const env = validateEnv();
-      if (serviceAuthToken === env.SERVICE_AUTH_TOKEN) {
+      if (serviceAuthToken === config.SERVICE_AUTH_TOKEN) {
         req.user = { uid: userId, token: null as any };
         next();
         return;
