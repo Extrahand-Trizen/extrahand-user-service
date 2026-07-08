@@ -2498,6 +2498,7 @@ export class ProfileService {
     createdTo?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    uids?: string;
   }): Promise<{
     data: any[];
     pagination: {
@@ -2525,6 +2526,7 @@ export class ProfileService {
       createdTo,
       sortBy = 'createdAt',
       sortOrder = 'desc',
+      uids,
     } = params;
     const effectiveLimit = Math.min(Math.max(1, Number(limit) || 20), MAX_LIMIT);
     const effectivePage = Math.min(Math.max(1, Number(page) || 1), MAX_PAGE);
@@ -2536,6 +2538,14 @@ export class ProfileService {
       'dataPrivacy.accountDeleted': { $ne: true }
     };
     const andConditions: any[] = [];
+
+    // Filter by specific uids if provided
+    if (uids && typeof uids === 'string') {
+      const uidArray = uids.split(',').map(id => id.trim()).filter(Boolean);
+      if (uidArray.length > 0) {
+        andConditions.push({ uid: { $in: uidArray } });
+      }
+    }
 
     // Search by name, email, or phone
     if (search) {

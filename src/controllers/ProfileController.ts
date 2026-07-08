@@ -265,12 +265,12 @@ export class ProfileController {
       const serializedProfile = {
         id: profile.uid,
         ...profile,
-        // Override with real-time stats
-        totalTasks: realTimeStats.totalTasks,
-        completedTasks: realTimeStats.completedTasks,
-        postedTasks: realTimeStats.postedTasks,
-        totalReviews: realTimeStats.totalReviews,
-        rating: realTimeStats.rating,
+        // Override with real-time stats (fall back to stored profile values when unavailable)
+        totalTasks: realTimeStats.totalTasks !== undefined ? realTimeStats.totalTasks : profile.totalTasks,
+        completedTasks: realTimeStats.completedTasks !== undefined ? realTimeStats.completedTasks : profile.completedTasks,
+        postedTasks: realTimeStats.postedTasks !== undefined ? realTimeStats.postedTasks : profile.postedTasks,
+        totalReviews: realTimeStats.totalReviews !== undefined ? realTimeStats.totalReviews : profile.totalReviews,
+        rating: realTimeStats.rating !== undefined ? realTimeStats.rating : profile.rating,
         ratingBreakdowns: realTimeStats.ratingBreakdowns,
         isAadhaarVerified: profile.isAadhaarVerified || false,
         aadhaarVerifiedAt: profile.aadhaarVerifiedAt || null,
