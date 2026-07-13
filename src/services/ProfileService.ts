@@ -968,6 +968,9 @@ export class ProfileService {
         // partners and show the partner shell (was missing → caused cold-start bug)
         'partnerProfile', 'supplyPrograms', 'helperWorkAreas',
         // ──────────────────────────────────────────────────────────────────────
+        // Registration funnel resume — MUST be present so cold-start routing
+        // can read currentStep and navigate back to the correct screen.
+        'registrationStatus',
         // Privacy & preferences
         'profilePrivacy', 'dataPrivacy',
         'savedKeywords', 'savedCategories', 'bookNowCart',
@@ -1743,6 +1746,28 @@ export class ProfileService {
       };
     }
 
+    // Registration funnel resume — persisted by registration screens so the
+    // backend is the authoritative resume source on cold start.
+    // IMPORTANT: This must be handled in BOTH updateProfile AND upsertProfile because
+    // the partner registration path calls api.upsertProfile (POST /api/v1/profiles)
+    // while the helper registration path calls api.updateProfile (PUT /api/v1/profiles/me).
+    if ((profileData as any).registrationStatus !== undefined) {
+      const rs = (profileData as any).registrationStatus;
+      payload.registrationStatus = {
+        currentStep: rs.currentStep ?? existingProfile?.registrationStatus?.currentStep ?? 'MOBILE_NUMBER',
+        completedSteps: Array.isArray(rs.completedSteps)
+          ? rs.completedSteps
+          : existingProfile?.registrationStatus?.completedSteps ?? [],
+        categoryIndex: rs.categoryIndex !== undefined
+          ? rs.categoryIndex
+          : existingProfile?.registrationStatus?.categoryIndex ?? 0,
+      };
+      logger.debug('[ProfileService.upsertProfile] Persisting registrationStatus', {
+        uid,
+        registrationStatus: payload.registrationStatus,
+      });
+    }
+
     logger.debug('🔍 [PROFILE SERVICE] Checking if profile exists', {
       uid,
       exists: !!existingProfile,
@@ -1795,9 +1820,20 @@ export class ProfileService {
         profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
       };
 
-      // ✨ Only require roles for onboarding completion
-      // Location and Aadhaar verification completely removed from onboarding (only in VerificationDashboard)
-      const isOnboardingComplete = updatedCompletedSteps.roles;
+      // Guard: if the profile is mid-registration (registrationStatus exists and is not
+      // COMPLETED), do NOT auto-flip isCompleted=true just because the profile already has
+      // roles. The partner/helper funnel must complete in full before onboarding is done.
+      const existingRegStep = existingProfile?.registrationStatus?.currentStep;
+      const incomingRegStep = (profileData as any).registrationStatus?.currentStep;
+      const midRegistration =
+        (existingRegStep !== undefined && existingRegStep !== 'COMPLETED') ||
+        (incomingRegStep !== undefined && incomingRegStep !== 'COMPLETED');
+
+      // During registration, preserve the existing isCompleted value; only flip it when
+      // the profile is NOT in a registration funnel (i.e., regular profile update).
+      const isOnboardingComplete = midRegistration
+        ? (currentOnboardingStatus.isCompleted || false)
+        : updatedCompletedSteps.roles;
 
       let lastStep = currentOnboardingStatus.lastStep;
       if (hasRoles) lastStep = 'roles';
@@ -2143,6 +2179,24 @@ export class ProfileService {
         ? (profileData as any).helperWorkAreas.filter((id: unknown) => typeof id === 'string' && id.trim())
         : [];
     }
+    // Registration funnel progress — persisted by registration screens so the
+    // backend is the authoritative resume source on cold start.
+    if ((profileData as any).registrationStatus !== undefined) {
+      const rs = (profileData as any).registrationStatus;
+      updatePayload.registrationStatus = {
+        currentStep: rs.currentStep ?? existingProfile.registrationStatus?.currentStep ?? 'MOBILE_NUMBER',
+        completedSteps: Array.isArray(rs.completedSteps)
+          ? rs.completedSteps
+          : existingProfile.registrationStatus?.completedSteps ?? [],
+        categoryIndex: rs.categoryIndex !== undefined
+          ? rs.categoryIndex
+          : existingProfile.registrationStatus?.categoryIndex ?? 0,
+      };
+      logger.debug('[ProfileService.updateProfile] Persisting registrationStatus', {
+        uid,
+        registrationStatus: updatePayload.registrationStatus,
+      });
+    }
     // Map top-level gender/dob into partnerProfile subdocument so callers sending
     // { gender: 'male', dateOfBirth: '1990-01-01' } get correct persistence.
     // Also sync top-level gender/dob for direct schema access.
@@ -2175,7 +2229,18 @@ export class ProfileService {
     }
 
     // Update onboarding status
-    // ✨ REMOVED: Location check - location is completely removed from onboarding
+    // ✨ Guard: if the profile is mid-registration (registrationStatus exists and is not
+    // COMPLETED), treat the caller as still in the registration funnel. In that context
+    // we must NOT auto-flip isCompleted=true just because the profile already has roles,
+    // since the user has not finished the helper/partner registration flow yet.
+    const existingRegStep = existingProfile.registrationStatus?.currentStep;
+    const isInRegistrationFunnel =
+      existingRegStep !== undefined && existingRegStep !== 'COMPLETED';
+    // Also treat a *new* registrationStatus payload that is not COMPLETED as funnel context.
+    const incomingRegStep = (profileData as any).registrationStatus?.currentStep;
+    const incomingIsInFunnel = incomingRegStep !== undefined && incomingRegStep !== 'COMPLETED';
+    const midRegistration = isInRegistrationFunnel || incomingIsInFunnel;
+
     const hasRoles =
       (profileData.roles !== undefined &&
         persistRoles(profileData.roles).length > 0) ||
@@ -2195,9 +2260,11 @@ export class ProfileService {
       profile: (hasName && hasEmail) || currentOnboardingStatus.completedSteps.profile
     };
 
-    // ✨ Only require roles for onboarding completion
-    // Location and Aadhaar verification completely removed from onboarding (only in VerificationDashboard)
-    const isOnboardingComplete = updatedCompletedSteps.roles;
+    // During registration, preserve the existing isCompleted value; only flip it when
+    // the profile is NOT in a registration funnel (i.e., regular profile update).
+    const isOnboardingComplete = midRegistration
+      ? (currentOnboardingStatus.isCompleted || false)
+      : updatedCompletedSteps.roles;
 
     let lastStep = currentOnboardingStatus.lastStep;
     if (profileData.roles && Array.isArray(profileData.roles) && profileData.roles.length > 0) lastStep = 'roles';
