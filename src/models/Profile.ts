@@ -14,7 +14,7 @@ export interface IProfile extends Document {
   alternatePhoneVerified?: boolean;
   alternatePhoneVerifiedAt?: Date | null;
   client_type?: 'web' | 'mobile';
-  roles: ('tasker' | 'poster')[];
+  roles: ('tasker' | 'poster' | 'partner')[];
   userType: 'individual' | 'business';
   bio?: string;
   portfolio?: PortfolioItem[];
@@ -227,7 +227,7 @@ const ProfileSchema = new Schema<IProfile>({
   },
   roles: {
     type: [String],
-    enum: ['tasker', 'poster'],
+    enum: ['tasker', 'poster', 'partner'],
     default: []
   },
   userType: {
@@ -767,9 +767,9 @@ const ProfileSchema = new Schema<IProfile>({
   timestamps: true
 });
 
-function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster'> {
+function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster' | 'partner'> {
   if (!Array.isArray(roles)) return [];
-  const normalized = new Set<'tasker' | 'poster'>();
+  const normalized = new Set<'tasker' | 'poster' | 'partner'>();
   for (const rawRole of roles) {
     const role = String(rawRole || '').trim().toLowerCase();
     if (role === 'poster' || role === 'requester' || role === 'customer') {
@@ -778,12 +778,15 @@ function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster'> {
     if (role === 'tasker' || role === 'performer' || role === 'helper') {
       normalized.add('tasker');
     }
+    if (role === 'partner') {
+      normalized.add('partner');
+    }
     if (role === 'both') {
       normalized.add('poster');
       normalized.add('tasker');
     }
   }
-  return Array.from(normalized).sort() as Array<'tasker' | 'poster'>;
+  return Array.from(normalized).sort() as Array<'tasker' | 'poster' | 'partner'>;
 }
 
 function normalizeRolesInUpdate(update: Record<string, any> | null | undefined): void {

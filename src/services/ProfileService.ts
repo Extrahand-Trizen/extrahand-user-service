@@ -165,16 +165,16 @@ function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'unk
 }
 
 /** Values allowed on the Profile schema (no legacy `requester` or `both` tokens in storage). */
-type PersistedRole = 'tasker' | 'poster';
+type PersistedRole = 'tasker' | 'poster' | 'partner';
 
 /**
- * Normalizes client/legacy role labels into stored roles: poster and/or tasker only.
+ * Normalizes client/legacy role labels into stored roles: poster, tasker, or partner.
  * Maps legacy `requester` → poster, `performer` → tasker, legacy `both` → poster+tasker.
  * Dual capability is represented as `['poster', 'tasker']`, never a `both` string.
  */
 function persistRoles(roles: unknown): PersistedRole[] {
   if (!Array.isArray(roles)) return [];
-  const norm = new Set<'tasker' | 'poster'>();
+  const norm = new Set<'tasker' | 'poster' | 'partner'>();
   for (const raw of roles) {
     const role = String(raw || '').trim().toLowerCase();
     // Customer / poster variants
@@ -184,6 +184,9 @@ function persistRoles(roles: unknown): PersistedRole[] {
     // Helper / tasker variants
     if (role === 'tasker' || role === 'performer' || role === 'helper') {
       norm.add('tasker');
+    }
+    if (role === 'partner') {
+      norm.add('partner');
     }
     if (role === 'both') {
       norm.add('tasker');
