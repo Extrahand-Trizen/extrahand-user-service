@@ -12,6 +12,8 @@ import { validateEnv } from '../config/env';
 import {
   normalizeCityKey,
   normalizeProfileLocationParts,
+  citiesMatch,
+  resolveProfileCityForMatching,
   ProfileLocationLike,
 } from '../utils/normalizeProfileLocation';
 import InAppNotificationClient from '../clients/InAppNotificationClient';
@@ -221,6 +223,83 @@ export class LocationNotifyService {
     return { checked: activeRequests.length, notified };
   }
 
+  /**
+   * When a helper becomes available in a city (location/role update), notify
+   * customers who tapped "Notify me" for that city. Once-only via processSingleRequest.
+   */
+  static async notifyWaitersForHelperCity(city: string): Promise<{
+    checked: number;
+    notified: number;
+  }> {
+    const cityKey = normalizeCityKey(city);
+    if (!cityKey) {
+      return { checked: 0, notified: 0 };
+    }
+
+    const activeRequests = await LocationNotifyRequest.find({ status: 'active' })
+      .sort({ createdAt: 1 })
+      .limit(200)
+      .lean();
+
+    let checked = 0;
+    let notified = 0;
+    for (const request of activeRequests) {
+      if (!citiesMatch(request.city, city)) continue;
+      checked += 1;
+      const didNotify = await this.processSingleRequest(request);
+      if (didNotify) notified += 1;
+    }
+
+    return { checked, notified };
+  }
+
+  /**
+   * Fire-and-forget: if profile is an active helper with a city, fulfill waitlist.
+   */
+  static maybeNotifyWaitersForHelperProfile(profile: {
+    roles?: unknown;
+    location?: unknown;
+    isActive?: boolean;
+    dataPrivacy?: { accountDeleted?: boolean };
+  }): void {
+    void this.notifyWaitersForHelperProfile(profile).catch((error) => {
+      logger.warn('Helper-location notify waiters check failed (non-blocking)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  static async notifyWaitersForHelperProfile(profile: {
+    roles?: unknown;
+    location?: unknown;
+    isActive?: boolean;
+    dataPrivacy?: { accountDeleted?: boolean };
+  }): Promise<{ checked: number; notified: number }> {
+    if (profile?.isActive === false) {
+      return { checked: 0, notified: 0 };
+    }
+    if (profile?.dataPrivacy?.accountDeleted === true) {
+      return { checked: 0, notified: 0 };
+    }
+
+    const roles = Array.isArray(profile?.roles)
+      ? profile.roles.map((r) => String(r || '').toLowerCase())
+      : [];
+    const isHelper = roles.some((r) =>
+      r === 'tasker' || r === 'helper' || r === 'both' || r === 'performer',
+    );
+    if (!isHelper) {
+      return { checked: 0, notified: 0 };
+    }
+
+    const city = resolveProfileCityForMatching(profile.location as ProfileLocationLike);
+    if (!city) {
+      return { checked: 0, notified: 0 };
+    }
+
+    return this.notifyWaitersForHelperCity(city);
+  }
+
   private static async processSingleRequest(
     request: Pick<
       ILocationNotifyRequest,
@@ -243,16 +322,24 @@ export class LocationNotifyService {
     }
 
     const areaLabel = request.locality || request.city;
-    const title = 'Helpers are now available!';
-    const body = `Good news! Helpers are now available in ${areaLabel}. You can post work and get help.`;
+    const title = 'New helper available in your area';
+    const body = `Good news! A helper is now available in ${areaLabel}. You can post work and get help.`;
 
-    await this.sendHelpersAvailableNotification({
+    const delivered = await this.sendHelpersAvailableNotification({
       userId: request.userId,
       city: request.city,
       locality: request.locality,
       title,
       body,
     });
+
+    if (!delivered) {
+      logger.warn('Helpers available but notification delivery failed; keeping request active', {
+        userId: request.userId,
+        city: request.city,
+      });
+      return false;
+    }
 
     await LocationNotifyRequest.updateOne(
       { _id: request._id, status: 'active' },
@@ -274,7 +361,7 @@ export class LocationNotifyService {
     locality: string;
     title: string;
     body: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const env = validateEnv();
     const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL;
 
@@ -291,6 +378,9 @@ export class LocationNotifyService {
       },
     };
 
+    let pushOk = false;
+    let inAppOk = false;
+
     if (notificationServiceUrl && env.SERVICE_AUTH_TOKEN) {
       try {
         await axios.post(`${notificationServiceUrl}/api/v1/notifications/send`, payload, {
@@ -301,6 +391,7 @@ export class LocationNotifyService {
           },
           timeout: 10000,
         });
+        pushOk = true;
       } catch (error: any) {
         logger.error('Failed to send helpers-available push notification', {
           userId: params.userId,
@@ -312,8 +403,8 @@ export class LocationNotifyService {
     }
 
     try {
-      InAppNotificationClient.initialize(undefined, 'user-service');
-      await InAppNotificationClient.send({
+      InAppNotificationClient.initialize(notificationServiceUrl || undefined, 'user-service');
+      inAppOk = await InAppNotificationClient.send({
         userId: params.userId,
         title: params.title,
         body: params.body,
@@ -327,5 +418,7 @@ export class LocationNotifyService {
         message: error?.message,
       });
     }
+
+    return pushOk || inAppOk;
   }
 }

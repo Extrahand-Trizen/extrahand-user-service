@@ -772,8 +772,12 @@ function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster'> {
   const normalized = new Set<'tasker' | 'poster'>();
   for (const rawRole of roles) {
     const role = String(rawRole || '').trim().toLowerCase();
-    if (role === 'poster' || role === 'requester') normalized.add('poster');
-    if (role === 'tasker' || role === 'performer') normalized.add('tasker');
+    if (role === 'poster' || role === 'requester' || role === 'customer') {
+      normalized.add('poster');
+    }
+    if (role === 'tasker' || role === 'performer' || role === 'helper') {
+      normalized.add('tasker');
+    }
     if (role === 'both') {
       normalized.add('poster');
       normalized.add('tasker');

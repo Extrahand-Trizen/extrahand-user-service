@@ -177,11 +177,15 @@ function persistRoles(roles: unknown): PersistedRole[] {
   const norm = new Set<'tasker' | 'poster'>();
   for (const raw of roles) {
     const role = String(raw || '').trim().toLowerCase();
-    if (role === 'requester' || role === 'poster') {
+    // Customer / poster variants
+    if (role === 'requester' || role === 'poster' || role === 'customer') {
       norm.add('poster');
-    } else if (role === 'tasker' || role === 'performer') {
+    }
+    // Helper / tasker variants
+    if (role === 'tasker' || role === 'performer' || role === 'helper') {
       norm.add('tasker');
-    } else if (role === 'both') {
+    }
+    if (role === 'both') {
       norm.add('tasker');
       norm.add('poster');
     }
@@ -1854,13 +1858,10 @@ export class ProfileService {
       payloadKeys: Object.keys(payload)
     });
     
-    const mongoUpdate: any = { $set: { ...payload } };
-    if (payload.roles !== undefined) {
-      mongoUpdate.$addToSet = { roles: { $each: payload.roles } };
-      delete mongoUpdate.$set.roles;
-    }
-
-    const updateResult = await Profile.updateOne({ uid }, mongoUpdate, { upsert: true });
+    // Replace roles on write (do not $addToSet). Role switch sends the full
+    // desired list (e.g. ['poster'] or ['tasker']); add-only left dual-role
+    // users stuck on helper UI after switching to customer.
+    const updateResult = await Profile.updateOne({ uid }, { $set: payload }, { upsert: true });
     
     logger.debug('✅ [PROFILE SERVICE] Profile saved to MongoDB', {
       uid,
@@ -1883,6 +1884,20 @@ export class ProfileService {
       hasRoles: !!savedProfile.roles && savedProfile.roles.length > 0,
       onboardingStatus: savedProfile.onboardingStatus
     });
+
+    // Helper signup / location on upsert — fulfill "Notify me" waitlist when applicable.
+    void import('./LocationNotifyService')
+      .then(({ LocationNotifyService }) => {
+        LocationNotifyService.maybeNotifyWaitersForHelperProfile(
+          savedProfile as {
+            roles?: unknown;
+            location?: unknown;
+            isActive?: boolean;
+            dataPrivacy?: { accountDeleted?: boolean };
+          },
+        );
+      })
+      .catch(() => undefined);
 
     return savedProfile as unknown as IProfileDocument;
   }
@@ -2290,16 +2305,11 @@ export class ProfileService {
     });
 
     try {
-      const mongoUpdate: any = { $set: updatePayload };
-      if (updatePayload.roles !== undefined) {
-        mongoUpdate.$addToSet = { roles: { $each: updatePayload.roles } };
-        delete mongoUpdate.$set.roles;
-      }
-
-      // Use findOneAndUpdate instead of updateOne for better validation support
+      // Replace roles on write (do not $addToSet) so role switch can remove
+      // the previous role instead of accumulating poster+tasker forever.
       const updatedProfile = await Profile.findOneAndUpdate(
         { uid },
-        mongoUpdate,
+        { $set: updatePayload },
         { 
           new: true, 
           runValidators: false,
@@ -2317,6 +2327,20 @@ export class ProfileService {
       if (!updatedProfile) {
         throw new NotFoundError('Profile not found after update attempt');
       }
+
+      // If this profile is a helper with a city, fulfill "Notify me" waitlist (once per request).
+      void import('./LocationNotifyService')
+        .then(({ LocationNotifyService }) => {
+          LocationNotifyService.maybeNotifyWaitersForHelperProfile(
+            updatedProfile as {
+              roles?: unknown;
+              location?: unknown;
+              isActive?: boolean;
+              dataPrivacy?: { accountDeleted?: boolean };
+            },
+          );
+        })
+        .catch(() => undefined);
 
       return updatedProfile as unknown as IProfileDocument;
     } catch (error: any) {
