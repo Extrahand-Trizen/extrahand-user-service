@@ -30,6 +30,10 @@ import {
    normalizePhoneToE164,
    profileHasVerifiedAlternate,
 } from "../utils/phoneUtils";
+import {
+   ensureAuthChannelCapability,
+   type AuthChannel,
+} from "../utils/authChannel";
 
 export class AuthService {
    private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
@@ -521,7 +525,8 @@ export class AuthService {
       name?: string,
       clientType: "web" | "mobile" = "web",
       referralCode?: string,
-      referralChannel?: "poster" | "tasker" | "customer"
+      referralChannel?: "poster" | "tasker" | "customer",
+      authChannel?: AuthChannel
    ): Promise<{
       success: boolean;
       profile?: any;
@@ -689,6 +694,19 @@ export class AuthService {
                   email: firebaseEmail || "",
                });
 
+               if (!profile) {
+                  throw new InternalServerError(
+                     "Profile missing after signup name apply"
+                  );
+               }
+
+               profile = await ensureAuthChannelCapability(
+                  uid,
+                  profile,
+                  authChannel,
+                  clientType
+               );
+
                // Return existing profile instead of creating duplicate
                return AuthService.buildOtpSuccessResponse(
                   uid,
@@ -786,9 +804,20 @@ export class AuthService {
             });
          }
 
+         if (profile) {
+            profile = await ensureAuthChannelCapability(
+               uid,
+               profile,
+               authChannel,
+               clientType
+            );
+         }
+
          logger.info("OTP auth completed successfully", {
             uid,
             mode,
+            clientType,
+            authChannel: authChannel ?? null,
             profileExists: !!profile,
             phoneLast10: normalizePhoneToLast10(formattedPhone),
          });
@@ -861,7 +890,8 @@ export class AuthService {
       name?: string,
       clientType: "web" | "mobile" = "web",
       referralCode?: string,
-      referralChannel?: "poster" | "tasker" | "customer"
+      referralChannel?: "poster" | "tasker" | "customer",
+      authChannel?: AuthChannel
    ): Promise<{
       success: boolean;
       profile?: any;
@@ -1003,12 +1033,20 @@ export class AuthService {
          throw new InternalServerError("Profile not found after create");
       }
 
-      const verifiedProfile = await ensureDemoVerificationProfile(profile);
+      let verifiedProfile = await ensureDemoVerificationProfile(profile);
+      verifiedProfile = (await ensureAuthChannelCapability(
+         verifiedProfile.uid,
+         verifiedProfile,
+         authChannel,
+         clientType
+      )) as typeof verifiedProfile;
 
       logger.info("Dev OTP auth completed", {
          uid: verifiedProfile.uid,
          phone: formattedPhone,
          mode,
+         clientType,
+         authChannel: authChannel ?? null,
       });
 
       if (mode === "signup") {
