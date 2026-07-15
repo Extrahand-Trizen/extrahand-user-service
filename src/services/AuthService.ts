@@ -248,7 +248,8 @@ export class AuthService {
               profile.roles.includes("tasker") ||
               profile.roles.includes("helper") ||
               profile.roles.includes("performer") ||
-              profile.roles.includes("both")
+              profile.roles.includes("both") ||
+              profile.roles.includes("partner")
             ),
          };
       }

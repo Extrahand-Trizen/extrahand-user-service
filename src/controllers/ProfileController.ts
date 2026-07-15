@@ -643,6 +643,7 @@ export class ProfileController {
         totalTasks: number | undefined;
         completedTasks: number | undefined;
         postedTasks: number | undefined;
+        cancelledTasks: number | undefined;
         totalReviews: number | undefined;
         rating: number | undefined;
         ratingBreakdowns: any;
@@ -650,6 +651,7 @@ export class ProfileController {
         totalTasks: undefined,
         completedTasks: undefined,
         postedTasks: undefined,
+        cancelledTasks: undefined,
         totalReviews: undefined,
         rating: undefined,
         ratingBreakdowns: undefined
@@ -667,6 +669,7 @@ export class ProfileController {
             totalTasks: stats.totalTasks,
             completedTasks: stats.completedTasks,
             postedTasks: stats.postedTasks,
+            cancelledTasks: stats.cancelledTasks,
             totalReviews: stats.totalReviews,
             rating: stats.avgRating > 0 ? Math.round(stats.avgRating * 10) / 10 : undefined,
             ratingBreakdowns: stats.ratingBreakdowns
@@ -781,6 +784,7 @@ export class ProfileController {
         totalTasks: realTimeStats.totalTasks,
         completedTasks: realTimeStats.completedTasks,
         postedTasks: realTimeStats.postedTasks,
+        cancelledTasks: realTimeStats.cancelledTasks,
         earnedAmount: profile.earnedAmount,
         isActive: profile.isActive,
         createdAt: profile.createdAt,
@@ -1056,6 +1060,7 @@ export class ProfileController {
         totalTasks: number | undefined;
         completedTasks: number | undefined;
         postedTasks: number | undefined;
+        cancelledTasks: number | undefined;
         totalReviews: number | undefined;
         rating: number | undefined;
         ratingBreakdowns: any;
@@ -1063,6 +1068,7 @@ export class ProfileController {
         totalTasks: undefined,
         completedTasks: undefined,
         postedTasks: undefined,
+        cancelledTasks: undefined,
         totalReviews: undefined,
         rating: undefined,
         ratingBreakdowns: undefined
@@ -1082,6 +1088,7 @@ export class ProfileController {
             totalTasks: stats.totalTasks,
             completedTasks: stats.completedTasks,
             postedTasks: stats.postedTasks,
+            cancelledTasks: stats.cancelledTasks,
             totalReviews: stats.totalReviews,
             rating: stats.avgRating > 0 ? Math.round(stats.avgRating * 10) / 10 : undefined,
             ratingBreakdowns: stats.ratingBreakdowns
@@ -1210,6 +1217,7 @@ export class ProfileController {
         totalTasks: realTimeStats.totalTasks,
         completedTasks: realTimeStats.completedTasks,
         postedTasks: realTimeStats.postedTasks,
+        cancelledTasks: realTimeStats.cancelledTasks,
         earnedAmount: profile.earnedAmount,
         business: profile.business,
         isActive: profile.isActive,

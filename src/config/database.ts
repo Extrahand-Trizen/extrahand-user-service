@@ -2,9 +2,23 @@ import dns from 'node:dns';
 import mongoose from 'mongoose';
 import logger from './logger';
 
-// Temporary workaround for local DNS issue.
-// Remove after your Windows DNS issue is fixed.
-dns.setServers(['8.8.8.8', '8.8.4.4']);
+const DNS_FALLBACK_SERVERS = ['8.8.8.8', '8.8.4.4'];
+
+function configureDnsFallback(): void {
+  try {
+    dns.setServers(DNS_FALLBACK_SERVERS);
+  } catch (error) {
+    logger.warn('⚠️ Unable to override DNS servers for MongoDB, continuing with platform defaults', error);
+  }
+
+  try {
+    dns.setDefaultResultOrder?.('ipv4first');
+  } catch (error) {
+    logger.warn('⚠️ Unable to set IPv4-first DNS result order, continuing with platform defaults', error);
+  }
+}
+
+configureDnsFallback();
 
 let isConnected = false;
 
@@ -32,11 +46,12 @@ export async function connectMongo(uri: string): Promise<typeof mongoose.connect
   try {
     const connectionOptions = {
       dbName: process.env.MONGODB_DB || 'extrahand',
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      connectTimeoutMS: 10000,
+      serverSelectionTimeoutMS: 20000,
+      socketTimeoutMS: 60000,
+      connectTimeoutMS: 20000,
       maxPoolSize: 10,
       minPoolSize: 2,
+      family: 4 as const,
     };
 
     logger.info('🔌 Attempting to connect to MongoDB...');
