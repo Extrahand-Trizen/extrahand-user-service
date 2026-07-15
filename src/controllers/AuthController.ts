@@ -10,6 +10,7 @@ import {
 import type { ClientType } from "../models/SessionToken";
 import { logReferralCoins } from "../rewards/referral/referralCoinsLogger";
 import { parseReferralChannel } from "../rewards/utils/walletRole";
+import { parseAuthChannel } from "../utils/authChannel";
 import logger from "../config/logger";
 
 export class AuthController {
@@ -145,7 +146,7 @@ export class AuthController {
       res: Response
    ): Promise<void> {
       try {
-         const { idToken, mode, phone, name, clientType, deviceId, referralCode, referralChannel } = req.body;
+         const { idToken, mode, phone, name, clientType, deviceId, referralCode, referralChannel, authChannel } = req.body;
 
          if (!idToken || !mode || !phone) {
             res.status(400).json({
@@ -165,6 +166,9 @@ export class AuthController {
 
          const normalizedClient: ClientType =
             clientType === "mobile" ? "mobile" : "web";
+         // authChannel role merge is mobile-app only — ignore on web so website auth is unchanged
+         const normalizedAuthChannel =
+            normalizedClient === "mobile" ? parseAuthChannel(authChannel) : undefined;
 
          if (mode === "signup" && typeof referralCode === "string" && referralCode.trim()) {
             logReferralCoins("api_apply_request", {
@@ -179,6 +183,7 @@ export class AuthController {
          logger.info("[Signup][WA] otp/complete received", {
             mode,
             clientType: normalizedClient,
+            authChannel: normalizedAuthChannel ?? null,
             phoneLast4: phoneLast10.slice(-4),
             willRunMyOperator: mode === "signup",
          });
@@ -192,7 +197,8 @@ export class AuthController {
             typeof referralCode === "string" ? referralCode : undefined,
             referralChannel != null && String(referralChannel).trim() !== ""
                ? parseReferralChannel(referralChannel)
-               : undefined
+               : undefined,
+            normalizedAuthChannel
          );
 
          // Use Firebase UID (profile.uid) for session, NOT MongoDB _id
@@ -208,6 +214,7 @@ export class AuthController {
 
          const tokens = await SessionService.createSession({
             uid: firebaseUid,  // Use Firebase UID, not MongoDB _id
+            profileId: result.profile?._id ? String(result.profile._id) : undefined,
             clientType: normalizedClient,
             deviceId,
             userAgent: req.get("user-agent") ?? undefined,
@@ -276,7 +283,7 @@ export class AuthController {
             return;
          }
 
-         const { phone, otp, mode, name, clientType, deviceId, referralCode, referralChannel } = req.body;
+         const { phone, otp, mode, name, clientType, deviceId, referralCode, referralChannel, authChannel } = req.body;
          if (!phone || !otp || !mode) {
             res.status(400).json({
                success: false,
@@ -294,6 +301,9 @@ export class AuthController {
 
          const normalizedClient: ClientType =
             clientType === "mobile" ? "mobile" : "web";
+         // authChannel role merge is mobile-app only — ignore on web so website auth is unchanged
+         const normalizedAuthChannel =
+            normalizedClient === "mobile" ? parseAuthChannel(authChannel) : undefined;
 
          const result = await AuthService.completeOTPDevAuth(
             phone,
@@ -304,7 +314,8 @@ export class AuthController {
             typeof referralCode === "string" ? referralCode : undefined,
             referralChannel != null && String(referralChannel).trim() !== ""
                ? parseReferralChannel(referralChannel)
-               : undefined
+               : undefined,
+            normalizedAuthChannel
          );
          const firebaseUid = result.profile?.uid;
          if (!firebaseUid) {
@@ -317,6 +328,7 @@ export class AuthController {
 
          const tokens = await SessionService.createSession({
             uid: firebaseUid,
+            profileId: result.profile?._id ? String(result.profile._id) : undefined,
             clientType: normalizedClient,
             deviceId,
             userAgent: req.get("user-agent") ?? undefined,

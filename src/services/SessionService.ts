@@ -1,6 +1,7 @@
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { randomUUID, createHash } from "crypto";
 import SessionToken, { ClientType } from "../models/SessionToken";
+import Profile from "../models/Profile";
 import { validateEnv } from "../config/env";
 import logger from "../config/logger";
 import { UnauthorizedError, BadRequestError } from "../errors/AppError";
@@ -16,6 +17,8 @@ const TOKEN_AUDIENCE = "extrahand-clients";
 export interface TokenIssueMetadata {
    // uid is the Firebase UID (stored in Profile.uid field)
    uid: string;
+   /** MongoDB Profile._id — embedded in access token as `pid` for gateway auth */
+   profileId?: string;
    sessionId?: string;
    clientType: ClientType;
    userAgent?: string;
@@ -37,6 +40,7 @@ interface AccessTokenClaims extends JwtPayload {
    sub: string;
    sid: string;
    tid?: string;
+   pid?: string;
 }
 
 interface RefreshTokenClaims extends JwtPayload {
@@ -123,8 +127,12 @@ export class SessionService {
          throw new UnauthorizedError("Refresh token expired");
       }
 
+      const profile = await Profile.findOne({ uid: claims.sub }).select("_id").lean();
+      const profileId = profile?._id ? String(profile._id) : undefined;
+
       const tokenPair = await this.issueTokens({
          uid: claims.sub,
+         profileId,
          sessionId: stored.sessionId,
          clientType: stored.clientType,
          userAgent: overrides.userAgent,
@@ -210,7 +218,8 @@ export class SessionService {
       const accessToken = this.signAccessToken(
          metadata.uid,
          metadata.sessionId,
-         tokenId
+         tokenId,
+         metadata.profileId
       );
 
       logger.info("Session tokens issued", {
@@ -235,14 +244,20 @@ export class SessionService {
    private static signAccessToken(
       uid: string,
       sessionId: string,
-      tokenId: string
+      tokenId: string,
+      profileId?: string
    ): string {
+      const payload: Record<string, string> = {
+         sub: uid,
+         sid: sessionId,
+         tid: tokenId,
+      };
+      if (profileId?.trim()) {
+         payload.pid = profileId.trim();
+      }
+
       return jwt.sign(
-         {
-            sub: uid,
-            sid: sessionId,
-            tid: tokenId,
-         },
+         payload,
          ACCESS_TOKEN_SECRET,
          {
             expiresIn: ACCESS_TOKEN_TTL_SECONDS,

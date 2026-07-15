@@ -24,11 +24,9 @@ interface ReviewStats {
 
 export class StatsService {
   private taskServiceUrl: string;
-  private serviceAuthToken: string;
 
   constructor() {
     this.taskServiceUrl = env.TASK_SERVICE_URL;
-    this.serviceAuthToken = env.SERVICE_AUTH_TOKEN || '';
   }
 
   private getDefaultStats() {
@@ -45,13 +43,15 @@ export class StatsService {
 
   private async fetchConsolidatedStats(profileId: string, uid: string) {
     try {
-      if (!this.taskServiceUrl || !this.serviceAuthToken) {
+      // Read token at call time so .env reloads / restarts always pick up the current value.
+      const serviceAuthToken = env.SERVICE_AUTH_TOKEN || '';
+      if (!this.taskServiceUrl || !serviceAuthToken) {
         logger.warn('Task service not configured, returning zero stats');
         return this.getDefaultStats();
       }
 
       const headers = {
-        'x-service-auth': this.serviceAuthToken,
+        'x-service-auth': serviceAuthToken,
         'x-service-name': 'user-service',
       };
 
@@ -76,6 +76,7 @@ export class StatsService {
       logger.error('Error fetching consolidated profile stats from task-service', {
         profileId,
         message: error.message,
+        status: error?.response?.status,
       });
       return this.getDefaultStats();
     }
