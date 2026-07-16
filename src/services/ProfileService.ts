@@ -196,6 +196,16 @@ function persistRoles(roles: unknown): PersistedRole[] {
   return Array.from(norm).sort() as PersistedRole[];
 }
 
+/**
+ * Union of existing + incoming roles. Client bugs historically sent single-role
+ * arrays (e.g. ['tasker'] or ['partner']) that wiped dual-app capability.
+ * Merge keeps poster/tasker/partner; never strips a capability on partial write.
+ * Admin-only paths that need full replace should set roles via a dedicated API.
+ */
+function mergePersistedRoles(existing: unknown, incoming: unknown): PersistedRole[] {
+  return persistRoles([...persistRoles(existing), ...persistRoles(incoming)]);
+}
+
 export class ProfileService {
   static async getTaskerAadhaarVerifiedCount(): Promise<number> {
     this.checkConnection();
@@ -1649,7 +1659,8 @@ export class ProfileService {
     if (profileData.email !== undefined) payload.email = profileData.email;
     if (profileData.phone !== undefined) payload.phone = profileData.phone;
     if (profileData.roles !== undefined) {
-      payload.roles = persistRoles(profileData.roles);
+      // Merge with existing roles so clients cannot wipe dual-app capabilities.
+      payload.roles = mergePersistedRoles(existingProfile?.roles, profileData.roles);
     }
     if (profileData.userType) payload.userType = profileData.userType;
     if (processedLocation) payload.location = processedLocation;
@@ -1861,9 +1872,7 @@ export class ProfileService {
       payloadKeys: Object.keys(payload)
     });
     
-    // Replace roles on write (do not $addToSet). Role switch sends the full
-    // desired list (e.g. ['poster'] or ['tasker']); add-only left dual-role
-    // users stuck on helper UI after switching to customer.
+    // Roles are already merge-unioned above when present. $set the merged list.
     const updateResult = await Profile.updateOne({ uid }, { $set: payload }, { upsert: true });
     
     logger.debug('✅ [PROFILE SERVICE] Profile saved to MongoDB', {
@@ -1968,7 +1977,8 @@ export class ProfileService {
     if (profileData.phone !== undefined) updatePayload.phone = profileData.phone;
     if (profileData.photoURL !== undefined) updatePayload.photoURL = profileData.photoURL;
     if (profileData.roles !== undefined) {
-      updatePayload.roles = persistRoles(profileData.roles);
+      // Merge with existing roles so clients cannot wipe dual-app capabilities.
+      updatePayload.roles = mergePersistedRoles(existingProfile.roles, profileData.roles);
     }
     if (profileData.userType !== undefined) updatePayload.userType = profileData.userType;
     if (profileData.bio !== undefined) updatePayload.bio = profileData.bio;
@@ -2308,8 +2318,7 @@ export class ProfileService {
     });
 
     try {
-      // Replace roles on write (do not $addToSet) so role switch can remove
-      // the previous role instead of accumulating poster+tasker forever.
+      // Roles are merge-unioned above when present. $set the merged list.
       const updatedProfile = await Profile.findOneAndUpdate(
         { uid },
         { $set: updatePayload },
