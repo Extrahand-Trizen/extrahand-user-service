@@ -111,7 +111,13 @@ export class UserController {
         status: status as string,
         role: role as string,
         category: category as string,
+        city: req.query.city as string,
+        workArea: req.query.workArea as string,
         area: area as string,
+        includeSummary:
+          typeof req.query.includeSummary === 'string'
+            ? req.query.includeSummary === 'true'
+            : undefined,
         isAadhaarVerified: parsedAadhaarVerified,
         isCertified: parsedCertified,
         createdFrom: createdFrom as string,
@@ -124,6 +130,7 @@ export class UserController {
         success: true,
         data: result.data,
         pagination: result.pagination,
+        summary: result.summary,
       });
     } catch (error: any) {
       logger.error('Error in listUsersForAdmin:', {

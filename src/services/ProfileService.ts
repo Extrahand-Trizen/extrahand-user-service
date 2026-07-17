@@ -12,7 +12,7 @@ import { statsService } from './StatsService';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation';
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
-type CanonicalRole = 'helper' | 'customer';
+type CanonicalRole = 'helper' | 'customer' | 'partner';
 
 function toIsoString(value: unknown): string | null {
   if (!value) return null;
@@ -158,9 +158,10 @@ function normalizeRoles(roles: unknown): CanonicalRole[] {
   return Array.from(normalized);
 }
 
-function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'unknown' {
+function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'partner' | 'unknown' {
   if (roles.includes('helper')) return 'helper';
   if (roles.includes('customer')) return 'customer';
+  if (roles.includes('partner')) return 'partner';
   return 'unknown';
 }
 
@@ -2585,6 +2586,8 @@ export class ProfileService {
     status?: string;
     role?: string;
     category?: string;
+    city?: string;
+    workArea?: string;
     area?: string;
     isAadhaarVerified?: boolean;
     isCertified?: boolean;
@@ -2593,6 +2596,7 @@ export class ProfileService {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     uids?: string;
+    includeSummary?: boolean;
   }): Promise<{
     data: any[];
     pagination: {
@@ -2601,6 +2605,7 @@ export class ProfileService {
       total: number;
       pages: number;
     };
+    summary?: Record<string, number>;
   }> {
     this.checkConnection();
 
@@ -2613,6 +2618,8 @@ export class ProfileService {
       status,
       role,
       category,
+      city,
+      workArea,
       area,
       isAadhaarVerified,
       isCertified,
@@ -2621,6 +2628,7 @@ export class ProfileService {
       sortBy = 'createdAt',
       sortOrder = 'desc',
       uids,
+      includeSummary,
     } = params;
     const effectiveLimit = Math.min(Math.max(1, Number(limit) || 20), MAX_LIMIT);
     const effectivePage = Math.min(Math.max(1, Number(page) || 1), MAX_PAGE);
@@ -2655,7 +2663,7 @@ export class ProfileService {
     // Filter by status
     // Handle both new status field and legacy isActive field
     // If no status filter, show all users (don't filter by status)
-    if (status && status !== 'all') {
+    if (status && status !== 'all' && role?.trim().toLowerCase() !== 'partner') {
       if (status === 'active') {
         // Active users: either status='active' OR (status doesn't exist AND isActive=true)
         andConditions.push({
@@ -2671,41 +2679,157 @@ export class ProfileService {
     }
 
     // Filter by role
-    // Dashboard sends: 'helper' or 'customer' (new terminology)
-    // DB stores: 'tasker', 'poster', 'requester', 'both' (legacy) OR 'helper', 'customer' (new)
     if (role && role !== 'all') {
       const normalizedRole = role.trim().toLowerCase();
       if (normalizedRole === 'helper' || normalizedRole === 'tasker') {
-        // Helper = tasker in legacy, also stored as 'helper' in some records
         andConditions.push({ roles: { $in: ['tasker', 'both', 'helper'] } });
       } else if (normalizedRole === 'customer' || normalizedRole === 'poster' || normalizedRole === 'requester') {
-        // Customer = poster/requester in legacy, also stored as 'customer' in some records
         andConditions.push({ roles: { $in: ['poster', 'requester', 'both', 'customer'] } });
+      } else if (normalizedRole === 'partner') {
+        andConditions.push({ roles: { $in: ['partner'] } });
       } else if (normalizedRole === 'both') {
         andConditions.push({ roles: 'both' });
+      }
+    }
+
+    if (role?.trim().toLowerCase() === 'partner') {
+      if (status && status !== 'all') {
+        andConditions.push({ 'partnerProfile.status': status });
+      }
+    } else if (status && status !== 'all') {
+      if (status === 'active') {
+        andConditions.push({
+          $or: [
+            { status: 'active' },
+            { status: { $exists: false }, isActive: true },
+          ],
+        });
+      } else {
+        andConditions.push({ status: status });
       }
     }
 
     if (category && category.trim()) {
       const categoryRegex = buildFlexibleTextRegex(category);
       const categoryNameRegex = buildFlexibleTextRegex(category, false);
-      andConditions.push({
-        $and: [
-          { roles: { $in: ['tasker', 'both', 'helper'] } },
-          {
-            $or: [
-              { 'skills.primaryCategory': categoryRegex },
-              { 'skills.list.category': categoryRegex },
-              { 'skills.list.name': categoryNameRegex },
-            ],
-          },
-        ],
-      });
+      if (role?.trim().toLowerCase() === 'partner') {
+        andConditions.push({ 'partnerProfile.categories': categoryRegex });
+      } else {
+        andConditions.push({
+          $and: [
+            { roles: { $in: ['tasker', 'both', 'helper'] } },
+            {
+              $or: [
+                { 'skills.primaryCategory': categoryRegex },
+                { 'skills.list.category': categoryRegex },
+                { 'skills.list.name': categoryNameRegex },
+              ],
+            },
+          ],
+        });
+      }
+    }
+
+    if (city && city.trim()) {
+      const cityRegex = buildFlexibleTextRegex(city.trim());
+      if (role?.trim().toLowerCase() === 'partner') {
+        andConditions.push({ 'location.addressDetails.city': cityRegex });
+      } else {
+        const hyderabadCityRegex = /^hyderabad$/i;
+        const addressAreaHyderabadRegex = new RegExp(
+          `\\b${escapeRegExp(city.trim())}\\b[\\s,]+hyderabad`,
+          'i',
+        );
+        const hyderabadAreaAddressRegex = new RegExp(
+          `hyderabad[\\s,]+\\b${escapeRegExp(city.trim())}\\b`,
+          'i',
+        );
+
+        andConditions.push({
+          $or: [
+            {
+              'location.addressDetails.area': cityRegex,
+              'location.addressDetails.city': hyderabadCityRegex,
+            },
+            {
+              'homeLocation.addressDetails.area': cityRegex,
+              'homeLocation.addressDetails.city': hyderabadCityRegex,
+            },
+            {
+              savedAddresses: {
+                $elemMatch: {
+                  'addressDetails.area': cityRegex,
+                  'addressDetails.city': hyderabadCityRegex,
+                },
+              },
+            },
+            {
+              'location.addressDetails.area': cityRegex,
+              city: hyderabadCityRegex,
+            },
+            {
+              'location.address': addressAreaHyderabadRegex,
+            },
+            {
+              'homeLocation.address': addressAreaHyderabadRegex,
+            },
+            {
+              savedAddresses: {
+                $elemMatch: {
+                  address: addressAreaHyderabadRegex,
+                },
+              },
+            },
+            {
+              'location.address': hyderabadAreaAddressRegex,
+            },
+            {
+              'homeLocation.address': hyderabadAreaAddressRegex,
+            },
+            {
+              savedAddresses: {
+                $elemMatch: {
+                  address: hyderabadAreaAddressRegex,
+                },
+              },
+            },
+          ],
+        });
+      }
+    }
+
+    if (workArea && workArea.trim()) {
+      const workAreaRegex = buildFlexibleTextRegex(workArea.trim());
+      if (role?.trim().toLowerCase() === 'partner') {
+        andConditions.push({ 'partnerProfile.workAreas': workAreaRegex });
+      } else {
+        andConditions.push({
+          $or: [
+            {
+              'location.addressDetails.area': workAreaRegex,
+              'location.addressDetails.city': /^hyderabad$/i,
+            },
+            {
+              'homeLocation.addressDetails.area': workAreaRegex,
+              'homeLocation.addressDetails.city': /^hyderabad$/i,
+            },
+          ],
+        });
+      }
     }
 
     if (area && area.trim() && area !== 'all') {
       const areaRegex = buildFlexibleTextRegex(area.trim());
       const hyderabadCityRegex = /^hyderabad$/i;
+      const addressAreaHyderabadRegex = new RegExp(
+        `\\b${escapeRegExp(area.trim())}\\b[\\s,]+hyderabad`,
+        'i',
+      );
+      const hyderabadAreaAddressRegex = new RegExp(
+        `hyderabad[\\s,]+\\b${escapeRegExp(area.trim())}\\b`,
+        'i',
+      );
+
       andConditions.push({
         $or: [
           {
@@ -2728,8 +2852,38 @@ export class ProfileService {
             'location.addressDetails.area': areaRegex,
             city: hyderabadCityRegex,
           },
+          {
+            'location.address': addressAreaHyderabadRegex,
+          },
+          {
+            'homeLocation.address': addressAreaHyderabadRegex,
+          },
+          {
+            savedAddresses: {
+              $elemMatch: {
+                address: addressAreaHyderabadRegex,
+              },
+            },
+          },
+          {
+            'location.address': hyderabadAreaAddressRegex,
+          },
+          {
+            'homeLocation.address': hyderabadAreaAddressRegex,
+          },
+          {
+            savedAddresses: {
+              $elemMatch: {
+                address: hyderabadAreaAddressRegex,
+              },
+            },
+          },
         ],
       });
+    }
+
+    if (includeSummary && role?.trim().toLowerCase() === 'partner') {
+      // Keep the query used for list data if role=partner.
     }
 
     if (typeof isAadhaarVerified === 'boolean') {
@@ -2803,7 +2957,7 @@ export class ProfileService {
     // Execute query
     const [profiles, total] = await Promise.all([
       Profile.find(query)
-        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills')
+        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills location homeLocation partnerProfile location')
         .sort(sort)
         .skip(skip)
         .limit(effectiveLimit)
@@ -2847,7 +3001,6 @@ export class ProfileService {
         isActive: profile.isActive !== false,
         rating: profile.rating || 0,
         totalReviews: profile.totalReviews || 0,
-        totalTasks: profile.totalTasks || 0,
         completedTasks: profile.completedTasks || 0,
         postedTasks: profile.postedTasks || 0,
         earnedAmount: profile.earnedAmount || 0,
@@ -2861,10 +3014,22 @@ export class ProfileService {
         bannedAt: profile.bannedAt || null,
         suspendedAt: profile.suspendedAt || null,
         skills: profile.skills || null,
+        location: profile.location || null,
+        homeLocation: profile.homeLocation || null,
+        partnerProfile: profile.partnerProfile || null,
       };
     });
 
-    return {
+    const result: {
+      data: any[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        pages: number;
+      };
+      summary?: Record<string, number>;
+    } = {
       data,
       pagination: {
         page: effectivePage,
@@ -2873,6 +3038,41 @@ export class ProfileService {
         pages: Math.ceil(total / effectiveLimit),
       },
     };
+
+    if (includeSummary && role?.trim().toLowerCase() === 'partner') {
+      const summaryCounts = await Promise.all([
+        Profile.countDocuments({
+          ...query,
+          'partnerProfile.status': 'pending_review',
+        }),
+        Profile.countDocuments({
+          ...query,
+          'partnerProfile.status': 'approved',
+        }),
+        Profile.countDocuments({
+          ...query,
+          'partnerProfile.status': 'draft',
+        }),
+        Profile.countDocuments({
+          ...query,
+          'partnerProfile.status': 'rejected',
+        }),
+        Profile.countDocuments({
+          ...query,
+          'partnerProfile.status': 'suspended',
+        }),
+      ]);
+
+      result.summary = {
+        pending_review: summaryCounts[0],
+        approved: summaryCounts[1],
+        draft: summaryCounts[2],
+        rejected: summaryCounts[3],
+        suspended: summaryCounts[4],
+      };
+    }
+
+    return result;
   }
 
   /**
@@ -2886,27 +3086,84 @@ export class ProfileService {
       $or: [
         { 'location.addressDetails.city': /^hyderabad$/i },
         { 'homeLocation.addressDetails.city': /^hyderabad$/i },
+        { 'location.city': /^hyderabad$/i },
+        { 'homeLocation.city': /^hyderabad$/i },
         { city: /^hyderabad$/i },
+        { 'location.address': /hyderabad/i },
+        { 'homeLocation.address': /hyderabad/i },
+        { 'savedAddresses.address': /hyderabad/i },
+        { 'savedAddresses.addressDetails.city': /^hyderabad$/i },
       ],
     };
 
     const profiles = await Profile.find(hyderabadCityMatch)
-      .select('location.addressDetails.area homeLocation.addressDetails.area savedAddresses.addressDetails.area')
+      .select(
+        'location.addressDetails.area homeLocation.addressDetails.area savedAddresses.addressDetails.area location.address homeLocation.address savedAddresses.address location.city homeLocation.city'
+      )
       .lean();
 
     const areas = new Set<string>();
     for (const profile of profiles) {
       const locationArea = (profile as any)?.location?.addressDetails?.area;
       const homeArea = (profile as any)?.homeLocation?.addressDetails?.area;
+      const locationAddress = (profile as any)?.location?.address;
+      const homeAddress = (profile as any)?.homeLocation?.address;
+
       if (locationArea) areas.add(String(locationArea).trim());
       if (homeArea) areas.add(String(homeArea).trim());
+      if (locationAddress) {
+        const parsed = ProfileService.extractHyderabadAreaFromAddress(locationAddress);
+        if (parsed) areas.add(parsed);
+      }
+      if (homeAddress) {
+        const parsed = ProfileService.extractHyderabadAreaFromAddress(homeAddress);
+        if (parsed) areas.add(parsed);
+      }
+
       for (const saved of (profile as any)?.savedAddresses || []) {
         const savedArea = saved?.addressDetails?.area;
+        const savedCity = saved?.addressDetails?.city;
+        const savedAddress = saved?.address;
+
         if (savedArea) areas.add(String(savedArea).trim());
+        if (savedCity && /^hyderabad$/i.test(String(savedCity).trim())) {
+          const parsed = ProfileService.extractHyderabadAreaFromAddress(savedAddress);
+          if (parsed) areas.add(parsed);
+        }
+        if (!savedArea && savedAddress) {
+          const parsed = ProfileService.extractHyderabadAreaFromAddress(savedAddress);
+          if (parsed) areas.add(parsed);
+        }
       }
     }
 
     return Array.from(areas).filter(Boolean).sort((a, b) => a.localeCompare(b));
+  }
+
+  private static extractHyderabadAreaFromAddress(address?: string, city: string = 'Hyderabad'): string | null {
+    if (!address) return null;
+    const parts = address
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return null;
+
+    const cityLower = city.trim().toLowerCase();
+    const hyderabadIdx = parts.findIndex(
+      (part) => part.toLowerCase() === cityLower || part.toLowerCase().includes(cityLower),
+    );
+
+    if (hyderabadIdx > 0) {
+      for (let i = hyderabadIdx - 1; i >= 0; i -= 1) {
+        const candidate = parts[i];
+        if (candidate && !candidate.toLowerCase().includes(cityLower)) {
+          return candidate;
+        }
+      }
+    }
+
+    const firstNonCity = parts.find((part) => !part.toLowerCase().includes(cityLower));
+    return firstNonCity || parts[0] || null;
   }
 
   /**
@@ -3176,11 +3433,22 @@ export class ProfileService {
       'isActive',
       'isVerified',
       'status',
+      'partnerProfile',
     ];
 
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
-        (profile as any)[field] = updates[field];
+        if (field === 'partnerProfile') {
+          const incomingPartnerProfile = updates.partnerProfile;
+          if (incomingPartnerProfile && typeof incomingPartnerProfile === 'object') {
+            profile.partnerProfile = {
+              ...(profile.partnerProfile || {}),
+              ...incomingPartnerProfile,
+            };
+          }
+        } else {
+          (profile as any)[field] = updates[field];
+        }
       }
     }
 
