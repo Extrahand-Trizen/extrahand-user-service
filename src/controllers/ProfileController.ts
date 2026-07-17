@@ -1398,7 +1398,54 @@ export class ProfileController {
     const uid = req.user.uid;
     const profileData: Partial<IProfile> = req.body;
 
+    logger.info('[Partner Registration] Controller Request — POST /api/v1/profiles', {
+      uid,
+      topLevelFields: Object.keys(profileData),
+      roles: profileData.roles || 'MISSING',
+      name: profileData.name || 'MISSING',
+      gender: (profileData as any).gender || 'not set',
+      dateOfBirth: (profileData as any).dateOfBirth || 'not set',
+      location: profileData.location ? {
+        type: (profileData.location as any).type,
+        coordinates: (profileData.location as any).coordinates,
+        address: (profileData.location as any).address || 'MISSING',
+        addressDetails: (profileData.location as any).addressDetails || 'MISSING',
+        isPublic: (profileData.location as any).isPublic,
+      } : 'MISSING',
+      partnerProfile: (profileData as any).partnerProfile ? {
+        categories: (profileData as any).partnerProfile.categories || 'MISSING',
+        skills: (profileData as any).partnerProfile.skills || 'MISSING',
+        workAreas: (profileData as any).partnerProfile.workAreas || 'MISSING',
+        workAreasCount: Array.isArray((profileData as any).partnerProfile.workAreas) ? (profileData as any).partnerProfile.workAreas.length : 0,
+        experience: (profileData as any).partnerProfile.experience || 'MISSING',
+        vehicle: (profileData as any).partnerProfile.vehicle || 'not set',
+        onboardingCompleted: (profileData as any).partnerProfile.onboardingCompleted,
+        status: (profileData as any).partnerProfile.status,
+      } : 'MISSING',
+      registrationStatus: (profileData as any).registrationStatus || 'MISSING',
+    });
+
     const savedProfile = await ProfileService.upsertProfile(uid, profileData);
+
+    logger.info('[Partner Registration] Controller Response — POST /api/v1/profiles saved', {
+      uid,
+      savedLocation: savedProfile.location ? {
+        coordinates: (savedProfile.location as any).coordinates,
+        address: (savedProfile.location as any).address || 'MISSING',
+        addressDetails: (savedProfile.location as any).addressDetails || 'MISSING',
+      } : 'MISSING',
+      savedPartnerProfile: (savedProfile as any).partnerProfile ? {
+        categories: (savedProfile as any).partnerProfile.categories || 'MISSING',
+        skills: (savedProfile as any).partnerProfile.skills || 'MISSING',
+        workAreas: (savedProfile as any).partnerProfile.workAreas || 'MISSING',
+        workAreasCount: Array.isArray((savedProfile as any).partnerProfile.workAreas) ? (savedProfile as any).partnerProfile.workAreas.length : 0,
+        experience: (savedProfile as any).partnerProfile.experience || 'MISSING',
+        onboardingCompleted: (savedProfile as any).partnerProfile.onboardingCompleted,
+        status: (savedProfile as any).partnerProfile.status,
+      } : 'MISSING',
+      savedRoles: savedProfile.roles,
+      savedRegistrationStatus: (savedProfile as any).registrationStatus,
+    });
 
     res.json({
       id: uid,
@@ -1480,6 +1527,13 @@ export class ProfileController {
       uid,
       hasSavedAddresses: !!profileData.savedAddresses,
       savedAddressesCount: Array.isArray(profileData.savedAddresses) ? profileData.savedAddresses.length : 0,
+      hasPartnerProfile: !!(profileData as any).partnerProfile,
+      partnerProfileWorkAreasCount: Array.isArray((profileData as any).partnerProfile?.workAreas)
+        ? (profileData as any).partnerProfile.workAreas.length
+        : null,
+      partnerProfileWorkAreas: Array.isArray((profileData as any).partnerProfile?.workAreas)
+        ? (profileData as any).partnerProfile.workAreas
+        : null,
       savedAddressesPreview: Array.isArray(profileData.savedAddresses) && profileData.savedAddresses.length > 0
         ? {
           firstAddress: {

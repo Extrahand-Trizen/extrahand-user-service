@@ -1,4 +1,4 @@
-import Profile, { IProfile, IProfileDocument } from '../models/Profile';
+import Profile, { IProfile, IProfileDocument, normalizePartnerProfileForPersistence } from '../models/Profile';
 import { getKycSessionModel, IKycSession } from '../models/KycSession';
 import { ILocation } from '../types';
 import { NotFoundError, BadRequestError, InternalServerError } from '../errors/AppError';
@@ -195,16 +195,6 @@ function persistRoles(roles: unknown): PersistedRole[] {
     }
   }
   return Array.from(norm).sort() as PersistedRole[];
-}
-
-/**
- * Union of existing + incoming roles. Client bugs historically sent single-role
- * arrays (e.g. ['tasker'] or ['partner']) that wiped dual-app capability.
- * Merge keeps poster/tasker/partner; never strips a capability on partial write.
- * Admin-only paths that need full replace should set roles via a dedicated API.
- */
-function mergePersistedRoles(existing: unknown, incoming: unknown): PersistedRole[] {
-  return persistRoles([...persistRoles(existing), ...persistRoles(incoming)]);
 }
 
 export class ProfileService {
@@ -1660,8 +1650,7 @@ export class ProfileService {
     if (profileData.email !== undefined) payload.email = profileData.email;
     if (profileData.phone !== undefined) payload.phone = profileData.phone;
     if (profileData.roles !== undefined) {
-      // Merge with existing roles so clients cannot wipe dual-app capabilities.
-      payload.roles = mergePersistedRoles(existingProfile?.roles, profileData.roles);
+      payload.roles = persistRoles(profileData.roles);
     }
     if (profileData.userType) payload.userType = profileData.userType;
     if (processedLocation) payload.location = processedLocation;
@@ -1759,10 +1748,17 @@ export class ProfileService {
       const existingPartner = existingProfile?.partnerProfile
         ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
         : {};
+      const incomingPartnerProfile = normalizePartnerProfileForPersistence(
+        (profileData as any).partnerProfile,
+      );
       payload.partnerProfile = {
         ...existingPartner,
-        ...(profileData as any).partnerProfile,
+        ...incomingPartnerProfile,
       };
+
+      if (incomingPartnerProfile?.workAreas !== undefined) {
+        payload['partnerProfile.workAreas'] = incomingPartnerProfile.workAreas;
+      }
     }
 
     // Registration funnel resume — persisted by registration screens so the
@@ -1873,7 +1869,9 @@ export class ProfileService {
       payloadKeys: Object.keys(payload)
     });
     
-    // Roles are already merge-unioned above when present. $set the merged list.
+    // Replace roles on write (do not $addToSet). Role switch sends the full
+    // desired list (e.g. ['poster'] or ['tasker']); add-only left dual-role
+    // users stuck on helper UI after switching to customer.
     const updateResult = await Profile.updateOne({ uid }, { $set: payload }, { upsert: true });
     
     logger.debug('✅ [PROFILE SERVICE] Profile saved to MongoDB', {
@@ -1978,8 +1976,7 @@ export class ProfileService {
     if (profileData.phone !== undefined) updatePayload.phone = profileData.phone;
     if (profileData.photoURL !== undefined) updatePayload.photoURL = profileData.photoURL;
     if (profileData.roles !== undefined) {
-      // Merge with existing roles so clients cannot wipe dual-app capabilities.
-      updatePayload.roles = mergePersistedRoles(existingProfile.roles, profileData.roles);
+      updatePayload.roles = persistRoles(profileData.roles);
     }
     if (profileData.userType !== undefined) updatePayload.userType = profileData.userType;
     if (profileData.bio !== undefined) updatePayload.bio = profileData.bio;
@@ -2244,17 +2241,48 @@ export class ProfileService {
     }
 
     if (profileData.partnerProfile !== undefined) {
+      const normalizedPartnerProfile = normalizePartnerProfileForPersistence(
+        profileData.partnerProfile as Record<string, any>,
+      );
+
       const mergedPartnerProfile = {
         ...(existingProfile.partnerProfile ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile : {}),
-        ...profileData.partnerProfile,
+        ...normalizedPartnerProfile,
         ...incomingPartnerMerge,
       };
+
+      if (normalizedPartnerProfile?.workAreas !== undefined) {
+        mergedPartnerProfile.workAreas = normalizedPartnerProfile.workAreas;
+        updatePayload['partnerProfile.workAreas'] = normalizedPartnerProfile.workAreas;
+      }
+
+      logger.debug('[ProfileService.updateProfile] Merged partnerProfile', {
+        uid,
+        normalizedPartnerProfileWorkAreas: Array.isArray(normalizedPartnerProfile?.workAreas)
+          ? normalizedPartnerProfile!.workAreas.length
+          : null,
+        mergedPartnerProfileWorkAreas: Array.isArray(mergedPartnerProfile.workAreas)
+          ? mergedPartnerProfile.workAreas.length
+          : null,
+        mergedPartnerProfileKeys: Object.keys(mergedPartnerProfile),
+      });
+
       updatePayload.partnerProfile = mergedPartnerProfile;
     } else if (Object.keys(incomingPartnerMerge).length > 0) {
       const existingPartner = existingProfile.partnerProfile
         ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
         : {};
       updatePayload.partnerProfile = { ...existingPartner, ...incomingPartnerMerge };
+    }
+
+    if (updatePayload.partnerProfile !== undefined) {
+      logger.debug('[ProfileService.updateProfile] Final partnerProfile payload', {
+        uid,
+        partnerProfileKeys: Object.keys(updatePayload.partnerProfile),
+        partnerProfileWorkAreas: Array.isArray(updatePayload.partnerProfile.workAreas)
+          ? updatePayload.partnerProfile.workAreas
+          : updatePayload.partnerProfile.workAreas,
+      });
     }
 
     // Update onboarding status
@@ -2319,7 +2347,8 @@ export class ProfileService {
     });
 
     try {
-      // Roles are merge-unioned above when present. $set the merged list.
+      // Replace roles on write (do not $addToSet) so role switch can remove
+      // the previous role instead of accumulating poster+tasker forever.
       const updatedProfile = await Profile.findOneAndUpdate(
         { uid },
         { $set: updatePayload },
@@ -3450,10 +3479,9 @@ export class ProfileService {
         if (field === 'partnerProfile') {
           const incomingPartnerProfile = updates.partnerProfile;
           if (incomingPartnerProfile && typeof incomingPartnerProfile === 'object') {
-            profile.partnerProfile = {
-              ...(profile.partnerProfile || {}),
-              ...incomingPartnerProfile,
-            };
+            for (const key of Object.keys(incomingPartnerProfile)) {
+              profile.set(`partnerProfile.${key}`, incomingPartnerProfile[key]);
+            }
           }
         } else {
           (profile as any)[field] = updates[field];

@@ -152,7 +152,7 @@ export interface IProfile extends Document {
     };
   };
   registrationStatus?: {
-    currentStep: 'MOBILE_NUMBER' | 'OTP_VERIFY' | 'PERSONAL_DETAILS' | 'LOCATION' | 'WORK_AREAS' | 'CATEGORIES' | 'SKILLS' | 'EXPERIENCE' | 'REVIEW_PROFILE' | 'COMPLETED';
+    currentStep: 'MOBILE_NUMBER' | 'OTP_VERIFY' | 'PERSONAL_DETAILS' | 'LOCATION' | 'WORK_AREAS' | 'CATEGORIES' | 'SKILLS' | 'EXPERIENCE' | 'REVIEW_PROFILE' | 'PARTNER_SUPPLY_ONBOARDING' | 'COMPLETED';
     completedSteps: string[];
     categoryIndex?: number;
   };
@@ -505,7 +505,7 @@ const ProfileSchema = new Schema<IProfile>({
   registrationStatus: {
     currentStep: {
       type: String,
-      enum: ['MOBILE_NUMBER', 'OTP_VERIFY', 'PERSONAL_DETAILS', 'LOCATION', 'WORK_AREAS', 'CATEGORIES', 'SKILLS', 'EXPERIENCE', 'REVIEW_PROFILE', 'COMPLETED'],
+      enum: ['MOBILE_NUMBER', 'OTP_VERIFY', 'PERSONAL_DETAILS', 'LOCATION', 'WORK_AREAS', 'CATEGORIES', 'SKILLS', 'EXPERIENCE', 'REVIEW_PROFILE', 'PARTNER_SUPPLY_ONBOARDING', 'COMPLETED'],
       default: 'MOBILE_NUMBER'
     },
     completedSteps: {
@@ -798,6 +798,29 @@ function normalizeRolesInUpdate(update: Record<string, any> | null | undefined):
   if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, 'roles')) {
     update.$set.roles = normalizePersistedRoles(update.$set.roles);
   }
+}
+
+export function normalizePartnerProfileForPersistence(partnerProfile: Record<string, any> | undefined | null): Record<string, any> | undefined {
+  if (!partnerProfile || typeof partnerProfile !== 'object') {
+    return undefined;
+  }
+
+  const normalized = { ...partnerProfile };
+  if (Object.prototype.hasOwnProperty.call(normalized, 'workAreas')) {
+    const rawWorkAreas = normalized.workAreas;
+    if (Array.isArray(rawWorkAreas)) {
+      normalized.workAreas = rawWorkAreas
+        .filter((id: unknown) => typeof id === 'string' && id.trim())
+        .map((id: string) => id.trim());
+    } else if (typeof rawWorkAreas === 'string') {
+      const trimmed = rawWorkAreas.trim();
+      normalized.workAreas = trimmed ? [trimmed] : [];
+    } else {
+      normalized.workAreas = [];
+    }
+  }
+
+  return normalized;
 }
 
 ProfileSchema.pre('save', function(next) {
