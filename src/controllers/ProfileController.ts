@@ -1425,7 +1425,18 @@ export class ProfileController {
       registrationStatus: (profileData as any).registrationStatus || 'MISSING',
     });
 
-    const savedProfile = await ProfileService.upsertProfile(uid, profileData);
+    let savedProfile: any;
+    try {
+      savedProfile = await ProfileService.upsertProfile(uid, profileData);
+    } catch (err: any) {
+      logger.error('[Partner Registration] Controller Error — POST /api/v1/profiles threw', {
+        uid,
+        errorMessage: err?.message,
+        errorName: err?.name,
+        stack: err?.stack,
+      });
+      throw err;
+    }
 
     logger.info('[Partner Registration] Controller Response — POST /api/v1/profiles saved', {
       uid,

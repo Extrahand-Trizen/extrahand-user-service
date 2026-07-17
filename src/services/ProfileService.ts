@@ -1755,10 +1755,14 @@ export class ProfileService {
         ...existingPartner,
         ...incomingPartnerProfile,
       };
-
-      if (incomingPartnerProfile?.workAreas !== undefined) {
-        payload['partnerProfile.workAreas'] = incomingPartnerProfile.workAreas;
-      }
+      // NOTE: Do NOT also set `payload['partnerProfile.workAreas']` here.
+      // Having both `partnerProfile` (the full sub-document) AND
+      // `partnerProfile.workAreas` (dot-notation sub-field) in the same
+      // $set payload causes MongoDB to throw:
+      //   "Updating the path 'partnerProfile' would create a conflict at
+      //    'partnerProfile.workAreas'"
+      // workAreas is already included inside payload.partnerProfile via the
+      // spread above, so no separate dot-notation key is needed.
     }
 
     // Registration funnel resume — persisted by registration screens so the
