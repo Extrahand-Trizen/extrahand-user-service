@@ -145,12 +145,13 @@ export class PrivacyController {
       return;
     }
 
-    const { deletedAt, cascadeDeleteResult } = await PrivacyService.requestAccountDeletion(userId, reason);
+    const { deletedAt, cascadeDeleteResult, deletionMode } = await PrivacyService.requestAccountDeletion(userId, reason);
 
     logger.info('Delete-account API completed immediate deletion', {
       userId,
       deletedAt,
       cascadeDeleteResult,
+      deletionMode,
     });
 
     res.json({
@@ -158,6 +159,7 @@ export class PrivacyController {
       message: 'Account deleted successfully',
       deletedAt,
       cascadeDeleteResult,
+      deletionMode,
     });
   }
 

@@ -5,7 +5,7 @@ import logger from '../config/logger';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
-
+import { getAccountDeletionMode, getRolesAfterRemovingHelperPartner } from '../utils/roleDeletionScope';
 
 const env = validateEnv();
 
@@ -37,12 +37,17 @@ export class PrivacyService {
 
     const profileId = profile?._id?.toString();
     const userId = profile?.uid;
+    const deletionMode = getAccountDeletionMode(profile?.roles);
+    const scopeHeader = deletionMode === 'roleScoped' ? 'role-scoped' : 'full';
 
     try {
       const response = await axios.delete(
         `${taskServiceUrl}/api/v1/cascade-delete/user/${userId}/account-deletion`,
         {
-          headers: this.buildServiceHeaders(userId, profileId),
+          headers: {
+            ...this.buildServiceHeaders(userId, profileId),
+            'X-Deletion-Scope': scopeHeader,
+          },
           timeout: 30000,
         },
       );
@@ -88,6 +93,7 @@ export class PrivacyService {
 
     const profileId = profile?._id?.toString();
     const userId = profile?.uid;
+    const deletionMode = getAccountDeletionMode(profile?.roles);
 
     if (!profileId) {
       throw new BadRequestError('Profile not found');
@@ -97,7 +103,10 @@ export class PrivacyService {
       const response = await axios.get(
         `${taskServiceUrl}/api/v1/cascade-delete/user/${userId}/active-blockers`,
         {
-          headers: this.buildServiceHeaders(userId, profileId),
+          headers: {
+            ...this.buildServiceHeaders(userId, profileId),
+            'X-Deletion-Scope': deletionMode === 'roleScoped' ? 'role-scoped' : 'full',
+          },
           timeout: 10000,
         },
       );
@@ -130,6 +139,57 @@ export class PrivacyService {
   private static async anonymizeAccountProfile(profile: any, reason?: string): Promise<string> {
     const userId = profile.uid;
     const anonymizedName = this.getDeletionAlias(profile);
+    const deletionMode = getAccountDeletionMode(profile.roles);
+
+    if (deletionMode === 'roleScoped') {
+      const remainingRoles = getRolesAfterRemovingHelperPartner(profile.roles);
+      await Profile.updateOne(
+        { uid: userId },
+        {
+          $set: {
+            roles: remainingRoles,
+            skills: {
+              primaryCategory: null,
+              list: [],
+              updatedAt: new Date(),
+            },
+            helperWorkAreas: [],
+            partnerProfile: {
+              status: 'not_applied',
+              onboardingCompleted: false,
+              languages: [],
+              gender: null,
+              dob: null,
+              categories: [],
+              skills: {},
+              workAreas: [],
+              experience: {},
+              vehicle: { type: null, number: null },
+              qualification: null,
+              professionalExperience: null,
+              careLanguages: null,
+              careAgeGroups: null,
+              workPlace: {},
+              workPhotos: [],
+              dlNumber: null,
+              dlFront: null,
+              dlBack: null,
+              rc: null,
+              experienceProofs: {},
+            },
+            'dataPrivacy.deletionRequested': false,
+            'dataPrivacy.deletionRequestedAt': null,
+            'dataPrivacy.deletionScheduledFor': null,
+            'dataPrivacy.accountDeleted': false,
+            'dataPrivacy.accountDeletedAt': null,
+            'dataPrivacy.accountDeletionReason':
+              reason?.trim() || 'User requested helper/partner data deletion',
+          },
+        },
+      );
+
+      return anonymizedName;
+    }
 
     await Promise.all([
       Profile.updateOne(
@@ -727,13 +787,13 @@ export class PrivacyService {
   static async requestAccountDeletion(
     userId: string,
     reason?: string,
-  ): Promise<{ deletedAt: Date; cascadeDeleteResult: Record<string, number> }> {
+  ): Promise<{ deletedAt: Date; cascadeDeleteResult: Record<string, number>; deletionMode: 'full' | 'roleScoped' }> {
+    const profile = await Profile.findOne({ uid: userId });
+
     logger.info('🗑️ Account deletion request started', {
       userId,
       hasReason: Boolean(reason && reason.trim()),
     });
-
-    const profile = await Profile.findOne({ uid: userId });
 
     if (!profile) {
       throw new NotFoundError('Profile not found');
@@ -743,11 +803,16 @@ export class PrivacyService {
       throw new BadRequestError('This account is already deleted');
     }
 
+    const deletionMode = getAccountDeletionMode(profile.roles);
+
     await this.assertNoActiveDeletionBlockers(profile);
     const cascadeDeleteResult = await this.cascadeDeleteAccountEligibleData(profile);
     const anonymizedName = await this.anonymizeAccountProfile(profile, reason);
-    await this.recordDeletionConsent(userId, reason);
-    await this.deleteFirebaseAuthUser(userId);
+
+    if (deletionMode === 'full') {
+      await this.recordDeletionConsent(userId, reason);
+      await this.deleteFirebaseAuthUser(userId);
+    }
 
     const deletedAt = new Date();
 
@@ -758,7 +823,7 @@ export class PrivacyService {
       deletedAt,
     });
 
-    return { deletedAt, cascadeDeleteResult };
+    return { deletedAt, cascadeDeleteResult, deletionMode };
   }
 
   /**

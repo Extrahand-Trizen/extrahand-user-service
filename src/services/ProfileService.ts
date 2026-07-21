@@ -1,4 +1,4 @@
-import Profile, { IProfile, IProfileDocument, normalizePartnerProfileForPersistence } from '../models/Profile';
+import Profile, { IProfile, IProfileDocument } from '../models/Profile';
 import { getKycSessionModel, IKycSession } from '../models/KycSession';
 import { ILocation } from '../types';
 import { NotFoundError, BadRequestError, InternalServerError } from '../errors/AppError';
@@ -1748,21 +1748,10 @@ export class ProfileService {
       const existingPartner = existingProfile?.partnerProfile
         ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
         : {};
-      const incomingPartnerProfile = normalizePartnerProfileForPersistence(
-        (profileData as any).partnerProfile,
-      );
       payload.partnerProfile = {
         ...existingPartner,
-        ...incomingPartnerProfile,
+        ...(profileData as any).partnerProfile,
       };
-      // NOTE: Do NOT also set `payload['partnerProfile.workAreas']` here.
-      // Having both `partnerProfile` (the full sub-document) AND
-      // `partnerProfile.workAreas` (dot-notation sub-field) in the same
-      // $set payload causes MongoDB to throw:
-      //   "Updating the path 'partnerProfile' would create a conflict at
-      //    'partnerProfile.workAreas'"
-      // workAreas is already included inside payload.partnerProfile via the
-      // spread above, so no separate dot-notation key is needed.
     }
 
     // Registration funnel resume — persisted by registration screens so the
@@ -2245,48 +2234,17 @@ export class ProfileService {
     }
 
     if (profileData.partnerProfile !== undefined) {
-      const normalizedPartnerProfile = normalizePartnerProfileForPersistence(
-        profileData.partnerProfile as Record<string, any>,
-      );
-
       const mergedPartnerProfile = {
         ...(existingProfile.partnerProfile ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile : {}),
-        ...normalizedPartnerProfile,
+        ...profileData.partnerProfile,
         ...incomingPartnerMerge,
       };
-
-      if (normalizedPartnerProfile?.workAreas !== undefined) {
-        mergedPartnerProfile.workAreas = normalizedPartnerProfile.workAreas;
-        updatePayload['partnerProfile.workAreas'] = normalizedPartnerProfile.workAreas;
-      }
-
-      logger.debug('[ProfileService.updateProfile] Merged partnerProfile', {
-        uid,
-        normalizedPartnerProfileWorkAreas: Array.isArray(normalizedPartnerProfile?.workAreas)
-          ? normalizedPartnerProfile!.workAreas.length
-          : null,
-        mergedPartnerProfileWorkAreas: Array.isArray(mergedPartnerProfile.workAreas)
-          ? mergedPartnerProfile.workAreas.length
-          : null,
-        mergedPartnerProfileKeys: Object.keys(mergedPartnerProfile),
-      });
-
       updatePayload.partnerProfile = mergedPartnerProfile;
     } else if (Object.keys(incomingPartnerMerge).length > 0) {
       const existingPartner = existingProfile.partnerProfile
         ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
         : {};
       updatePayload.partnerProfile = { ...existingPartner, ...incomingPartnerMerge };
-    }
-
-    if (updatePayload.partnerProfile !== undefined) {
-      logger.debug('[ProfileService.updateProfile] Final partnerProfile payload', {
-        uid,
-        partnerProfileKeys: Object.keys(updatePayload.partnerProfile),
-        partnerProfileWorkAreas: Array.isArray(updatePayload.partnerProfile.workAreas)
-          ? updatePayload.partnerProfile.workAreas
-          : updatePayload.partnerProfile.workAreas,
-      });
     }
 
     // Update onboarding status
@@ -3483,9 +3441,10 @@ export class ProfileService {
         if (field === 'partnerProfile') {
           const incomingPartnerProfile = updates.partnerProfile;
           if (incomingPartnerProfile && typeof incomingPartnerProfile === 'object') {
-            for (const key of Object.keys(incomingPartnerProfile)) {
-              profile.set(`partnerProfile.${key}`, incomingPartnerProfile[key]);
-            }
+            profile.partnerProfile = {
+              ...(profile.partnerProfile || {}),
+              ...incomingPartnerProfile,
+            };
           }
         } else {
           (profile as any)[field] = updates[field];
