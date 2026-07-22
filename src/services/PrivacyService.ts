@@ -5,17 +5,23 @@ import logger from '../config/logger';
 import axios from 'axios';
 import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
-import { getAccountDeletionMode, getRolesAfterRemovingHelperPartner } from '../utils/roleDeletionScope';
+import type { AuthChannel } from '../utils/authChannel';
+import {
+  resolveAccountDeletionPlan,
+  type AccountDeletionMode,
+  type AccountDeletionPlan,
+  type DeletionDataScope,
+} from '../utils/roleDeletionScope';
 
 const env = validateEnv();
 
 export class PrivacyService {
-  private static getDeletionAlias(profile: any): string {
-    const roles = Array.isArray(profile?.roles) ? profile.roles : [];
-    if (roles.includes('tasker')) {
-      return 'Helper Account Deleted';
-    }
-    return 'Customer Account Deleted';
+  private static getDeletionAlias(plan: AccountDeletionPlan): string {
+    if (plan.removeSide === 'helper') return 'Helper Account Deleted';
+    if (plan.removeSide === 'poster') return 'Customer Account Deleted';
+    return plan.removeSide === 'all' && plan.mode === 'full'
+      ? 'Account Deleted'
+      : 'Customer Account Deleted';
   }
 
   private static buildServiceHeaders(userId?: string, profileId?: string): Record<string, string> {
@@ -27,7 +33,10 @@ export class PrivacyService {
     };
   }
 
-  private static async cascadeDeleteAccountEligibleData(profile: any): Promise<Record<string, number>> {
+  private static async cascadeDeleteAccountEligibleData(
+    profile: any,
+    dataScope: DeletionDataScope,
+  ): Promise<Record<string, number>> {
     const taskServiceUrl = env.TASK_SERVICE_URL;
     if (!taskServiceUrl || !env.SERVICE_AUTH_TOKEN) {
       throw new ServiceUnavailableError(
@@ -37,8 +46,6 @@ export class PrivacyService {
 
     const profileId = profile?._id?.toString();
     const userId = profile?.uid;
-    const deletionMode = getAccountDeletionMode(profile?.roles);
-    const scopeHeader = deletionMode === 'roleScoped' ? 'role-scoped' : 'full';
 
     try {
       const response = await axios.delete(
@@ -46,7 +53,7 @@ export class PrivacyService {
         {
           headers: {
             ...this.buildServiceHeaders(userId, profileId),
-            'X-Deletion-Scope': scopeHeader,
+            'X-Deletion-Scope': dataScope,
           },
           timeout: 30000,
         },
@@ -56,6 +63,7 @@ export class PrivacyService {
       logger.info('User account-deletion eligible data removed via task-service', {
         userId,
         profileId,
+        dataScope,
         payload,
       });
 
@@ -72,6 +80,7 @@ export class PrivacyService {
       logger.error('Failed to delete account-eligible task data before account deletion', {
         userId,
         profileId,
+        dataScope,
         statusCode: error?.response?.status,
         responseData: error?.response?.data,
         error: error.message,
@@ -83,7 +92,10 @@ export class PrivacyService {
     }
   }
 
-  private static async assertNoActiveDeletionBlockers(profile: any): Promise<void> {
+  private static async assertNoActiveDeletionBlockers(
+    profile: any,
+    dataScope: DeletionDataScope,
+  ): Promise<void> {
     const taskServiceUrl = env.TASK_SERVICE_URL;
     if (!taskServiceUrl || !env.SERVICE_AUTH_TOKEN) {
       throw new ServiceUnavailableError(
@@ -93,7 +105,6 @@ export class PrivacyService {
 
     const profileId = profile?._id?.toString();
     const userId = profile?.uid;
-    const deletionMode = getAccountDeletionMode(profile?.roles);
 
     if (!profileId) {
       throw new BadRequestError('Profile not found');
@@ -105,7 +116,7 @@ export class PrivacyService {
         {
           headers: {
             ...this.buildServiceHeaders(userId, profileId),
-            'X-Deletion-Scope': deletionMode === 'roleScoped' ? 'role-scoped' : 'full',
+            'X-Deletion-Scope': dataScope,
           },
           timeout: 10000,
         },
@@ -125,6 +136,7 @@ export class PrivacyService {
       logger.error('Failed to check active deletion blockers', {
         userId,
         profileId,
+        dataScope,
         statusCode: error?.response?.status,
         responseData: error?.response?.data,
         error: error.message,
@@ -136,18 +148,44 @@ export class PrivacyService {
     }
   }
 
-  private static async anonymizeAccountProfile(profile: any, reason?: string): Promise<string> {
+  private static async anonymizeAccountProfile(
+    profile: any,
+    plan: AccountDeletionPlan,
+    reason?: string,
+  ): Promise<string> {
     const userId = profile.uid;
-    const anonymizedName = this.getDeletionAlias(profile);
-    const deletionMode = getAccountDeletionMode(profile.roles);
+    const anonymizedName = this.getDeletionAlias(plan);
 
-    if (deletionMode === 'roleScoped') {
-      const remainingRoles = getRolesAfterRemovingHelperPartner(profile.roles);
+    if (plan.mode === 'roleScoped' && plan.removeSide === 'poster') {
+      // Customer-app delete while helper remains: strip poster only.
       await Profile.updateOne(
         { uid: userId },
         {
           $set: {
-            roles: remainingRoles,
+            roles: plan.remainingRoles,
+            'roleVerifications.poster.canPostTasks': false,
+            'roleVerifications.poster.verifiedAt': null,
+            'dataPrivacy.deletionRequested': false,
+            'dataPrivacy.deletionRequestedAt': null,
+            'dataPrivacy.deletionScheduledFor': null,
+            'dataPrivacy.accountDeleted': false,
+            'dataPrivacy.accountDeletedAt': null,
+            'dataPrivacy.accountDeletionReason':
+              reason?.trim() || 'User requested customer account deletion',
+          },
+        },
+      );
+
+      return anonymizedName;
+    }
+
+    if (plan.mode === 'roleScoped' && plan.removeSide === 'helper') {
+      // Helper-app delete while poster remains: strip helper/partner only.
+      await Profile.updateOne(
+        { uid: userId },
+        {
+          $set: {
+            roles: plan.remainingRoles,
             skills: {
               primaryCategory: null,
               list: [],
@@ -177,6 +215,8 @@ export class PrivacyService {
               rc: null,
               experienceProofs: {},
             },
+            'roleVerifications.tasker.canAcceptTasks': false,
+            'roleVerifications.tasker.verifiedAt': null,
             'dataPrivacy.deletionRequested': false,
             'dataPrivacy.deletionRequestedAt': null,
             'dataPrivacy.deletionScheduledFor': null,
@@ -782,16 +822,24 @@ export class PrivacyService {
 
   /**
    * Request account deletion — immediate: remove eligible task data, anonymize profile, remove Firebase auth.
-   * Blocked when the user has ongoing/assigned tasks.
+   * When authChannel is set, dual-role accounts only remove that app's side.
    */
   static async requestAccountDeletion(
     userId: string,
     reason?: string,
-  ): Promise<{ deletedAt: Date; cascadeDeleteResult: Record<string, number>; deletionMode: 'full' | 'roleScoped' }> {
+    authChannel?: AuthChannel,
+  ): Promise<{
+    deletedAt: Date;
+    cascadeDeleteResult: Record<string, number>;
+    deletionMode: AccountDeletionMode;
+    dataScope: DeletionDataScope;
+    removeSide: AccountDeletionPlan['removeSide'];
+  }> {
     const profile = await Profile.findOne({ uid: userId });
 
     logger.info('🗑️ Account deletion request started', {
       userId,
+      authChannel: authChannel ?? null,
       hasReason: Boolean(reason && reason.trim()),
     });
 
@@ -803,13 +851,16 @@ export class PrivacyService {
       throw new BadRequestError('This account is already deleted');
     }
 
-    const deletionMode = getAccountDeletionMode(profile.roles);
+    const plan = resolveAccountDeletionPlan(profile.roles, authChannel);
 
-    await this.assertNoActiveDeletionBlockers(profile);
-    const cascadeDeleteResult = await this.cascadeDeleteAccountEligibleData(profile);
-    const anonymizedName = await this.anonymizeAccountProfile(profile, reason);
+    await this.assertNoActiveDeletionBlockers(profile, plan.dataScope);
+    const cascadeDeleteResult = await this.cascadeDeleteAccountEligibleData(
+      profile,
+      plan.dataScope,
+    );
+    const anonymizedName = await this.anonymizeAccountProfile(profile, plan, reason);
 
-    if (deletionMode === 'full') {
+    if (plan.mode === 'full') {
       await this.recordDeletionConsent(userId, reason);
       await this.deleteFirebaseAuthUser(userId);
     }
@@ -821,9 +872,19 @@ export class PrivacyService {
       anonymizedName,
       cascadeDeleteResult,
       deletedAt,
+      deletionMode: plan.mode,
+      dataScope: plan.dataScope,
+      removeSide: plan.removeSide,
+      authChannel: authChannel ?? null,
     });
 
-    return { deletedAt, cascadeDeleteResult, deletionMode };
+    return {
+      deletedAt,
+      cascadeDeleteResult,
+      deletionMode: plan.mode,
+      dataScope: plan.dataScope,
+      removeSide: plan.removeSide,
+    };
   }
 
   /**
@@ -914,13 +975,17 @@ export class PrivacyService {
       try {
         const userId = profile.uid;
 
-        await this.assertNoActiveDeletionBlockers(profile);
-        await this.cascadeDeleteAccountEligibleData(profile);
+        const plan = resolveAccountDeletionPlan(profile.roles);
+        await this.assertNoActiveDeletionBlockers(profile, plan.dataScope);
+        await this.cascadeDeleteAccountEligibleData(profile, plan.dataScope);
         const anonymizedName = await this.anonymizeAccountProfile(
           profile,
+          plan,
           'User requested account deletion (DPDP)',
         );
-        await this.deleteFirebaseAuthUser(userId);
+        if (plan.mode === 'full') {
+          await this.deleteFirebaseAuthUser(userId);
+        }
 
         deletionResults.push({
           userId,

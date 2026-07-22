@@ -28,6 +28,12 @@ export class NotificationPreferencesService {
                 logger.info('Created default notification preferences', { uid });
             }
 
+            // Backfill voiceCalls for docs created before the field existed.
+            if (!preferences.voiceCalls || typeof preferences.voiceCalls.enabled !== 'boolean') {
+                preferences.voiceCalls = { enabled: true };
+                await preferences.save();
+            }
+
             return preferences;
         } catch (error: any) {
             logger.error('Error getting notification preferences', {
@@ -190,6 +196,23 @@ export class NotificationPreferencesService {
                 error: error.message,
             });
             return false; // On error, assume not in quiet hours
+        }
+    }
+
+    /**
+     * Whether the user allows voice/call contact (Settings → Voice calls).
+     * Defaults to true when the preference document is missing the field.
+     */
+    static async canReceiveVoiceCalls(uid: string): Promise<boolean> {
+        try {
+            const preferences = await this.getPreferences(uid);
+            return preferences.voiceCalls?.enabled !== false;
+        } catch (error: any) {
+            logger.error('Error checking voice call preference', {
+                uid,
+                error: error.message,
+            });
+            return true;
         }
     }
 
