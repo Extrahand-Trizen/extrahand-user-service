@@ -68,9 +68,26 @@ export class ReferralGrantReissue {
       refereePhoneHash: enrollment.refereePhoneHash,
     };
 
-    let grants = await GrantResolver.resolve(snapshot, 'on_enroll', ctx);
-    if (snapshot.referral.qualificationMode === 'AUTO') {
-      grants = [...grants, ...(await GrantResolver.resolve(snapshot, 'on_qualify', ctx))];
+    const mode = snapshot.referral.qualificationMode;
+    const enrollFulfilled =
+      Boolean(
+        (enrollment as { refereeRewardCredited?: Date | null }).refereeRewardCredited
+      ) || String(enrollment.grantsStatus || '').toLowerCase() === 'completed';
+
+    let grants: Awaited<ReturnType<typeof GrantResolver.resolve>> = [];
+    if (mode === 'AUTO') {
+      grants = [
+        ...(await GrantResolver.resolve(snapshot, 'on_enroll', ctx)),
+        ...(await GrantResolver.resolve(snapshot, 'on_qualify', ctx)),
+      ];
+    } else if (
+      enrollment.status === ReferralStatus.PENDING &&
+      enrollFulfilled &&
+      (mode === 'FIRST_PAYMENT' || mode === 'FIRST_TASK')
+    ) {
+      grants = await GrantResolver.resolve(snapshot, 'on_qualify', ctx);
+    } else {
+      grants = await GrantResolver.resolve(snapshot, 'on_enroll', ctx);
     }
 
     logReferralCoins('reissue_start', {
@@ -106,10 +123,14 @@ export class ReferralGrantReissue {
     const grantsStatus = grantsStatusFromSummary(summary);
 
     let qualified = enrollment.status === ReferralStatus.QUALIFIED;
+    const canMarkQualifiedOnReissue =
+      mode === 'AUTO' ||
+      ((mode === 'FIRST_PAYMENT' || mode === 'FIRST_TASK') && enrollFulfilled);
     if (
-      snapshot.referral.qualificationMode === 'AUTO' &&
+      canMarkQualifiedOnReissue &&
       publishResult.grantsFailed === 0 &&
-      publishResult.grantsSucceeded > 0
+      publishResult.grantsSucceeded > 0 &&
+      enrollment.status === ReferralStatus.PENDING
     ) {
       const didQualify = await QualificationEngine.markQualified(enrollmentId);
       qualified = didQualify || qualified;
