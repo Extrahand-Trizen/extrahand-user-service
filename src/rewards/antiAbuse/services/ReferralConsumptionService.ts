@@ -35,6 +35,14 @@ export function grantTargetsReferrerReferralPayout(grant: GrantSpec): boolean {
   );
 }
 
+/** Referrer signup/enroll payout — blocked when phone already consumed (abuse). */
+export function grantTargetsReferrerEnrollPayout(grant: GrantSpec): boolean {
+  return (
+    grantTargetsReferrerReferralPayout(grant) &&
+    String(grant.metadata?.source || '') === 'referral_signup'
+  );
+}
+
 export class ReferralConsumptionService {
   static async hasConsumed(
     phoneHash: string,
@@ -94,7 +102,9 @@ export class ReferralConsumptionService {
         continue;
       }
 
-      if (refereeWelcomeBlocked && grantTargetsReferrerReferralPayout(grant)) {
+      // Block referrer enroll grants on re-used phones; qualify grants must still pay
+      // after the referee received welcome on the same enrollment.
+      if (refereeWelcomeBlocked && grantTargetsReferrerEnrollPayout(grant)) {
         logReferralCoins(
           'consumption_grant_blocked',
           {
@@ -102,7 +112,7 @@ export class ReferralConsumptionService {
             recipientUid: grant.recipientUid,
             idempotencyKey: grant.idempotencyKey,
             rewardType: refereeWelcomeRewardType(referralChannel),
-            grantRole: 'referrer',
+            grantRole: 'referrer_enroll',
           },
           'warn'
         );

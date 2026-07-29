@@ -32,8 +32,12 @@ import {
 } from "../utils/phoneUtils";
 import {
    ensureAuthChannelCapability,
+   rolesHaveCapability,
+   welcomeWhatsAppForAuthChannel,
    type AuthChannel,
 } from "../utils/authChannel";
+import { fireDialogWhatsAppForPhone } from "../clients/fireDialogWhatsAppForUser";
+import { DialogWhatsAppClient } from "../clients/DialogWhatsAppClient";
 
 export class AuthService {
    private static readonly SIGNUP_WHATSAPP_DEFAULTS = {
@@ -95,53 +99,84 @@ export class AuthService {
    }
 
    /**
-    * Non-blocking MyOperator contact + signup WhatsApp template (used on signup).
+    * Non-blocking welcome WhatsApp on mobile app register / first channel capability.
+    * Customer app → extrahand_customer_welcome; Helper app → extrahand_helper_welcome.
     */
-   private static triggerSignupMyOperatorIntegrations(args: {
+   private static triggerChannelWelcomeWhatsApp(args: {
       uid: string;
       profile: any;
       phoneLast10: string;
       name?: string;
       email?: string;
+      authChannel?: AuthChannel;
    }): void {
-      const { uid, profile, phoneLast10, name, email } = args;
+      const { uid, profile, phoneLast10, name, email, authChannel } = args;
+      if (!authChannel) {
+         logger.warn("Skipping channel welcome WhatsApp — authChannel missing (app/gateway must send customer_app|helper_app)", {
+            uid,
+         });
+         return;
+      }
+      if (!phoneLast10 || phoneLast10.length < 10) {
+         logger.warn("Skipping channel welcome WhatsApp — phone missing/invalid", {
+            uid,
+            authChannel,
+         });
+         return;
+      }
+
+      const welcome = welcomeWhatsAppForAuthChannel(authChannel);
       const trimmedRequestName = name?.trim();
       const profileName =
          trimmedRequestName && trimmedRequestName !== "User"
             ? trimmedRequestName
             : profile?.name || "User";
       const emailForContact = email || "";
+      const idempotencyKey = welcome.idempotencyKey(uid);
 
-      if (!phoneLast10 || phoneLast10.length < 10) return;
-
-      const roles = (profile as { roles?: string[] })?.roles;
-      let signupRole: string | undefined;
-      if (Array.isArray(roles)) {
-         if (roles.includes("tasker") && !roles.includes("poster")) {
-            signupRole = "helper";
-         } else if (roles.includes("poster") && !roles.includes("tasker")) {
-            signupRole = "poster";
-         }
-      }
-
-      logger.info("Triggering signup WhatsApp (contact + template)", {
+      logger.info("Triggering channel welcome WhatsApp", {
          uid,
+         authChannel,
+         eventKey: welcome.eventKey,
+         metaTemplateName: welcome.metaTemplateName,
          whatsAppName: profileName,
-         signupRole,
+         dialogConfigured: DialogWhatsAppClient.isConfigured(),
+      });
+
+      fireDialogWhatsAppForPhone({
+         uid,
+         phone: phoneLast10,
+         eventKey: welcome.eventKey,
+         payload: {
+            title: welcome.role === "helper" ? "Welcome to ExtraHand Helper" : "Welcome to ExtraHand",
+            body: `Hi ${profileName}, welcome to ExtraHand!`,
+            userName: profileName,
+            name: profileName,
+         },
+         idempotencyKey,
       });
 
       void MessagingServiceClient.sendSignupWelcome({
          uid,
          name: profileName,
          email: emailForContact,
-         role: signupRole,
+         role: welcome.role,
+         templateKey: welcome.legacyTemplateKey,
          templateBody: { var_1: String(profileName) },
+         idempotencyKey,
+         metaTemplateName: welcome.metaTemplateName,
       })
          .then((sent) => {
             if (sent) {
-               logger.info("Signup WhatsApp template: sent", { uid });
+               logger.info("Signup WhatsApp template: sent", {
+                  uid,
+                  templateKey: welcome.legacyTemplateKey,
+               });
             } else {
-               logger.warn("Signup WhatsApp template: not sent", { uid });
+               logger.warn("Signup WhatsApp template: not sent", {
+                  uid,
+                  templateKey: welcome.legacyTemplateKey,
+               });
             }
          })
          .catch((err: unknown) => {
@@ -687,14 +722,6 @@ export class AuthService {
 
                profile = await AuthService.applySignupNameFromRequest(uid, profile, name);
 
-               AuthService.triggerSignupMyOperatorIntegrations({
-                  uid,
-                  profile,
-                  phoneLast10,
-                  name,
-                  email: firebaseEmail || "",
-               });
-
                if (!profile) {
                   throw new InternalServerError(
                      "Profile missing after signup name apply"
@@ -707,6 +734,15 @@ export class AuthService {
                   authChannel,
                   clientType
                );
+
+               AuthService.triggerChannelWelcomeWhatsApp({
+                  uid,
+                  profile,
+                  phoneLast10,
+                  name,
+                  email: firebaseEmail || "",
+                  authChannel,
+               });
 
                // Return existing profile instead of creating duplicate
                return AuthService.buildOtpSuccessResponse(
@@ -784,34 +820,52 @@ export class AuthService {
             profile = await ensureDemoVerificationProfile(profile);
          }
 
-         // Signup: always run MyOperator (new profile, retry signup, or existing profile path already triggered above).
-         if (mode === "signup" && profile) {
-            profile = await AuthService.applySignupNameFromRequest(uid, profile, name);
-            AuthService.triggerSignupMyOperatorIntegrations({
-               uid,
-               profile,
-               phoneLast10,
-               name,
-               email: firebaseEmail || "",
-            });
-         } else if (mode === "login" && isNewProfileThisRequest && profile) {
-            logger.info("Login created new profile — running signup MyOperator flow", { uid });
-            AuthService.triggerSignupMyOperatorIntegrations({
-               uid,
-               profile,
-               phoneLast10,
-               name: name || profile?.name,
-               email: firebaseEmail || "",
-            });
-         }
-
+         // Channel welcome WhatsApp after role merge so customer vs helper template is correct.
+         let channelCapabilityAdded = false;
          if (profile) {
+            const neededCapability =
+               authChannel === "helper_app"
+                  ? "tasker"
+                  : authChannel === "customer_app"
+                    ? "poster"
+                    : null;
+            const alreadyHadCapability =
+               !neededCapability ||
+               rolesHaveCapability(profile.roles, neededCapability);
+
             profile = await ensureAuthChannelCapability(
                uid,
                profile,
                authChannel,
                clientType
             );
+            channelCapabilityAdded = Boolean(
+               neededCapability && !alreadyHadCapability
+            );
+         }
+
+         const shouldSendChannelWelcome =
+            Boolean(profile && authChannel) &&
+            (mode === "signup" ||
+               isNewProfileThisRequest ||
+               channelCapabilityAdded);
+
+         if (shouldSendChannelWelcome && profile) {
+            if (mode === "signup") {
+               profile = await AuthService.applySignupNameFromRequest(
+                  uid,
+                  profile,
+                  name
+               );
+            }
+            AuthService.triggerChannelWelcomeWhatsApp({
+               uid,
+               profile,
+               phoneLast10,
+               name: name || profile?.name,
+               email: firebaseEmail || "",
+               authChannel,
+            });
          }
 
          logger.info("OTP auth completed successfully", {
@@ -1052,12 +1106,13 @@ export class AuthService {
 
       if (mode === "signup") {
          await AuthService.ensureSignupNotificationDefaults(verifiedProfile.uid);
-         AuthService.triggerSignupMyOperatorIntegrations({
+         AuthService.triggerChannelWelcomeWhatsApp({
             uid: verifiedProfile.uid,
             profile: verifiedProfile,
             phoneLast10,
             name: displayName,
             email: "",
+            authChannel,
          });
       }
 

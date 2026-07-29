@@ -20,7 +20,10 @@ export class MessagingServiceClient {
     name?: string;
     email?: string;
     role?: string;
+    templateKey?: string;
     templateBody?: Record<string, string>;
+    idempotencyKey?: string;
+    metaTemplateName?: string;
   }): Promise<boolean> {
     if (!this.token) {
       logger.warn('MessagingServiceClient: SERVICE_AUTH_TOKEN missing');
@@ -28,11 +31,12 @@ export class MessagingServiceClient {
     }
 
     const templateKey =
-      args.role === 'poster'
+      args.templateKey ||
+      (args.role === 'poster'
         ? 'wa_customer_welcome'
         : args.role === 'helper' || args.role === 'tasker'
           ? 'wa_helper_welcome'
-          : 'wa_signup_welcome';
+          : 'wa_signup_welcome');
 
     if (!messagingServiceCircuit.isCallAllowed()) {
       logger.warn('MessagingServiceClient.sendSignupWelcome skipped (circuit open)', {
@@ -53,8 +57,11 @@ export class MessagingServiceClient {
           ensureContact: true,
           contactName: args.name,
           contactEmail: args.email,
-          idempotencyKey: `signup:${args.uid}`,
+          idempotencyKey: args.idempotencyKey || `signup:${args.uid}`,
           sync: true,
+          metadata: args.metaTemplateName
+            ? { metaTemplateName: args.metaTemplateName, recipientRole: args.role }
+            : { recipientRole: args.role },
         },
         {
           headers: {

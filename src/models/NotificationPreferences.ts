@@ -39,6 +39,10 @@ export interface INotificationPreferences extends Document {
         keywordTaskAlerts: boolean;
         recommendedTaskAlerts: boolean;
     };
+    /** In-app / outbound voice call contact preference */
+    voiceCalls: {
+        enabled: boolean;
+    };
     preferredChannel: 'email' | 'sms' | 'push' | 'whatsapp';
     frequency: {
         dailyDigest: boolean;
@@ -98,6 +102,9 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             taskReminders: { type: Boolean, default: true },
             keywordTaskAlerts: { type: Boolean, default: true },
             recommendedTaskAlerts: { type: Boolean, default: true },
+        },
+        voiceCalls: {
+            enabled: { type: Boolean, default: true },
         },
         preferredChannel: {
             type: String,

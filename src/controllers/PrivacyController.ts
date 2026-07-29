@@ -4,6 +4,7 @@ import { PrivacyService } from '../services/PrivacyService';
 import { validateEnv } from '../config/env';
 import logger from '../config/logger';
 import { triggerDeletionExecutorWakeup } from '../jobs/scheduledDeletionJob'; // legacy scheduled deletions only
+import { parseAuthChannel } from '../utils/authChannel';
 
 const env = validateEnv();
 
@@ -127,11 +128,13 @@ export class PrivacyController {
    */
   static async requestDeletion(req: AuthenticatedRequest, res: Response): Promise<void> {
     const userId = req.user!.uid;
-    const { confirm, reason } = req.body;
+    const { confirm, reason, authChannel } = req.body;
+    const normalizedAuthChannel = parseAuthChannel(authChannel);
 
     logger.info('Delete-account API called', {
       userId,
       confirm: Boolean(confirm),
+      authChannel: normalizedAuthChannel ?? null,
       hasReason: Boolean(reason && String(reason).trim())
     });
 
@@ -145,13 +148,16 @@ export class PrivacyController {
       return;
     }
 
-    const { deletedAt, cascadeDeleteResult, deletionMode } = await PrivacyService.requestAccountDeletion(userId, reason);
+    const { deletedAt, cascadeDeleteResult, deletionMode, dataScope, removeSide } =
+      await PrivacyService.requestAccountDeletion(userId, reason, normalizedAuthChannel);
 
     logger.info('Delete-account API completed immediate deletion', {
       userId,
       deletedAt,
       cascadeDeleteResult,
       deletionMode,
+      dataScope,
+      removeSide,
     });
 
     res.json({
@@ -160,6 +166,8 @@ export class PrivacyController {
       deletedAt,
       cascadeDeleteResult,
       deletionMode,
+      dataScope,
+      removeSide,
     });
   }
 

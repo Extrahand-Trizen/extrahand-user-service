@@ -20,7 +20,33 @@ function roleForAuthChannel(channel: AuthChannel): 'poster' | 'tasker' {
   return channel === 'helper_app' ? 'tasker' : 'poster';
 }
 
-function rolesHaveCapability(
+/** Dialog / Meta welcome mapping for each mobile app binary. */
+export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
+  eventKey: 'CUSTOMER_WELCOME' | 'HELPER_WELCOME';
+  metaTemplateName: 'extrahand_customer_welcome' | 'extrahand_helper_welcome';
+  legacyTemplateKey: 'wa_customer_welcome' | 'wa_helper_welcome';
+  role: 'poster' | 'helper';
+  idempotencyKey: (uid: string) => string;
+} {
+  if (channel === 'helper_app') {
+    return {
+      eventKey: 'HELPER_WELCOME',
+      metaTemplateName: 'extrahand_helper_welcome',
+      legacyTemplateKey: 'wa_helper_welcome',
+      role: 'helper',
+      idempotencyKey: (uid) => `welcome:helper:${uid}`,
+    };
+  }
+  return {
+    eventKey: 'CUSTOMER_WELCOME',
+    metaTemplateName: 'extrahand_customer_welcome',
+    legacyTemplateKey: 'wa_customer_welcome',
+    role: 'poster',
+    idempotencyKey: (uid) => `welcome:customer:${uid}`,
+  };
+}
+
+export function rolesHaveCapability(
   rolesRaw: unknown,
   capability: 'poster' | 'tasker'
 ): boolean {
