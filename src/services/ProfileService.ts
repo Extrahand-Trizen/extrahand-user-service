@@ -3078,6 +3078,41 @@ export class ProfileService {
   /**
    * Distinct Hyderabad sub-areas/localities from user profile locations.
    */
+  /**
+   * Search helpers (taskers) by name or phone for admin Assign Helper modal.
+   * Returns lightweight profile objects: userId (uid), name, phone, email, status, _id (profileId).
+   */
+  static async searchHelpers(q: string): Promise<any[]> {
+    this.checkConnection();
+
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'i');
+
+    const profiles = await Profile.find({
+      roles: 'tasker',
+      'dataPrivacy.accountDeleted': { $ne: true },
+      $or: [
+        { name: regex },
+        { phone: regex },
+        { alternatePhone: regex },
+      ],
+    })
+      .select('uid name phone email status _id')
+      .limit(20)
+      .lean();
+
+    return profiles.map((p: any) => ({
+      userId: p.uid,
+      uid: p.uid,
+      _id: p._id?.toString(),
+      profileId: p._id?.toString(),
+      name: p.name || 'Unknown',
+      phone: p.phone || null,
+      email: p.email || null,
+      status: p.status || 'active',
+    }));
+  }
+
   static async getHyderabadSubAreas(): Promise<string[]> {
     this.checkConnection();
 
@@ -3445,6 +3480,21 @@ export class ProfileService {
               ...(profile.partnerProfile || {}),
               ...incomingPartnerProfile,
             };
+            if (incomingPartnerProfile.status === 'approved') {
+              // Automatically enroll partner in supply programs upon approval
+              if (!profile.supplyPrograms) {
+                profile.supplyPrograms = ['marketplace', 'book_now'] as any;
+              } else {
+                const current = [...(profile.supplyPrograms as string[])];
+                if (!current.includes('marketplace')) {
+                  current.push('marketplace');
+                }
+                if (!current.includes('book_now')) {
+                  current.push('book_now');
+                }
+                profile.supplyPrograms = current as any;
+              }
+            }
           }
         } else {
           (profile as any)[field] = updates[field];

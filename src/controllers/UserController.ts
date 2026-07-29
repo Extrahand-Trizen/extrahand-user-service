@@ -348,4 +348,25 @@ export class UserController {
       });
     }
   }
+  /**
+   * GET /api/v1/users/helpers/search?q=<query>
+   * Search helpers (taskers) by name or phone number (admin use for Assign Helper modal).
+   */
+  static async searchHelpers(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const q = (req.query.q as string || '').trim();
+      if (!q) {
+        res.json({ success: true, data: [] });
+        return;
+      }
+      const helpers = await ProfileService.searchHelpers(q);
+      res.json({ success: true, data: helpers });
+    } catch (error: any) {
+      logger.error('Error in searchHelpers:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to search helpers',
+      });
+    }
+  }
 }
