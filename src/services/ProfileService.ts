@@ -3476,10 +3476,22 @@ export class ProfileService {
         if (field === 'partnerProfile') {
           const incomingPartnerProfile = updates.partnerProfile;
           if (incomingPartnerProfile && typeof incomingPartnerProfile === 'object') {
-            profile.partnerProfile = {
-              ...(profile.partnerProfile || {}),
-              ...incomingPartnerProfile,
-            };
+              // Sanitize incoming partnerProfile: remove keys with undefined values
+              const sanitized: any = {};
+              for (const k of Object.keys(incomingPartnerProfile)) {
+                const v = (incomingPartnerProfile as any)[k];
+                if (v !== undefined) sanitized[k] = v;
+              }
+
+              // Avoid setting partnerProfile.vehicle to undefined which causes CastError
+              if (sanitized.vehicle === undefined) {
+                // do nothing (omitted)
+              }
+
+              profile.partnerProfile = {
+                ...(profile.partnerProfile || {}),
+                ...sanitized,
+              };
             if (incomingPartnerProfile.status === 'approved') {
               // Automatically enroll partner in supply programs upon approval
               if (!profile.supplyPrograms) {
@@ -3502,7 +3514,24 @@ export class ProfileService {
       }
     }
 
-    await profile.save();
+    try {
+      await profile.save();
+    } catch (err: any) {
+      // Sometimes legacy documents contain enum values that don't match the
+      // current schema (e.g. `ac-repair`). In such cases allow the admin
+      // update to proceed by falling back to saving without running full
+      // mongoose validators. Log a warning for visibility.
+      if (err && err.name === 'ValidationError') {
+        logger.warn('Validation failed while saving profile for admin update; falling back to save without validation', {
+          uid: profile.uid,
+          error: err.message,
+        });
+        // Force save without validation to allow admin actions (approve/reject)
+        await profile.save({ validateBeforeSave: false });
+      } else {
+        throw err;
+      }
+    }
 
     return this.getUserForAdmin(userId);
   }
