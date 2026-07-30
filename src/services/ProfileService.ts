@@ -3078,6 +3078,41 @@ export class ProfileService {
   /**
    * Distinct Hyderabad sub-areas/localities from user profile locations.
    */
+  /**
+   * Search helpers (taskers) by name or phone for admin Assign Helper modal.
+   * Returns lightweight profile objects: userId (uid), name, phone, email, status, _id (profileId).
+   */
+  static async searchHelpers(q: string): Promise<any[]> {
+    this.checkConnection();
+
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'i');
+
+    const profiles = await Profile.find({
+      roles: 'tasker',
+      'dataPrivacy.accountDeleted': { $ne: true },
+      $or: [
+        { name: regex },
+        { phone: regex },
+        { alternatePhone: regex },
+      ],
+    })
+      .select('uid name phone email status _id')
+      .limit(20)
+      .lean();
+
+    return profiles.map((p: any) => ({
+      userId: p.uid,
+      uid: p.uid,
+      _id: p._id?.toString(),
+      profileId: p._id?.toString(),
+      name: p.name || 'Unknown',
+      phone: p.phone || null,
+      email: p.email || null,
+      status: p.status || 'active',
+    }));
+  }
+
   static async getHyderabadSubAreas(): Promise<string[]> {
     this.checkConnection();
 
@@ -3441,10 +3476,37 @@ export class ProfileService {
         if (field === 'partnerProfile') {
           const incomingPartnerProfile = updates.partnerProfile;
           if (incomingPartnerProfile && typeof incomingPartnerProfile === 'object') {
-            profile.partnerProfile = {
-              ...(profile.partnerProfile || {}),
-              ...incomingPartnerProfile,
-            };
+              // Sanitize incoming partnerProfile: remove keys with undefined values
+              const sanitized: any = {};
+              for (const k of Object.keys(incomingPartnerProfile)) {
+                const v = (incomingPartnerProfile as any)[k];
+                if (v !== undefined) sanitized[k] = v;
+              }
+
+              // Avoid setting partnerProfile.vehicle to undefined which causes CastError
+              if (sanitized.vehicle === undefined) {
+                // do nothing (omitted)
+              }
+
+              profile.partnerProfile = {
+                ...(profile.partnerProfile || {}),
+                ...sanitized,
+              };
+            if (incomingPartnerProfile.status === 'approved') {
+              // Automatically enroll partner in supply programs upon approval
+              if (!profile.supplyPrograms) {
+                profile.supplyPrograms = ['marketplace', 'book_now'] as any;
+              } else {
+                const current = [...(profile.supplyPrograms as string[])];
+                if (!current.includes('marketplace')) {
+                  current.push('marketplace');
+                }
+                if (!current.includes('book_now')) {
+                  current.push('book_now');
+                }
+                profile.supplyPrograms = current as any;
+              }
+            }
           }
         } else {
           (profile as any)[field] = updates[field];
@@ -3452,7 +3514,24 @@ export class ProfileService {
       }
     }
 
-    await profile.save();
+    try {
+      await profile.save();
+    } catch (err: any) {
+      // Sometimes legacy documents contain enum values that don't match the
+      // current schema (e.g. `ac-repair`). In such cases allow the admin
+      // update to proceed by falling back to saving without running full
+      // mongoose validators. Log a warning for visibility.
+      if (err && err.name === 'ValidationError') {
+        logger.warn('Validation failed while saving profile for admin update; falling back to save without validation', {
+          uid: profile.uid,
+          error: err.message,
+        });
+        // Force save without validation to allow admin actions (approve/reject)
+        await profile.save({ validateBeforeSave: false });
+      } else {
+        throw err;
+      }
+    }
 
     return this.getUserForAdmin(userId);
   }

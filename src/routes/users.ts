@@ -23,6 +23,9 @@ router.get('/cleanup/no-role', serviceAuthMiddleware, asyncHandler(UserControlle
 // POST /api/v1/users/cleanup/no-role - Actually delete users with no role (dry_run=false)
 router.post('/cleanup/no-role', serviceAuthMiddleware, asyncHandler(UserController.cleanupUsersWithoutRoles));
 
+// GET /api/v1/users/helpers/search - Search helpers by name or phone (admin)
+router.get('/helpers/search', serviceAuthMiddleware, asyncHandler(UserController.searchHelpers));
+
 // GET /api/v1/users/:userId - Get user by UID (admin)
 router.get('/:userId', serviceAuthMiddleware, asyncHandler(UserController.getUserForAdmin));
 
