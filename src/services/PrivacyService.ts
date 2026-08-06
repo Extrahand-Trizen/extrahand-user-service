@@ -7,6 +7,8 @@ import { validateEnv } from '../config/env';
 import { auth } from '../config/firebase';
 import type { AuthChannel } from '../utils/authChannel';
 import {
+  profileHasHelperCapability,
+  profileHasPosterCapability,
   resolveAccountDeletionPlan,
   type AccountDeletionMode,
   type AccountDeletionPlan,
@@ -277,6 +279,61 @@ export class PrivacyService {
     ]);
 
     return anonymizedName;
+  }
+
+  /**
+   * Partner-only deletion: strips the partner role and resets the partner
+   * profile while leaving the tasker/helper (and poster) capabilities intact.
+   * Never cascades task data (shared with the tasker side) and never deletes
+   * the Firebase auth account.
+   */
+  private static async anonymizePartnerProfileOnly(profile: any, reason?: string): Promise<void> {
+    const userId = profile.uid;
+    const remainingRoles = Array.isArray(profile.roles)
+      ? profile.roles.filter(
+          (role: unknown) => String(role || '').trim().toLowerCase() !== 'partner',
+        )
+      : [];
+
+    await Profile.updateOne(
+      { uid: userId },
+      {
+        $set: {
+          roles: remainingRoles,
+          partnerProfile: {
+            status: 'not_applied',
+            onboardingCompleted: false,
+            languages: [],
+            gender: null,
+            dob: null,
+            categories: [],
+            skills: {},
+            workAreas: [],
+            experience: {},
+            vehicle: { type: null, number: null },
+            qualification: null,
+            professionalExperience: null,
+            careLanguages: null,
+            careAgeGroups: null,
+            workPlace: {},
+            workPhotos: [],
+            dlNumber: null,
+            dlFront: null,
+            dlBack: null,
+            rc: null,
+            experienceProofs: {},
+          },
+          supplyPrograms: [],
+          'dataPrivacy.deletionRequested': false,
+          'dataPrivacy.deletionRequestedAt': null,
+          'dataPrivacy.deletionScheduledFor': null,
+          'dataPrivacy.accountDeleted': false,
+          'dataPrivacy.accountDeletedAt': null,
+          'dataPrivacy.accountDeletionReason':
+            reason?.trim() || 'User requested partner data deletion',
+        },
+      },
+    );
   }
 
   private static async deleteFirebaseAuthUser(userId: string): Promise<void> {
@@ -885,6 +942,62 @@ export class PrivacyService {
       dataScope: plan.dataScope,
       removeSide: plan.removeSide,
     };
+  }
+
+  /**
+   * Request partner-only deletion — removes the partner role and resets the
+   * partner profile (categories, skills, documents, verifications) while the
+   * tasker/helper account remains fully active. No task cascade, no Firebase
+   * auth deletion, no logout on the client.
+   */
+  static async requestPartnerAccountDeletion(
+    userId: string,
+    reason?: string,
+  ): Promise<
+    | { deletedAt: Date; deletionMode: 'partnerScoped'; removedRole: 'partner' }
+    | Awaited<ReturnType<typeof PrivacyService.requestAccountDeletion>>
+  > {
+    const profile = await Profile.findOne({ uid: userId });
+
+    logger.info('🗑️ Partner data deletion requested', {
+      userId,
+      hasReason: Boolean(reason && reason.trim()),
+    });
+
+    if (!profile) {
+      throw new NotFoundError('Profile not found');
+    }
+
+    if (profile.dataPrivacy?.accountDeleted) {
+      throw new BadRequestError('This account is already deleted');
+    }
+
+    const roles = Array.isArray(profile.roles)
+      ? profile.roles.map((role: unknown) => String(role || '').trim().toLowerCase())
+      : [];
+    if (!roles.includes('partner')) {
+      throw new BadRequestError('You do not have a partner account to delete');
+    }
+
+    // Safety net: if partner was the only capability on this account, deleting
+    // "just the partner" would leave an empty profile — full-delete instead.
+    const remainingRoles = roles.filter((role) => role !== 'partner');
+    const hasRemainingCapability =
+      profileHasHelperCapability(remainingRoles) || profileHasPosterCapability(remainingRoles);
+    if (!hasRemainingCapability) {
+      logger.warn('Partner-only account without other capabilities — falling back to full deletion', {
+        userId,
+      });
+      return this.requestAccountDeletion(userId, reason, 'helper_app');
+    }
+
+    await this.anonymizePartnerProfileOnly(profile, reason);
+
+    const deletedAt = new Date();
+
+    logger.warn('✅ Partner data deleted', { userId, deletedAt, reason: reason?.trim() || null });
+
+    return { deletedAt, deletionMode: 'partnerScoped', removedRole: 'partner' };
   }
 
   /**

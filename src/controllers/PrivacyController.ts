@@ -125,16 +125,21 @@ export class PrivacyController {
 
   /**
    * DELETE /api/v1/privacy/delete-account
+   * body: { confirm: true, reason?, authChannel?, scope?: 'partner' }
+   * - scope === 'partner' → delete only the partner account (tasker/helper stays).
+   * - otherwise → full/role-scoped account deletion (existing behavior).
    */
   static async requestDeletion(req: AuthenticatedRequest, res: Response): Promise<void> {
     const userId = req.user!.uid;
-    const { confirm, reason, authChannel } = req.body;
+    const { confirm, reason, authChannel, scope } = req.body;
     const normalizedAuthChannel = parseAuthChannel(authChannel);
+    const normalizedScope = String(scope || '').trim().toLowerCase();
 
     logger.info('Delete-account API called', {
       userId,
       confirm: Boolean(confirm),
       authChannel: normalizedAuthChannel ?? null,
+      scope: normalizedScope || null,
       hasReason: Boolean(reason && String(reason).trim())
     });
 
@@ -144,6 +149,26 @@ export class PrivacyController {
         success: false,
         error: 'Confirmation required',
         message: 'Please confirm account deletion by sending { "confirm": true }'
+      });
+      return;
+    }
+
+    if (normalizedScope === 'partner') {
+      const result = await PrivacyService.requestPartnerAccountDeletion(userId, reason);
+
+      logger.info('Delete-account API completed partner-scoped deletion', {
+        userId,
+        deletedAt: result.deletedAt,
+        deletionMode: result.deletionMode,
+        ...(result.deletionMode === 'partnerScoped'
+          ? { removedRole: result.removedRole }
+          : { dataScope: result.dataScope, removeSide: result.removeSide }),
+      });
+
+      res.json({
+        success: true,
+        message: 'Partner account deleted successfully',
+        ...result,
       });
       return;
     }
