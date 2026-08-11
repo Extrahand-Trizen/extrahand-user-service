@@ -753,6 +753,10 @@ const ProfileSchema = new Schema<IProfile>({
     dlBack: String,
     rc: String,
     experienceProofs: { type: Schema.Types.Mixed, default: {} },
+    /** Partner's selected shift type for Book Now works (full_time | part_time) */
+    workShiftType: { type: String, default: undefined },
+    /** IDs of the selected shift slots within the chosen type */
+    workShifts: { type: [String], default: undefined },
   },
   supplyPrograms: {
     type: [{ type: String, enum: ['marketplace', 'book_now'] }],

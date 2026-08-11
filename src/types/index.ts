@@ -203,6 +203,10 @@ export interface PartnerProfile {
   dlBack?: string;
   rc?: string;
   experienceProofs?: Record<string, string[]>;
+  /** Partner's selected shift type for Book Now works (full_time | part_time) */
+  workShiftType?: string;
+  /** IDs of the selected shift slots within the chosen type */
+  workShifts?: string[];
 }
 
 export type SupplyProgram = 'marketplace' | 'book_now';
