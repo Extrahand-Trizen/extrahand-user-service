@@ -369,4 +369,45 @@ export class UserController {
       });
     }
   }
+
+  /**
+   * GET /api/v1/users/customers/promotional-audience
+   * List active customer users for manual promotional dispatch.
+   */
+  static async getPromotionalCustomerAudience(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    try {
+      const { limit, cursor, type, uids } = req.query;
+      const result = await ProfileService.getPromotionalCustomerAudience({
+        limit: typeof limit === 'string' ? parseInt(limit, 10) : undefined,
+        cursor: typeof cursor === 'string' ? cursor : undefined,
+        type: typeof type === 'string' ? type : undefined,
+        uids:
+          typeof uids === 'string'
+            ? uids.split(',').map((uid) => uid.trim()).filter(Boolean)
+            : undefined,
+      });
+
+      res.json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination,
+      });
+    } catch (error: any) {
+      logger.error('Error in getPromotionalCustomerAudience:', {
+        error: error.message,
+        cursor: req.query.cursor,
+        limit: req.query.limit,
+        type: req.query.type,
+        uids: req.query.uids,
+        stack: error.stack,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to fetch promotional customer audience',
+      });
+    }
+  }
 }

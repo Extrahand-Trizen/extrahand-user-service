@@ -197,6 +197,65 @@ function persistRoles(roles: unknown): PersistedRole[] {
   return Array.from(norm).sort() as PersistedRole[];
 }
 
+const FIRST_BOOKING_PROMOTIONAL_TYPE = 'FIRST_BOOKING_100_OFF';
+
+async function resolveFirstBookingEligibleCustomerUids(uids: string[]): Promise<Set<string>> {
+  const normalizedUids = Array.from(
+    new Set(
+      (uids || [])
+        .map((uid) => String(uid || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (normalizedUids.length === 0) {
+    return new Set<string>();
+  }
+
+  const env = validateEnv();
+  if (!env.TASK_SERVICE_URL || !env.SERVICE_AUTH_TOKEN) {
+    throw new Error('TASK_SERVICE_URL and SERVICE_AUTH_TOKEN are required for first-booking eligibility');
+  }
+
+  let response;
+  try {
+    response = await axios.post(
+      `${env.TASK_SERVICE_URL.replace(/\/$/, '')}/api/v1/bookings/internal/first-booking-eligible`,
+      { uids: normalizedUids },
+      {
+        headers: {
+          'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+          'X-Service-Name': 'user-service',
+        },
+        timeout: 10000,
+      },
+    );
+  } catch (error: any) {
+    logger.error('Failed to resolve first-booking promotional audience from task-service', {
+      requestedCount: normalizedUids.length,
+      code: error?.code || null,
+      status: error?.response?.status || null,
+      responseData: error?.response?.data || null,
+      message: error?.message || 'Unknown error',
+    });
+    throw new InternalServerError('Failed to resolve first-booking eligibility from task-service');
+  }
+
+  const eligibleUids = Array.isArray(response.data?.data?.eligibleUids)
+    ? response.data.data.eligibleUids
+    : null;
+
+  if (!eligibleUids) {
+    throw new Error('Invalid first-booking eligibility response from task-service');
+  }
+
+  return new Set(
+    eligibleUids
+      .map((uid: unknown) => String(uid || '').trim())
+      .filter(Boolean),
+  );
+}
+
 export class ProfileService {
   static async getTaskerAadhaarVerifiedCount(): Promise<number> {
     this.checkConnection();
@@ -3111,6 +3170,164 @@ export class ProfileService {
       email: p.email || null,
       status: p.status || 'active',
     }));
+  }
+
+  static async getPromotionalCustomerAudience(params: {
+    limit?: number;
+    cursor?: string;
+    type?: string;
+    uids?: string[];
+  }): Promise<{
+    data: Array<{
+      uid: string;
+      name: string | null;
+    }>;
+    pagination: {
+      limit: number;
+      returned: number;
+      nextCursor: string | null;
+      hasMore: boolean;
+    };
+  }> {
+    this.checkConnection();
+
+    const requestedLimit = Number(params.limit) || 250;
+    const limit = Math.min(Math.max(requestedLimit, 1), 1000);
+    const match: Record<string, any> = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      roles: { $in: ['poster', 'requester', 'both', 'customer'] },
+      $or: [
+        { status: 'active' },
+        { status: { $exists: false }, isActive: true },
+      ],
+    };
+    const normalizedRequestedUids = Array.from(
+      new Set(
+        (params.uids || [])
+          .map((uid) => String(uid || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (normalizedRequestedUids.length > 0) {
+      match.uid = { $in: normalizedRequestedUids };
+    }
+
+    if (params.cursor) {
+      if (!mongoose.Types.ObjectId.isValid(params.cursor)) {
+        throw new BadRequestError('Invalid cursor');
+      }
+
+      match._id = { $gt: new mongoose.Types.ObjectId(params.cursor) };
+    }
+    const fetchCandidateRows = async (cursor?: string | null, chunkLimit = limit) => {
+      const candidateMatch = { ...match } as Record<string, any>;
+      if (cursor) {
+        if (!mongoose.Types.ObjectId.isValid(cursor)) {
+          throw new BadRequestError('Invalid cursor');
+        }
+        candidateMatch._id = { $gt: new mongoose.Types.ObjectId(cursor) };
+      }
+
+      return Profile.aggregate([
+        { $match: candidateMatch },
+        { $sort: { _id: 1 } },
+        {
+          $project: {
+            _id: 1,
+            uid: 1,
+            name: 1,
+          },
+        },
+        { $limit: chunkLimit + 1 },
+      ]);
+    };
+
+    const shouldApplyFirstBookingFilter = params.type === FIRST_BOOKING_PROMOTIONAL_TYPE;
+
+    if (!shouldApplyFirstBookingFilter) {
+      const rows = await fetchCandidateRows(params.cursor, limit);
+      const hasMore = rows.length > limit;
+      const slicedRows = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor =
+        hasMore && slicedRows.length > 0
+          ? String(slicedRows[slicedRows.length - 1]._id)
+          : null;
+
+      return {
+        data: slicedRows.map((row: any) => ({
+          uid: String(row.uid),
+          name: typeof row.name === 'string' && row.name.trim().length > 0 ? row.name : null,
+        })),
+        pagination: {
+          limit,
+          returned: slicedRows.length,
+          nextCursor,
+          hasMore,
+        },
+      };
+    }
+
+    const eligibleRows: Array<{ _id: unknown; uid: string; name: string | null }> = [];
+    const chunkLimit = Math.min(Math.max(Math.ceil(limit / 2), 25), 200);
+    let cursor = params.cursor || null;
+    let hasMore = false;
+
+    while (eligibleRows.length < limit) {
+      const rows = await fetchCandidateRows(cursor, chunkLimit);
+      if (rows.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      const chunkHasMore = rows.length > chunkLimit;
+      const candidateRows = chunkHasMore ? rows.slice(0, chunkLimit) : rows;
+      const eligibleUidSet = await resolveFirstBookingEligibleCustomerUids(
+        candidateRows.map((row: any) => String(row.uid)),
+      );
+
+      for (const row of candidateRows as any[]) {
+        const uid = String(row.uid || '').trim();
+        if (!uid || !eligibleUidSet.has(uid)) {
+          continue;
+        }
+
+        eligibleRows.push({
+          _id: row._id,
+          uid,
+          name: typeof row.name === 'string' && row.name.trim().length > 0 ? row.name : null,
+        });
+
+        cursor = String(row._id);
+        if (eligibleRows.length >= limit) {
+          break;
+        }
+      }
+
+      if (eligibleRows.length < limit) {
+        cursor = String(candidateRows[candidateRows.length - 1]._id);
+      }
+
+      if (!chunkHasMore) {
+        hasMore = false;
+        break;
+      }
+
+      hasMore = true;
+    }
+
+    return {
+      data: eligibleRows.map((row) => ({
+        uid: row.uid,
+        name: row.name,
+      })),
+      pagination: {
+        limit,
+        returned: eligibleRows.length,
+        nextCursor: hasMore ? cursor : null,
+        hasMore,
+      },
+    };
   }
 
   static async getHyderabadSubAreas(): Promise<string[]> {
