@@ -379,11 +379,13 @@ export class UserController {
     res: Response,
   ): Promise<void> {
     try {
-      const { limit, cursor, type, uids } = req.query;
+      const { limit, cursor, type, uids, createdFrom, createdTo } = req.query;
       const result = await ProfileService.getPromotionalCustomerAudience({
         limit: typeof limit === 'string' ? parseInt(limit, 10) : undefined,
         cursor: typeof cursor === 'string' ? cursor : undefined,
         type: typeof type === 'string' ? type : undefined,
+        createdFrom: typeof createdFrom === 'string' ? createdFrom : undefined,
+        createdTo: typeof createdTo === 'string' ? createdTo : undefined,
         uids:
           typeof uids === 'string'
             ? uids.split(',').map((uid) => uid.trim()).filter(Boolean)
@@ -401,12 +403,78 @@ export class UserController {
         cursor: req.query.cursor,
         limit: req.query.limit,
         type: req.query.type,
+        createdFrom: req.query.createdFrom,
+        createdTo: req.query.createdTo,
         uids: req.query.uids,
         stack: error.stack,
       });
       res.status(error.statusCode || 500).json({
         success: false,
         error: error.message || 'Failed to fetch promotional customer audience',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/users/customers/promotional-campaigns/whatsapp
+   * Execute or preview a bulk WhatsApp marketing campaign for customer cohorts.
+   */
+  static async sendPromotionalWhatsAppCampaign(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    try {
+      const {
+        templateKey,
+        createdFrom,
+        createdTo,
+        cursor,
+        limit,
+        dryRun,
+        preferenceCategory,
+        uids,
+      } = req.body || {};
+
+      const result = await ProfileService.executePromotionalWhatsAppCampaign({
+        templateKey: String(templateKey || '').trim(),
+        createdFrom: typeof createdFrom === 'string' ? createdFrom : undefined,
+        createdTo: typeof createdTo === 'string' ? createdTo : undefined,
+        cursor: typeof cursor === 'string' ? cursor : undefined,
+        limit:
+          typeof limit === 'number'
+            ? limit
+            : typeof limit === 'string'
+              ? parseInt(limit, 10)
+              : undefined,
+        dryRun:
+          typeof dryRun === 'boolean'
+            ? dryRun
+            : typeof dryRun === 'string'
+              ? dryRun !== 'false'
+              : undefined,
+        preferenceCategory:
+          preferenceCategory === 'promotions' ? 'promotions' : 'marketing',
+        uids: Array.isArray(uids)
+          ? uids.map((uid) => String(uid || '').trim()).filter(Boolean)
+          : undefined,
+      });
+
+      res.json({
+        success: true,
+        data: result,
+        message: result.campaign.dryRun
+          ? 'Promotional WhatsApp campaign preview generated'
+          : 'Promotional WhatsApp campaign processed',
+      });
+    } catch (error: any) {
+      logger.error('Error in sendPromotionalWhatsAppCampaign:', {
+        error: error.message,
+        body: req.body,
+        stack: error.stack,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to process promotional WhatsApp campaign',
       });
     }
   }

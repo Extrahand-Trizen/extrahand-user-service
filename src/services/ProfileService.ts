@@ -12,7 +12,30 @@ import { statsService } from './StatsService';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation';
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
+import NotificationPreferences from '../models/NotificationPreferences';
+import { DialogWhatsAppClient } from '../clients/DialogWhatsAppClient';
 type CanonicalRole = 'helper' | 'customer' | 'partner';
+
+const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
+  string,
+  { createdFrom: string; createdTo: string }
+> = {
+  independence_day_home_cleaning_100_off: {
+    createdFrom: '2026-08-15',
+    createdTo: '2026-08-15',
+  },
+  teej_home_cleaning_100_off: {
+    createdFrom: '2026-08-16',
+    createdTo: '2026-08-16',
+  },
+};
+
+function normalizePhoneForCampaign(raw: unknown): string | null {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 15) return null;
+  if (digits.length === 10) return `91${digits}`;
+  return digits;
+}
 
 function toIsoString(value: unknown): string | null {
   if (!value) return null;
@@ -3177,6 +3200,8 @@ export class ProfileService {
     cursor?: string;
     type?: string;
     uids?: string[];
+    createdFrom?: string;
+    createdTo?: string;
   }): Promise<{
     data: Array<{
       uid: string;
@@ -3211,6 +3236,26 @@ export class ProfileService {
 
     if (normalizedRequestedUids.length > 0) {
       match.uid = { $in: normalizedRequestedUids };
+    }
+
+    if (params.createdFrom || params.createdTo) {
+      const createdAt: Record<string, Date> = {};
+      if (params.createdFrom) {
+        const fromDate = new Date(params.createdFrom);
+        if (Number.isNaN(fromDate.getTime())) {
+          throw new BadRequestError('Invalid createdFrom');
+        }
+        createdAt.$gte = fromDate;
+      }
+      if (params.createdTo) {
+        const toDate = new Date(params.createdTo);
+        if (Number.isNaN(toDate.getTime())) {
+          throw new BadRequestError('Invalid createdTo');
+        }
+        toDate.setHours(23, 59, 59, 999);
+        createdAt.$lte = toDate;
+      }
+      match.createdAt = createdAt;
     }
 
     if (params.cursor) {
@@ -3327,6 +3372,270 @@ export class ProfileService {
         nextCursor: hasMore ? cursor : null,
         hasMore,
       },
+    };
+  }
+
+  static async executePromotionalWhatsAppCampaign(params: {
+    templateKey: string;
+    createdFrom?: string;
+    createdTo?: string;
+    cursor?: string;
+    limit?: number;
+    dryRun?: boolean;
+    preferenceCategory?: 'marketing' | 'promotions';
+    uids?: string[];
+  }): Promise<{
+    campaign: {
+      templateKey: string;
+      createdFrom: string;
+      createdTo: string;
+      dryRun: boolean;
+      preferenceCategory: 'marketing' | 'promotions';
+      source: 'preset' | 'manual';
+    };
+    summary: {
+      requested: number;
+      eligible: number;
+      sent: number;
+      skippedPreference: number;
+      skippedInvalidPhone: number;
+      failed: number;
+    };
+    recipients: Array<{
+      uid: string;
+      name: string | null;
+      phone: string | null;
+      createdAt: string | null;
+      status: 'eligible' | 'sent' | 'skipped_preference' | 'skipped_invalid_phone' | 'failed';
+      reason?: string;
+      idempotencyKey: string;
+    }>;
+    pagination: {
+      limit: number;
+      returned: number;
+      nextCursor: string | null;
+      hasMore: boolean;
+    };
+  }> {
+    this.checkConnection();
+
+    const templateKey = String(params.templateKey || '').trim();
+    if (!templateKey) {
+      throw new BadRequestError('templateKey is required');
+    }
+
+    const preset = PROMOTIONAL_WHATSAPP_DATE_PRESETS[templateKey];
+    const resolvedCreatedFrom = String(
+      params.createdFrom || preset?.createdFrom || '',
+    ).trim();
+    const resolvedCreatedTo = String(
+      params.createdTo || preset?.createdTo || '',
+    ).trim();
+
+    if (!resolvedCreatedFrom || !resolvedCreatedTo) {
+      throw new BadRequestError('createdFrom and createdTo are required');
+    }
+
+    const createdFromDate = new Date(resolvedCreatedFrom);
+    const createdToDate = new Date(resolvedCreatedTo);
+    if (
+      Number.isNaN(createdFromDate.getTime()) ||
+      Number.isNaN(createdToDate.getTime())
+    ) {
+      throw new BadRequestError('Invalid createdFrom or createdTo');
+    }
+
+    const effectiveLimit = Math.min(
+      Math.max(1, Number(params.limit) || 200),
+      1000,
+    );
+    const dryRun = params.dryRun !== false;
+    const preferenceCategory =
+      params.preferenceCategory === 'promotions' ? 'promotions' : 'marketing';
+
+    const audience = await this.getPromotionalCustomerAudience({
+      limit: effectiveLimit,
+      cursor: params.cursor,
+      createdFrom: resolvedCreatedFrom,
+      createdTo: resolvedCreatedTo,
+      uids: params.uids,
+    });
+
+    const requestedUids = audience.data.map((user) => user.uid);
+    if (requestedUids.length === 0) {
+      return {
+        campaign: {
+          templateKey,
+          createdFrom: resolvedCreatedFrom,
+          createdTo: resolvedCreatedTo,
+          dryRun,
+          preferenceCategory,
+          source: preset ? 'preset' : 'manual',
+        },
+        summary: {
+          requested: 0,
+          eligible: 0,
+          sent: 0,
+          skippedPreference: 0,
+          skippedInvalidPhone: 0,
+          failed: 0,
+        },
+        recipients: [],
+        pagination: audience.pagination,
+      };
+    }
+
+    const profiles = await Profile.find({
+      uid: { $in: requestedUids },
+      'dataPrivacy.accountDeleted': { $ne: true },
+    })
+      .select('uid name phone createdAt')
+      .lean();
+
+    const profileMap = new Map(
+      profiles.map((profile: any) => [String(profile.uid), profile]),
+    );
+
+    const blockedPrefs = await NotificationPreferences.find({
+      uid: { $in: requestedUids },
+      $or: [
+        { 'whatsapp.enabled': false },
+        { [`whatsapp.${preferenceCategory}`]: false },
+      ],
+    })
+      .select('uid')
+      .lean();
+    const blockedUidSet = new Set(
+      blockedPrefs.map((doc: any) => String(doc.uid || '').trim()).filter(Boolean),
+    );
+
+    const recipients: Array<{
+      uid: string;
+      name: string | null;
+      phone: string | null;
+      createdAt: string | null;
+      status: 'eligible' | 'sent' | 'skipped_preference' | 'skipped_invalid_phone' | 'failed';
+      reason?: string;
+      idempotencyKey: string;
+    }> = [];
+
+    let eligible = 0;
+    let sent = 0;
+    let skippedPreference = 0;
+    let skippedInvalidPhone = 0;
+    let failed = 0;
+
+    for (const row of audience.data) {
+      const profile: any = profileMap.get(row.uid);
+      const normalizedPhone = normalizePhoneForCampaign(profile?.phone);
+      const createdAt = profile?.createdAt ? toIsoString(profile.createdAt) : null;
+      const idempotencyKey = [
+        'promo-wa',
+        templateKey,
+        resolvedCreatedFrom,
+        resolvedCreatedTo,
+        row.uid,
+      ]
+        .join(':')
+        .slice(0, 190);
+
+      if (blockedUidSet.has(row.uid)) {
+        skippedPreference += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'skipped_preference',
+          reason: `whatsapp_${preferenceCategory}_disabled`,
+          idempotencyKey,
+        });
+        continue;
+      }
+
+      if (!normalizedPhone) {
+        skippedInvalidPhone += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: null,
+          createdAt,
+          status: 'skipped_invalid_phone',
+          reason: 'missing_or_invalid_phone',
+          idempotencyKey,
+        });
+        continue;
+      }
+
+      eligible += 1;
+
+      if (dryRun) {
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'eligible',
+          idempotencyKey,
+        });
+        continue;
+      }
+
+      const delivered = await DialogWhatsAppClient.triggerNotification({
+        eventKey: templateKey,
+        recipientPhone: normalizedPhone,
+        payload: {
+          uid: row.uid,
+          customer_name: row.name || 'Customer',
+          registration_date: createdAt,
+          template_key: templateKey,
+        },
+        idempotencyKey,
+      });
+
+      if (delivered) {
+        sent += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'sent',
+          idempotencyKey,
+        });
+      } else {
+        failed += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'failed',
+          reason: 'dialog_trigger_failed',
+          idempotencyKey,
+        });
+      }
+    }
+
+    return {
+      campaign: {
+        templateKey,
+        createdFrom: resolvedCreatedFrom,
+        createdTo: resolvedCreatedTo,
+        dryRun,
+        preferenceCategory,
+        source: preset ? 'preset' : 'manual',
+      },
+      summary: {
+        requested: audience.data.length,
+        eligible,
+        sent,
+        skippedPreference,
+        skippedInvalidPhone,
+        failed,
+      },
+      recipients,
+      pagination: audience.pagination,
     };
   }
 

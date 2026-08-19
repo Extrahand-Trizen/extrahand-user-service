@@ -33,6 +33,13 @@ router.get(
   asyncHandler(UserController.getPromotionalCustomerAudience),
 );
 
+// POST /api/v1/users/customers/promotional-campaigns/whatsapp - preview/send customer WhatsApp marketing campaign
+router.post(
+  '/customers/promotional-campaigns/whatsapp',
+  serviceAuthMiddleware,
+  asyncHandler(UserController.sendPromotionalWhatsAppCampaign),
+);
+
 // GET /api/v1/users/:userId - Get user by UID (admin)
 router.get('/:userId', serviceAuthMiddleware, asyncHandler(UserController.getUserForAdmin));
 
