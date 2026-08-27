@@ -12,7 +12,30 @@ import { statsService } from './StatsService';
 import { ALL_PRIMARY_CATEGORIES } from '../constants/categories';
 import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation';
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
+import NotificationPreferences from '../models/NotificationPreferences';
+import { DialogWhatsAppClient } from '../clients/DialogWhatsAppClient';
 type CanonicalRole = 'helper' | 'customer' | 'partner';
+
+const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
+  string,
+  { createdFrom: string; createdTo: string }
+> = {
+  independence_day_home_cleaning_100_off: {
+    createdFrom: '2026-08-15',
+    createdTo: '2026-08-15',
+  },
+  teej_home_cleaning_100_off: {
+    createdFrom: '2026-08-16',
+    createdTo: '2026-08-16',
+  },
+};
+
+function normalizePhoneForCampaign(raw: unknown): string | null {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 15) return null;
+  if (digits.length === 10) return `91${digits}`;
+  return digits;
+}
 
 function toIsoString(value: unknown): string | null {
   if (!value) return null;
@@ -195,6 +218,65 @@ function persistRoles(roles: unknown): PersistedRole[] {
     }
   }
   return Array.from(norm).sort() as PersistedRole[];
+}
+
+const FIRST_BOOKING_PROMOTIONAL_TYPE = 'FIRST_BOOKING_100_OFF';
+
+async function resolveFirstBookingEligibleCustomerUids(uids: string[]): Promise<Set<string>> {
+  const normalizedUids = Array.from(
+    new Set(
+      (uids || [])
+        .map((uid) => String(uid || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (normalizedUids.length === 0) {
+    return new Set<string>();
+  }
+
+  const env = validateEnv();
+  if (!env.TASK_SERVICE_URL || !env.SERVICE_AUTH_TOKEN) {
+    throw new Error('TASK_SERVICE_URL and SERVICE_AUTH_TOKEN are required for first-booking eligibility');
+  }
+
+  let response;
+  try {
+    response = await axios.post(
+      `${env.TASK_SERVICE_URL.replace(/\/$/, '')}/api/v1/bookings/internal/first-booking-eligible`,
+      { uids: normalizedUids },
+      {
+        headers: {
+          'X-Service-Auth': env.SERVICE_AUTH_TOKEN,
+          'X-Service-Name': 'user-service',
+        },
+        timeout: 10000,
+      },
+    );
+  } catch (error: any) {
+    logger.error('Failed to resolve first-booking promotional audience from task-service', {
+      requestedCount: normalizedUids.length,
+      code: error?.code || null,
+      status: error?.response?.status || null,
+      responseData: error?.response?.data || null,
+      message: error?.message || 'Unknown error',
+    });
+    throw new InternalServerError('Failed to resolve first-booking eligibility from task-service');
+  }
+
+  const eligibleUids = Array.isArray(response.data?.data?.eligibleUids)
+    ? response.data.data.eligibleUids
+    : null;
+
+  if (!eligibleUids) {
+    throw new Error('Invalid first-booking eligibility response from task-service');
+  }
+
+  return new Set(
+    eligibleUids
+      .map((uid: unknown) => String(uid || '').trim())
+      .filter(Boolean),
+  );
 }
 
 export class ProfileService {
@@ -3115,6 +3197,450 @@ export class ProfileService {
       email: p.email || null,
       status: p.status || 'active',
     }));
+  }
+
+  static async getPromotionalCustomerAudience(params: {
+    limit?: number;
+    cursor?: string;
+    type?: string;
+    uids?: string[];
+    createdFrom?: string;
+    createdTo?: string;
+  }): Promise<{
+    data: Array<{
+      uid: string;
+      name: string | null;
+    }>;
+    pagination: {
+      limit: number;
+      returned: number;
+      nextCursor: string | null;
+      hasMore: boolean;
+    };
+  }> {
+    this.checkConnection();
+
+    const requestedLimit = Number(params.limit) || 250;
+    const limit = Math.min(Math.max(requestedLimit, 1), 1000);
+    const match: Record<string, any> = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      roles: { $in: ['poster', 'requester', 'both', 'customer'] },
+      $or: [
+        { status: 'active' },
+        { status: { $exists: false }, isActive: true },
+      ],
+    };
+    const normalizedRequestedUids = Array.from(
+      new Set(
+        (params.uids || [])
+          .map((uid) => String(uid || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (normalizedRequestedUids.length > 0) {
+      match.uid = { $in: normalizedRequestedUids };
+    }
+
+    if (params.createdFrom || params.createdTo) {
+      const createdAt: Record<string, Date> = {};
+      if (params.createdFrom) {
+        const fromDate = new Date(params.createdFrom);
+        if (Number.isNaN(fromDate.getTime())) {
+          throw new BadRequestError('Invalid createdFrom');
+        }
+        createdAt.$gte = fromDate;
+      }
+      if (params.createdTo) {
+        const toDate = new Date(params.createdTo);
+        if (Number.isNaN(toDate.getTime())) {
+          throw new BadRequestError('Invalid createdTo');
+        }
+        toDate.setHours(23, 59, 59, 999);
+        createdAt.$lte = toDate;
+      }
+      match.createdAt = createdAt;
+    }
+
+    if (params.cursor) {
+      if (!mongoose.Types.ObjectId.isValid(params.cursor)) {
+        throw new BadRequestError('Invalid cursor');
+      }
+
+      match._id = { $gt: new mongoose.Types.ObjectId(params.cursor) };
+    }
+    const fetchCandidateRows = async (cursor?: string | null, chunkLimit = limit) => {
+      const candidateMatch = { ...match } as Record<string, any>;
+      if (cursor) {
+        if (!mongoose.Types.ObjectId.isValid(cursor)) {
+          throw new BadRequestError('Invalid cursor');
+        }
+        candidateMatch._id = { $gt: new mongoose.Types.ObjectId(cursor) };
+      }
+
+      return Profile.aggregate([
+        { $match: candidateMatch },
+        { $sort: { _id: 1 } },
+        {
+          $project: {
+            _id: 1,
+            uid: 1,
+            name: 1,
+          },
+        },
+        { $limit: chunkLimit + 1 },
+      ]);
+    };
+
+    const shouldApplyFirstBookingFilter = params.type === FIRST_BOOKING_PROMOTIONAL_TYPE;
+
+    if (!shouldApplyFirstBookingFilter) {
+      const rows = await fetchCandidateRows(params.cursor, limit);
+      const hasMore = rows.length > limit;
+      const slicedRows = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor =
+        hasMore && slicedRows.length > 0
+          ? String(slicedRows[slicedRows.length - 1]._id)
+          : null;
+
+      return {
+        data: slicedRows.map((row: any) => ({
+          uid: String(row.uid),
+          name: typeof row.name === 'string' && row.name.trim().length > 0 ? row.name : null,
+        })),
+        pagination: {
+          limit,
+          returned: slicedRows.length,
+          nextCursor,
+          hasMore,
+        },
+      };
+    }
+
+    const eligibleRows: Array<{ _id: unknown; uid: string; name: string | null }> = [];
+    const chunkLimit = Math.min(Math.max(Math.ceil(limit / 2), 25), 200);
+    let cursor = params.cursor || null;
+    let hasMore = false;
+
+    while (eligibleRows.length < limit) {
+      const rows = await fetchCandidateRows(cursor, chunkLimit);
+      if (rows.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      const chunkHasMore = rows.length > chunkLimit;
+      const candidateRows = chunkHasMore ? rows.slice(0, chunkLimit) : rows;
+      const eligibleUidSet = await resolveFirstBookingEligibleCustomerUids(
+        candidateRows.map((row: any) => String(row.uid)),
+      );
+
+      for (const row of candidateRows as any[]) {
+        const uid = String(row.uid || '').trim();
+        if (!uid || !eligibleUidSet.has(uid)) {
+          continue;
+        }
+
+        eligibleRows.push({
+          _id: row._id,
+          uid,
+          name: typeof row.name === 'string' && row.name.trim().length > 0 ? row.name : null,
+        });
+
+        cursor = String(row._id);
+        if (eligibleRows.length >= limit) {
+          break;
+        }
+      }
+
+      if (eligibleRows.length < limit) {
+        cursor = String(candidateRows[candidateRows.length - 1]._id);
+      }
+
+      if (!chunkHasMore) {
+        hasMore = false;
+        break;
+      }
+
+      hasMore = true;
+    }
+
+    return {
+      data: eligibleRows.map((row) => ({
+        uid: row.uid,
+        name: row.name,
+      })),
+      pagination: {
+        limit,
+        returned: eligibleRows.length,
+        nextCursor: hasMore ? cursor : null,
+        hasMore,
+      },
+    };
+  }
+
+  static async executePromotionalWhatsAppCampaign(params: {
+    templateKey: string;
+    createdFrom?: string;
+    createdTo?: string;
+    cursor?: string;
+    limit?: number;
+    dryRun?: boolean;
+    preferenceCategory?: 'marketing' | 'promotions';
+    uids?: string[];
+  }): Promise<{
+    campaign: {
+      templateKey: string;
+      createdFrom: string;
+      createdTo: string;
+      dryRun: boolean;
+      preferenceCategory: 'marketing' | 'promotions';
+      source: 'preset' | 'manual';
+    };
+    summary: {
+      requested: number;
+      eligible: number;
+      sent: number;
+      skippedPreference: number;
+      skippedInvalidPhone: number;
+      failed: number;
+    };
+    recipients: Array<{
+      uid: string;
+      name: string | null;
+      phone: string | null;
+      createdAt: string | null;
+      status: 'eligible' | 'sent' | 'skipped_preference' | 'skipped_invalid_phone' | 'failed';
+      reason?: string;
+      idempotencyKey: string;
+    }>;
+    pagination: {
+      limit: number;
+      returned: number;
+      nextCursor: string | null;
+      hasMore: boolean;
+    };
+  }> {
+    this.checkConnection();
+
+    const templateKey = String(params.templateKey || '').trim();
+    if (!templateKey) {
+      throw new BadRequestError('templateKey is required');
+    }
+
+    const preset = PROMOTIONAL_WHATSAPP_DATE_PRESETS[templateKey];
+    const resolvedCreatedFrom = String(
+      params.createdFrom || preset?.createdFrom || '',
+    ).trim();
+    const resolvedCreatedTo = String(
+      params.createdTo || preset?.createdTo || '',
+    ).trim();
+
+    if (!resolvedCreatedFrom || !resolvedCreatedTo) {
+      throw new BadRequestError('createdFrom and createdTo are required');
+    }
+
+    const createdFromDate = new Date(resolvedCreatedFrom);
+    const createdToDate = new Date(resolvedCreatedTo);
+    if (
+      Number.isNaN(createdFromDate.getTime()) ||
+      Number.isNaN(createdToDate.getTime())
+    ) {
+      throw new BadRequestError('Invalid createdFrom or createdTo');
+    }
+
+    const effectiveLimit = Math.min(
+      Math.max(1, Number(params.limit) || 200),
+      1000,
+    );
+    const dryRun = params.dryRun !== false;
+    const preferenceCategory =
+      params.preferenceCategory === 'promotions' ? 'promotions' : 'marketing';
+
+    const audience = await this.getPromotionalCustomerAudience({
+      limit: effectiveLimit,
+      cursor: params.cursor,
+      createdFrom: resolvedCreatedFrom,
+      createdTo: resolvedCreatedTo,
+      uids: params.uids,
+    });
+
+    const requestedUids = audience.data.map((user) => user.uid);
+    if (requestedUids.length === 0) {
+      return {
+        campaign: {
+          templateKey,
+          createdFrom: resolvedCreatedFrom,
+          createdTo: resolvedCreatedTo,
+          dryRun,
+          preferenceCategory,
+          source: preset ? 'preset' : 'manual',
+        },
+        summary: {
+          requested: 0,
+          eligible: 0,
+          sent: 0,
+          skippedPreference: 0,
+          skippedInvalidPhone: 0,
+          failed: 0,
+        },
+        recipients: [],
+        pagination: audience.pagination,
+      };
+    }
+
+    const profiles = await Profile.find({
+      uid: { $in: requestedUids },
+      'dataPrivacy.accountDeleted': { $ne: true },
+    })
+      .select('uid name phone createdAt')
+      .lean();
+
+    const profileMap = new Map(
+      profiles.map((profile: any) => [String(profile.uid), profile]),
+    );
+
+    const blockedPrefs = await NotificationPreferences.find({
+      uid: { $in: requestedUids },
+      $or: [
+        { 'whatsapp.enabled': false },
+        { [`whatsapp.${preferenceCategory}`]: false },
+      ],
+    })
+      .select('uid')
+      .lean();
+    const blockedUidSet = new Set(
+      blockedPrefs.map((doc: any) => String(doc.uid || '').trim()).filter(Boolean),
+    );
+
+    const recipients: Array<{
+      uid: string;
+      name: string | null;
+      phone: string | null;
+      createdAt: string | null;
+      status: 'eligible' | 'sent' | 'skipped_preference' | 'skipped_invalid_phone' | 'failed';
+      reason?: string;
+      idempotencyKey: string;
+    }> = [];
+
+    let eligible = 0;
+    let sent = 0;
+    let skippedPreference = 0;
+    let skippedInvalidPhone = 0;
+    let failed = 0;
+
+    for (const row of audience.data) {
+      const profile: any = profileMap.get(row.uid);
+      const normalizedPhone = normalizePhoneForCampaign(profile?.phone);
+      const createdAt = profile?.createdAt ? toIsoString(profile.createdAt) : null;
+      const idempotencyKey = [
+        'promo-wa',
+        templateKey,
+        resolvedCreatedFrom,
+        resolvedCreatedTo,
+        row.uid,
+      ]
+        .join(':')
+        .slice(0, 190);
+
+      if (blockedUidSet.has(row.uid)) {
+        skippedPreference += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'skipped_preference',
+          reason: `whatsapp_${preferenceCategory}_disabled`,
+          idempotencyKey,
+        });
+        continue;
+      }
+
+      if (!normalizedPhone) {
+        skippedInvalidPhone += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: null,
+          createdAt,
+          status: 'skipped_invalid_phone',
+          reason: 'missing_or_invalid_phone',
+          idempotencyKey,
+        });
+        continue;
+      }
+
+      eligible += 1;
+
+      if (dryRun) {
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'eligible',
+          idempotencyKey,
+        });
+        continue;
+      }
+
+      const delivered = await DialogWhatsAppClient.triggerNotification({
+        eventKey: templateKey,
+        recipientPhone: normalizedPhone,
+        payload: {
+          uid: row.uid,
+          customer_name: row.name || 'Customer',
+          registration_date: createdAt,
+          template_key: templateKey,
+        },
+        idempotencyKey,
+      });
+
+      if (delivered) {
+        sent += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'sent',
+          idempotencyKey,
+        });
+      } else {
+        failed += 1;
+        recipients.push({
+          uid: row.uid,
+          name: row.name || null,
+          phone: normalizedPhone,
+          createdAt,
+          status: 'failed',
+          reason: 'dialog_trigger_failed',
+          idempotencyKey,
+        });
+      }
+    }
+
+    return {
+      campaign: {
+        templateKey,
+        createdFrom: resolvedCreatedFrom,
+        createdTo: resolvedCreatedTo,
+        dryRun,
+        preferenceCategory,
+        source: preset ? 'preset' : 'manual',
+      },
+      summary: {
+        requested: audience.data.length,
+        eligible,
+        sent,
+        skippedPreference,
+        skippedInvalidPhone,
+        failed,
+      },
+      recipients,
+      pagination: audience.pagination,
+    };
   }
 
   static async getHyderabadSubAreas(): Promise<string[]> {

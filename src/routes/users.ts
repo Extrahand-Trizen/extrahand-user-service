@@ -26,6 +26,20 @@ router.post('/cleanup/no-role', serviceAuthMiddleware, asyncHandler(UserControll
 // GET /api/v1/users/helpers/search - Search helpers by name or phone (admin)
 router.get('/helpers/search', serviceAuthMiddleware, asyncHandler(UserController.searchHelpers));
 
+// GET /api/v1/users/customers/promotional-audience - Active customer audience for manual promos
+router.get(
+  '/customers/promotional-audience',
+  serviceAuthMiddleware,
+  asyncHandler(UserController.getPromotionalCustomerAudience),
+);
+
+// POST /api/v1/users/customers/promotional-campaigns/whatsapp - preview/send customer WhatsApp marketing campaign
+router.post(
+  '/customers/promotional-campaigns/whatsapp',
+  serviceAuthMiddleware,
+  asyncHandler(UserController.sendPromotionalWhatsAppCampaign),
+);
+
 // GET /api/v1/users/:userId - Get user by UID (admin)
 router.get('/:userId', serviceAuthMiddleware, asyncHandler(UserController.getUserForAdmin));
 
