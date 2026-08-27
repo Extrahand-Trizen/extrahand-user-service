@@ -1102,6 +1102,8 @@ export class ProfileService {
     _id: mongoose.Types.ObjectId;
     uid?: string;
     name: string;
+    phone?: string;
+    alternatePhone?: string;
     photoURL?: string | null;
     rating?: number;
     totalReviews?: number;
@@ -1128,7 +1130,7 @@ export class ProfileService {
       }
 
       const profiles = await Profile.find({ _id: { $in: objectIds } })
-        .select('_id uid name photoURL rating totalReviews isVerified isAadhaarVerified isPANVerified isBankVerified')
+        .select('_id uid name phone alternatePhone photoURL rating totalReviews isVerified isAadhaarVerified isPANVerified isBankVerified')
         .lean();
 
       profiles.forEach(profile => {
@@ -1136,6 +1138,8 @@ export class ProfileService {
           _id: profile._id,
           uid: profile.uid,
           name: profile.name || 'Anonymous',
+          phone: profile.phone,
+          alternatePhone: profile.alternatePhone,
           photoURL: profile.photoURL || null,
           rating: profile.rating || 0,
           totalReviews: profile.totalReviews || 0,

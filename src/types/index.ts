@@ -198,6 +198,7 @@ export interface PartnerProfile {
   careAgeGroups?: string;
   workPlace?: Record<string, string>;
   workPhotos?: string[];
+   selfie?: string;
   dlNumber?: string;
   dlFront?: string;
   dlBack?: string;
