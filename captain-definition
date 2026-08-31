@@ -53,7 +53,7 @@
      "PAYMENT_SERVICE_URL": "https://payment-service-test.backend.extrahand.in",
      "MESSAGING_SERVICE_URL": "http://srv-captain--extrahand-messaging-service:4006",
      "VERIFICATION_SERVICE_URL": "http://srv-captain--extrahand-user-verification:4004",
-     "MAIN_ADMIN_SERVICE_URL": "http://srv-captain--extrahand-main-admin-service:4007",
+     "MAIN_ADMIN_SERVICE_URL": "https://extrahand-main-admin-server.backend.extrahand.in",
      "EMAIL_SERVICE_URL": "http://srv-captain--extrahand-email-service:4007"
    },
   "volumes": [
