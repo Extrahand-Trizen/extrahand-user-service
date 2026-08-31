@@ -35,8 +35,9 @@ export class MainAdminNotificationClient {
     }
 
     try {
+      const baseUrl = env.MAIN_ADMIN_SERVICE_URL.replace(/\/+$/, '');
       await axios.post(
-        `${env.MAIN_ADMIN_SERVICE_URL}/api/v1/notifications/events`,
+        `${baseUrl}/api/v1/notifications/events`,
         event,
         {
           headers: {
