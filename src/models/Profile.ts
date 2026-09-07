@@ -89,6 +89,14 @@ export interface IProfile extends Document {
   suspendedBy?: string; // Admin user ID who suspended
   onboardingStatus?: OnboardingStatus;
   business?: BusinessProfile;
+  /**
+   * Set when the user registered through the Seller App. Links this user to the
+   * Seller record in the qcommerce / seller service. `roles` also carries
+   * `'seller'`.
+   */
+  sellerProfile?: {
+    sellerId?: string;
+  };
   agreeUpdates?: boolean;
   agreeTerms?: boolean;
   myOperatorContactId?: string | null;
@@ -588,6 +596,10 @@ const ProfileSchema = new Schema<IProfile>({
       }
     },
     updatedAt: Date
+  },
+  // Populated by the seller service after a Seller App registration.
+  sellerProfile: {
+    sellerId: { type: String, index: true },
   },
   agreeUpdates: {
     type: Boolean,

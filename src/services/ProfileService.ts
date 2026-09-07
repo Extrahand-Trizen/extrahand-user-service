@@ -2333,6 +2333,18 @@ export class ProfileService {
       updatePayload.partnerProfile = { ...existingPartner, ...incomingPartnerMerge };
     }
 
+    // Seller App linkage — merge so repeated calls accumulate rather than overwrite.
+    if ((profileData as any).sellerProfile !== undefined) {
+      const incoming = (profileData as any).sellerProfile || {};
+      const existingSeller = existingProfile.sellerProfile
+        ? (existingProfile.sellerProfile as any).toObject?.() ?? existingProfile.sellerProfile
+        : {};
+      updatePayload.sellerProfile = {
+        ...existingSeller,
+        ...(incoming.sellerId !== undefined ? { sellerId: incoming.sellerId } : {}),
+      };
+    }
+
     // Update onboarding status
     // ✨ Guard: if the profile is mid-registration (registrationStatus exists and is not
     // COMPLETED), treat the caller as still in the registration funnel. In that context
