@@ -14,7 +14,7 @@ import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
 import NotificationPreferences from '../models/NotificationPreferences';
 import { DialogWhatsAppClient } from '../clients/DialogWhatsAppClient';
-type CanonicalRole = 'helper' | 'customer' | 'partner';
+type CanonicalRole = 'helper' | 'customer' | 'partner' | 'seller';
 
 const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
   string,
@@ -173,6 +173,8 @@ function normalizeRoles(roles: unknown): CanonicalRole[] {
     if (role === 'tasker' || role === 'helper') normalized.add('helper');
     // Map all legacy "customer/poster/requester" variants
     if (role === 'poster' || role === 'requester' || role === 'customer') normalized.add('customer');
+    if (role === 'partner') normalized.add('partner');
+    if (role === 'seller') normalized.add('seller');
     if (role === 'both') {
       normalized.add('helper');
       normalized.add('customer');
@@ -181,7 +183,8 @@ function normalizeRoles(roles: unknown): CanonicalRole[] {
   return Array.from(normalized);
 }
 
-function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'partner' | 'unknown' {
+function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'partner' | 'seller' | 'unknown' {
+  if (roles.includes('seller')) return 'seller';
   if (roles.includes('helper')) return 'helper';
   if (roles.includes('customer')) return 'customer';
   if (roles.includes('partner')) return 'partner';
@@ -189,16 +192,16 @@ function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'par
 }
 
 /** Values allowed on the Profile schema (no legacy `requester` or `both` tokens in storage). */
-type PersistedRole = 'tasker' | 'poster' | 'partner';
+type PersistedRole = 'tasker' | 'poster' | 'partner' | 'seller';
 
 /**
- * Normalizes client/legacy role labels into stored roles: poster, tasker, or partner.
+ * Normalizes client/legacy role labels into stored roles: poster, tasker, partner, or seller.
  * Maps legacy `requester` → poster, `performer` → tasker, legacy `both` → poster+tasker.
  * Dual capability is represented as `['poster', 'tasker']`, never a `both` string.
  */
 function persistRoles(roles: unknown): PersistedRole[] {
   if (!Array.isArray(roles)) return [];
-  const norm = new Set<'tasker' | 'poster' | 'partner'>();
+  const norm = new Set<PersistedRole>();
   for (const raw of roles) {
     const role = String(raw || '').trim().toLowerCase();
     // Customer / poster variants
@@ -211,6 +214,9 @@ function persistRoles(roles: unknown): PersistedRole[] {
     }
     if (role === 'partner') {
       norm.add('partner');
+    }
+    if (role === 'seller') {
+      norm.add('seller');
     }
     if (role === 'both') {
       norm.add('tasker');
@@ -1840,6 +1846,18 @@ export class ProfileService {
       };
     }
 
+    // Handle sellerProfile: ensure seller role is attached
+    if ((profileData as any).sellerProfile !== undefined) {
+      payload.sellerProfile = (profileData as any).sellerProfile;
+      const currentRoles = Array.isArray(existingProfile?.roles)
+        ? (existingProfile.roles as string[])
+        : [];
+      const baseRoles = payload.roles || currentRoles;
+      if (!baseRoles.includes('seller')) {
+        payload.roles = persistRoles([...baseRoles, 'seller']);
+      }
+    }
+
     // Registration funnel resume — persisted by registration screens so the
     // backend is the authoritative resume source on cold start.
     // IMPORTANT: This must be handled in BOTH updateProfile AND upsertProfile because
@@ -2343,6 +2361,15 @@ export class ProfileService {
         ...existingSeller,
         ...(incoming.sellerId !== undefined ? { sellerId: incoming.sellerId } : {}),
       };
+      // Ensure 'seller' is added to roles
+      const currentRoles = Array.isArray(updatePayload.roles)
+        ? updatePayload.roles
+        : Array.isArray(existingProfile.roles)
+        ? existingProfile.roles
+        : [];
+      if (!currentRoles.includes('seller')) {
+        updatePayload.roles = persistRoles([...currentRoles, 'seller']);
+      }
     }
 
     // Update onboarding status

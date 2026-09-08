@@ -665,7 +665,7 @@ export class AuthService {
                      name: name || "User",
                      phone: formattedPhone,
                      client_type: clientType,
-                     roles: [],
+                     roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
                      userType: "individual",
                      rating: 0,
                      totalReviews: 0,
@@ -769,7 +769,7 @@ export class AuthService {
                      name: name || "User",
                      phone: formattedPhone,
                      client_type: clientType,
-                     roles: [],
+                     roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
                      userType: "individual",
                      rating: 0,
                      totalReviews: 0,
@@ -828,7 +828,9 @@ export class AuthService {
                   ? "tasker"
                   : authChannel === "customer_app"
                     ? "poster"
-                    : null;
+                    : authChannel === "seller_app"
+                      ? "seller"
+                      : null;
             const alreadyHadCapability =
                !neededCapability ||
                rolesHaveCapability(profile.roles, neededCapability);
@@ -1012,7 +1014,7 @@ export class AuthService {
                   name: displayName,
                   phone: formattedPhone,
                   client_type: clientType,
-                  roles: [],
+                  roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
                   userType: "individual",
                   rating: 0,
                   totalReviews: 0,
@@ -1054,7 +1056,7 @@ export class AuthService {
                   name: displayName,
                   phone: formattedPhone,
                   client_type: clientType,
-                  roles: [],
+                  roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
                   userType: "individual",
                   rating: 0,
                   totalReviews: 0,
