@@ -1,6 +1,7 @@
 import { Response, Request } from 'express';
 import mongoose from 'mongoose';
 import { ProfileService } from '../services/ProfileService';
+import { PrivacyService } from '../services/PrivacyService';
 import Profile, { IProfile } from '../models/Profile';
 import { getKycSessionModel } from '../models/KycSession';
 import { AuthenticatedRequest } from '../types';
@@ -1698,6 +1699,34 @@ export class ProfileController {
       res.status(error.statusCode || 500).json({
         success: false,
         error: error.message || 'Failed to update profile',
+      });
+    }
+  }
+
+  /**
+   * POST /api/v1/profiles/internal/:uid/unlink-seller
+   * Service-to-service: the QC/seller backend calls this after tearing down a
+   * seller's store. Strips the `seller` role + clears `sellerProfile`; if seller
+   * was the only capability, the whole account is deleted instead. Idempotent.
+   */
+  static async unlinkSellerInternal(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uid } = req.params;
+      if (!uid) {
+        res.status(400).json({ success: false, error: 'uid is required' });
+        return;
+      }
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+      const result = await PrivacyService.requestSellerAccountDeletion(uid, reason);
+      res.json({ success: true, message: 'Seller role removed', result });
+    } catch (error: any) {
+      logger.error('ProfileController.unlinkSellerInternal failed', {
+        uid: req.params?.uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to unlink seller',
       });
     }
   }

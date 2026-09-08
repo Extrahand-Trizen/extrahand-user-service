@@ -61,6 +61,16 @@ export function getRolesAfterRemovingHelperPartner(profileRoles: unknown): strin
   return hasPosterRole ? ['poster'] : [];
 }
 
+/** Does this profile carry the quick-commerce seller capability? */
+export function profileHasSellerCapability(profileRoles: unknown): boolean {
+  return normalizeRoles(profileRoles).includes('seller');
+}
+
+/** Roles kept after a seller-store deletion — everything except `seller`. */
+export function getRolesAfterRemovingSeller(profileRoles: unknown): string[] {
+  return normalizeRoles(profileRoles).filter((role) => role !== 'seller');
+}
+
 /**
  * Resolve deletion plan from profile roles + which app initiated delete.
  *

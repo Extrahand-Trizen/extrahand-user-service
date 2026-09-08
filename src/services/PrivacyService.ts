@@ -9,6 +9,7 @@ import type { AuthChannel } from '../utils/authChannel';
 import {
   profileHasHelperCapability,
   profileHasPosterCapability,
+  getRolesAfterRemovingSeller,
   resolveAccountDeletionPlan,
   type AccountDeletionMode,
   type AccountDeletionPlan,
@@ -287,6 +288,29 @@ export class PrivacyService {
    * Never cascades task data (shared with the tasker side) and never deletes
    * the Firebase auth account.
    */
+  /**
+   * Seller-store deletion: strip the `seller` role and clear `sellerProfile`,
+   * leaving every other capability (poster/customer, tasker/helper, partner) and
+   * the Firebase auth account untouched. The QC/seller service is responsible
+   * for the actual store data — this only touches the shared Profile.
+   */
+  private static async anonymizeSellerProfileOnly(profile: any, reason?: string): Promise<void> {
+    const userId = profile.uid;
+    const remainingRoles = getRolesAfterRemovingSeller(profile.roles);
+
+    await Profile.updateOne(
+      { uid: userId },
+      {
+        $set: {
+          roles: remainingRoles,
+          sellerProfile: {},
+          'dataPrivacy.accountDeletionReason':
+            reason?.trim() || 'User requested seller store deletion',
+        },
+      },
+    );
+  }
+
   private static async anonymizePartnerProfileOnly(profile: any, reason?: string): Promise<void> {
     const userId = profile.uid;
     const remainingRoles = Array.isArray(profile.roles)
@@ -998,6 +1022,61 @@ export class PrivacyService {
     logger.warn('✅ Partner data deleted', { userId, deletedAt, reason: reason?.trim() || null });
 
     return { deletedAt, deletionMode: 'partnerScoped', removedRole: 'partner' };
+  }
+
+  /**
+   * Seller-store deletion (called service-to-service by the QC/seller backend
+   * after it has torn down the store). Strips the `seller` role from the shared
+   * Profile. If `seller` was the only capability, falls back to full account
+   * deletion so nothing is left orphaned.
+   */
+  static async requestSellerAccountDeletion(
+    userId: string,
+    reason?: string,
+  ): Promise<
+    | { deletedAt: Date; deletionMode: 'sellerScoped'; removedRole: 'seller' }
+    | Awaited<ReturnType<typeof PrivacyService.requestAccountDeletion>>
+  > {
+    const profile = await Profile.findOne({ uid: userId });
+
+    logger.info('🗑️ Seller store deletion requested', {
+      userId,
+      hasReason: Boolean(reason && reason.trim()),
+    });
+
+    if (!profile) {
+      throw new NotFoundError('Profile not found');
+    }
+    if (profile.dataPrivacy?.accountDeleted) {
+      throw new BadRequestError('This account is already deleted');
+    }
+
+    const roles = Array.isArray(profile.roles)
+      ? profile.roles.map((role: unknown) => String(role || '').trim().toLowerCase())
+      : [];
+    if (!roles.includes('seller')) {
+      // Idempotent — the role is already gone.
+      return { deletedAt: new Date(), deletionMode: 'sellerScoped', removedRole: 'seller' };
+    }
+
+    const remainingRoles = getRolesAfterRemovingSeller(roles);
+    const hasRemainingCapability =
+      profileHasHelperCapability(remainingRoles) ||
+      profileHasPosterCapability(remainingRoles) ||
+      remainingRoles.includes('partner');
+    if (!hasRemainingCapability) {
+      logger.warn('Seller-only account without other capabilities — falling back to full deletion', {
+        userId,
+      });
+      return this.requestAccountDeletion(userId, reason, 'seller_app' as AuthChannel);
+    }
+
+    await this.anonymizeSellerProfileOnly(profile, reason);
+
+    const deletedAt = new Date();
+    logger.warn('✅ Seller store data deleted', { userId, deletedAt, reason: reason?.trim() || null });
+
+    return { deletedAt, deletionMode: 'sellerScoped', removedRole: 'seller' };
   }
 
   /**
