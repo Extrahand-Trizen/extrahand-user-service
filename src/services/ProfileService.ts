@@ -14,6 +14,7 @@ import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
 import NotificationPreferences from '../models/NotificationPreferences';
 import { DialogWhatsAppClient } from '../clients/DialogWhatsAppClient';
+import { findActiveProfileByUidOrPhone } from '../utils/identityReconciliation';
 type CanonicalRole = 'helper' | 'customer' | 'partner' | 'seller';
 
 const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
@@ -3805,9 +3806,17 @@ export class ProfileService {
   /**
    * Find users whose roles field is empty/missing (never completed role selection).
    * Returns a preview list. Set dryRun=false to actually delete them.
-   * Deletion is fully cascaded: Task Service data → MongoDB profile → Firebase account.
+   *
+   * Deletion cascades Task/Payment data → MongoDB profile. The **Firebase Auth
+   * user is kept by default** (`deleteFirebaseUsers=false`): deleting it rotates
+   * the user's UID on next login, which orphans downstream records keyed on the
+   * old UID (e.g. Seller.userId). Pass `deleteFirebaseUsers=true` only for a
+   * deliberate, full account purge.
    */
-  static async cleanupUsersWithoutRoles(dryRun = true): Promise<{
+  static async cleanupUsersWithoutRoles(
+    dryRun = true,
+    deleteFirebaseUsers = false,
+  ): Promise<{
     dryRun: boolean;
     count: number;
     users: Array<{ uid: string; name: string; email: string; createdAt: any }>;
@@ -3892,12 +3901,15 @@ export class ProfileService {
         // 2. Delete MongoDB profile
         const del = await Profile.deleteOne({ uid: user.uid });
 
-        // 3. Delete Firebase account
-        try {
-          await auth.deleteUser(user.uid);
-        } catch (fbErr: any) {
-          if (fbErr.code !== 'auth/user-not-found') {
-            logger.warn(`[cleanup] Firebase delete failed for ${user.uid}:`, fbErr.message);
+        // 3. Delete Firebase account — OFF by default (keeps the UID stable so a
+        //    re-login recreates the profile with the same UID instead of a new one).
+        if (deleteFirebaseUsers) {
+          try {
+            await auth.deleteUser(user.uid);
+          } catch (fbErr: any) {
+            if (fbErr.code !== 'auth/user-not-found') {
+              logger.warn(`[cleanup] Firebase delete failed for ${user.uid}:`, fbErr.message);
+            }
           }
         }
 
@@ -4831,6 +4843,89 @@ export class ProfileService {
     });
 
     return profile;
+  }
+
+  /**
+   * Link a Seller record to its user Profile: add the `seller` role (merge, never
+   * replace) and set `sellerProfile.sellerId`. Resolves the profile by `uid`, or
+   * by verified `phone` when the UID has rotated. Never creates a profile.
+   *
+   * Called by the QC/seller backend's `linkSellerToUser` (live registration +
+   * one-time backfill).
+   */
+  static async linkSellerToProfile(params: {
+    uid?: string;
+    phone?: string;
+    sellerId: string;
+    /** Resolve + report what WOULD change, without writing. */
+    preview?: boolean;
+  }): Promise<{
+    found: boolean;
+    profileUid?: string;
+    matchedBy?: 'uid' | 'phone';
+    sellerRoleAdded?: boolean;
+    linkSet?: boolean;
+    conflict?: boolean;
+    existingSellerId?: string;
+    preview?: boolean;
+  }> {
+    const { uid, phone, sellerId, preview } = params;
+    if (!sellerId) throw new BadRequestError('sellerId is required');
+
+    let profile = uid ? await Profile.findOne({ uid }) : null;
+    let matchedBy: 'uid' | 'phone' | undefined = profile ? 'uid' : undefined;
+
+    if (!profile && phone) {
+      profile = await findActiveProfileByUidOrPhone({ phone });
+      if (profile) matchedBy = 'phone';
+    }
+
+    if (!profile) {
+      logger.warn('linkSellerToProfile: no profile for uid/phone', { uid, hasPhone: !!phone, sellerId });
+      return { found: false };
+    }
+
+    const existingSellerId = (profile.sellerProfile as { sellerId?: string } | undefined)?.sellerId;
+    if (existingSellerId && String(existingSellerId) !== String(sellerId)) {
+      logger.error('linkSellerToProfile: profile already linked to a different seller', {
+        profileUid: profile.uid,
+        existingSellerId,
+        incomingSellerId: sellerId,
+      });
+      return { found: true, profileUid: profile.uid, matchedBy, conflict: true, existingSellerId };
+    }
+
+    const roles = Array.isArray(profile.roles)
+      ? profile.roles.map((r: unknown) => String(r || '').trim().toLowerCase())
+      : [];
+    const hadSellerRole = roles.includes('seller');
+    const linkSet = String(existingSellerId ?? '') !== String(sellerId);
+
+    if ((!hadSellerRole || linkSet) && !preview) {
+      await Profile.updateOne(
+        { _id: profile._id },
+        {
+          $addToSet: { roles: 'seller' },
+          $set: { 'sellerProfile.sellerId': String(sellerId), updatedAt: Date.now() },
+        },
+      );
+      logger.info('linkSellerToProfile: linked', {
+        profileUid: profile.uid,
+        sellerId,
+        matchedBy,
+        roleAdded: !hadSellerRole,
+        linkSet,
+      });
+    }
+
+    return {
+      found: true,
+      profileUid: profile.uid,
+      matchedBy,
+      sellerRoleAdded: !hadSellerRole,
+      linkSet,
+      ...(preview ? { preview: true } : {}),
+    };
   }
 }
 

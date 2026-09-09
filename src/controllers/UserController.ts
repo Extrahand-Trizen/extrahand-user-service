@@ -42,11 +42,16 @@ export class UserController {
       const dryRunParam = req.query.dry_run ?? (req.body && req.body.dry_run);
       const dryRun = dryRunParam === undefined ? true : String(dryRunParam) !== 'false';
 
-      logger.info(`[cleanupUsersWithoutRoles] Called — dryRun=${dryRun}`, {
+      // Firebase Auth users are KEPT unless this is explicitly requested — deleting
+      // them rotates the UID and orphans downstream records (Seller.userId etc.).
+      const fbParam = req.query.delete_firebase_users ?? (req.body && req.body.delete_firebase_users);
+      const deleteFirebaseUsers = String(fbParam) === 'true';
+
+      logger.info(`[cleanupUsersWithoutRoles] Called — dryRun=${dryRun} deleteFirebaseUsers=${deleteFirebaseUsers}`, {
         adminId: req.admin?.userId,
       });
 
-      const result = await ProfileService.cleanupUsersWithoutRoles(dryRun);
+      const result = await ProfileService.cleanupUsersWithoutRoles(dryRun, deleteFirebaseUsers);
 
       res.json({
         success: true,

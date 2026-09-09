@@ -1704,6 +1704,38 @@ export class ProfileController {
   }
 
   /**
+   * POST /api/v1/profiles/internal/:uid/link-seller
+   * Service-to-service: the QC/seller backend calls this on registration (and a
+   * one-time backfill) to add the `seller` role (merged, never replacing other
+   * roles) and set `sellerProfile.sellerId`. Body: `{ phone?, sellerId }`.
+   * Resolves the profile by `:uid` or, if that misses, by verified `phone`.
+   * Never creates a profile.
+   */
+  static async linkSellerInternal(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { uid } = req.params;
+      const phone = typeof req.body?.phone === 'string' ? req.body.phone : undefined;
+      const sellerId = typeof req.body?.sellerId === 'string' ? req.body.sellerId : undefined;
+      const preview = String(req.query.preview ?? req.body?.preview) === 'true';
+      if (!sellerId) {
+        res.status(400).json({ success: false, error: 'sellerId is required' });
+        return;
+      }
+      const result = await ProfileService.linkSellerToProfile({ uid, phone, sellerId, preview });
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      logger.error('ProfileController.linkSellerInternal failed', {
+        uid: req.params?.uid,
+        error: error.message,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to link seller',
+      });
+    }
+  }
+
+  /**
    * POST /api/v1/profiles/internal/:uid/unlink-seller
    * Service-to-service: the QC/seller backend calls this after tearing down a
    * seller's store. Strips the `seller` role + clears `sellerProfile`; if seller
