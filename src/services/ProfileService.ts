@@ -14,7 +14,8 @@ import { normalizeProfileLocationParts } from '../utils/normalizeProfileLocation
 import { MainAdminNotificationClient } from '../clients/MainAdminNotificationClient';
 import NotificationPreferences from '../models/NotificationPreferences';
 import { DialogWhatsAppClient } from '../clients/DialogWhatsAppClient';
-type CanonicalRole = 'helper' | 'customer' | 'partner';
+import { findActiveProfileByUidOrPhone } from '../utils/identityReconciliation';
+type CanonicalRole = 'helper' | 'customer' | 'partner' | 'seller';
 
 const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
   string,
@@ -173,6 +174,8 @@ function normalizeRoles(roles: unknown): CanonicalRole[] {
     if (role === 'tasker' || role === 'helper') normalized.add('helper');
     // Map all legacy "customer/poster/requester" variants
     if (role === 'poster' || role === 'requester' || role === 'customer') normalized.add('customer');
+    if (role === 'partner') normalized.add('partner');
+    if (role === 'seller') normalized.add('seller');
     if (role === 'both') {
       normalized.add('helper');
       normalized.add('customer');
@@ -181,7 +184,8 @@ function normalizeRoles(roles: unknown): CanonicalRole[] {
   return Array.from(normalized);
 }
 
-function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'partner' | 'unknown' {
+function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'partner' | 'seller' | 'unknown' {
+  if (roles.includes('seller')) return 'seller';
   if (roles.includes('helper')) return 'helper';
   if (roles.includes('customer')) return 'customer';
   if (roles.includes('partner')) return 'partner';
@@ -189,16 +193,16 @@ function derivePrimaryRole(roles: CanonicalRole[]): 'helper' | 'customer' | 'par
 }
 
 /** Values allowed on the Profile schema (no legacy `requester` or `both` tokens in storage). */
-type PersistedRole = 'tasker' | 'poster' | 'partner';
+type PersistedRole = 'tasker' | 'poster' | 'partner' | 'seller';
 
 /**
- * Normalizes client/legacy role labels into stored roles: poster, tasker, or partner.
+ * Normalizes client/legacy role labels into stored roles: poster, tasker, partner, or seller.
  * Maps legacy `requester` → poster, `performer` → tasker, legacy `both` → poster+tasker.
  * Dual capability is represented as `['poster', 'tasker']`, never a `both` string.
  */
 function persistRoles(roles: unknown): PersistedRole[] {
   if (!Array.isArray(roles)) return [];
-  const norm = new Set<'tasker' | 'poster' | 'partner'>();
+  const norm = new Set<PersistedRole>();
   for (const raw of roles) {
     const role = String(raw || '').trim().toLowerCase();
     // Customer / poster variants
@@ -211,6 +215,9 @@ function persistRoles(roles: unknown): PersistedRole[] {
     }
     if (role === 'partner') {
       norm.add('partner');
+    }
+    if (role === 'seller') {
+      norm.add('seller');
     }
     if (role === 'both') {
       norm.add('tasker');
@@ -1848,6 +1855,18 @@ export class ProfileService {
       };
     }
 
+    // Handle sellerProfile: ensure seller role is attached
+    if ((profileData as any).sellerProfile !== undefined) {
+      payload.sellerProfile = (profileData as any).sellerProfile;
+      const currentRoles = Array.isArray(existingProfile?.roles)
+        ? (existingProfile.roles as string[])
+        : [];
+      const baseRoles = payload.roles || currentRoles;
+      if (!baseRoles.includes('seller')) {
+        payload.roles = persistRoles([...baseRoles, 'seller']);
+      }
+    }
+
     // Registration funnel resume — persisted by registration screens so the
     // backend is the authoritative resume source on cold start.
     // IMPORTANT: This must be handled in BOTH updateProfile AND upsertProfile because
@@ -2358,6 +2377,27 @@ export class ProfileService {
         ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
         : {};
       updatePayload.partnerProfile = { ...existingPartner, ...incomingPartnerMerge };
+    }
+
+    // Seller App linkage — merge so repeated calls accumulate rather than overwrite.
+    if ((profileData as any).sellerProfile !== undefined) {
+      const incoming = (profileData as any).sellerProfile || {};
+      const existingSeller = existingProfile.sellerProfile
+        ? (existingProfile.sellerProfile as any).toObject?.() ?? existingProfile.sellerProfile
+        : {};
+      updatePayload.sellerProfile = {
+        ...existingSeller,
+        ...(incoming.sellerId !== undefined ? { sellerId: incoming.sellerId } : {}),
+      };
+      // Ensure 'seller' is added to roles
+      const currentRoles = Array.isArray(updatePayload.roles)
+        ? updatePayload.roles
+        : Array.isArray(existingProfile.roles)
+        ? existingProfile.roles
+        : [];
+      if (!currentRoles.includes('seller')) {
+        updatePayload.roles = persistRoles([...currentRoles, 'seller']);
+      }
     }
 
     // Update onboarding status
@@ -3793,9 +3833,17 @@ export class ProfileService {
   /**
    * Find users whose roles field is empty/missing (never completed role selection).
    * Returns a preview list. Set dryRun=false to actually delete them.
-   * Deletion is fully cascaded: Task Service data → MongoDB profile → Firebase account.
+   *
+   * Deletion cascades Task/Payment data → MongoDB profile. The **Firebase Auth
+   * user is kept by default** (`deleteFirebaseUsers=false`): deleting it rotates
+   * the user's UID on next login, which orphans downstream records keyed on the
+   * old UID (e.g. Seller.userId). Pass `deleteFirebaseUsers=true` only for a
+   * deliberate, full account purge.
    */
-  static async cleanupUsersWithoutRoles(dryRun = true): Promise<{
+  static async cleanupUsersWithoutRoles(
+    dryRun = true,
+    deleteFirebaseUsers = false,
+  ): Promise<{
     dryRun: boolean;
     count: number;
     users: Array<{ uid: string; name: string; email: string; createdAt: any }>;
@@ -3880,12 +3928,15 @@ export class ProfileService {
         // 2. Delete MongoDB profile
         const del = await Profile.deleteOne({ uid: user.uid });
 
-        // 3. Delete Firebase account
-        try {
-          await auth.deleteUser(user.uid);
-        } catch (fbErr: any) {
-          if (fbErr.code !== 'auth/user-not-found') {
-            logger.warn(`[cleanup] Firebase delete failed for ${user.uid}:`, fbErr.message);
+        // 3. Delete Firebase account — OFF by default (keeps the UID stable so a
+        //    re-login recreates the profile with the same UID instead of a new one).
+        if (deleteFirebaseUsers) {
+          try {
+            await auth.deleteUser(user.uid);
+          } catch (fbErr: any) {
+            if (fbErr.code !== 'auth/user-not-found') {
+              logger.warn(`[cleanup] Firebase delete failed for ${user.uid}:`, fbErr.message);
+            }
           }
         }
 
@@ -4819,6 +4870,89 @@ export class ProfileService {
     });
 
     return profile;
+  }
+
+  /**
+   * Link a Seller record to its user Profile: add the `seller` role (merge, never
+   * replace) and set `sellerProfile.sellerId`. Resolves the profile by `uid`, or
+   * by verified `phone` when the UID has rotated. Never creates a profile.
+   *
+   * Called by the QC/seller backend's `linkSellerToUser` (live registration +
+   * one-time backfill).
+   */
+  static async linkSellerToProfile(params: {
+    uid?: string;
+    phone?: string;
+    sellerId: string;
+    /** Resolve + report what WOULD change, without writing. */
+    preview?: boolean;
+  }): Promise<{
+    found: boolean;
+    profileUid?: string;
+    matchedBy?: 'uid' | 'phone';
+    sellerRoleAdded?: boolean;
+    linkSet?: boolean;
+    conflict?: boolean;
+    existingSellerId?: string;
+    preview?: boolean;
+  }> {
+    const { uid, phone, sellerId, preview } = params;
+    if (!sellerId) throw new BadRequestError('sellerId is required');
+
+    let profile = uid ? await Profile.findOne({ uid }) : null;
+    let matchedBy: 'uid' | 'phone' | undefined = profile ? 'uid' : undefined;
+
+    if (!profile && phone) {
+      profile = await findActiveProfileByUidOrPhone({ phone });
+      if (profile) matchedBy = 'phone';
+    }
+
+    if (!profile) {
+      logger.warn('linkSellerToProfile: no profile for uid/phone', { uid, hasPhone: !!phone, sellerId });
+      return { found: false };
+    }
+
+    const existingSellerId = (profile.sellerProfile as { sellerId?: string } | undefined)?.sellerId;
+    if (existingSellerId && String(existingSellerId) !== String(sellerId)) {
+      logger.error('linkSellerToProfile: profile already linked to a different seller', {
+        profileUid: profile.uid,
+        existingSellerId,
+        incomingSellerId: sellerId,
+      });
+      return { found: true, profileUid: profile.uid, matchedBy, conflict: true, existingSellerId };
+    }
+
+    const roles = Array.isArray(profile.roles)
+      ? profile.roles.map((r: unknown) => String(r || '').trim().toLowerCase())
+      : [];
+    const hadSellerRole = roles.includes('seller');
+    const linkSet = String(existingSellerId ?? '') !== String(sellerId);
+
+    if ((!hadSellerRole || linkSet) && !preview) {
+      await Profile.updateOne(
+        { _id: profile._id },
+        {
+          $addToSet: { roles: 'seller' },
+          $set: { 'sellerProfile.sellerId': String(sellerId), updatedAt: Date.now() },
+        },
+      );
+      logger.info('linkSellerToProfile: linked', {
+        profileUid: profile.uid,
+        sellerId,
+        matchedBy,
+        roleAdded: !hadSellerRole,
+        linkSet,
+      });
+    }
+
+    return {
+      found: true,
+      profileUid: profile.uid,
+      matchedBy,
+      sellerRoleAdded: !hadSellerRole,
+      linkSet,
+      ...(preview ? { preview: true } : {}),
+    };
   }
 }
 

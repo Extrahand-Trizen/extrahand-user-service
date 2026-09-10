@@ -82,6 +82,16 @@ router.put(
   serviceAuthMiddleware,
   asyncHandler(ProfileController.updateProfileInternal)
 );
+router.post(
+  '/internal/:uid/link-seller',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.linkSellerInternal)
+);
+router.post(
+  '/internal/:uid/unlink-seller',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.unlinkSellerInternal)
+);
 router.get(
   '/internal/:uid/reward-context',
   serviceAuthMiddleware,

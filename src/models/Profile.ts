@@ -14,7 +14,7 @@ export interface IProfile extends Document {
   alternatePhoneVerified?: boolean;
   alternatePhoneVerifiedAt?: Date | null;
   client_type?: 'web' | 'mobile';
-  roles: ('tasker' | 'poster' | 'partner')[];
+  roles: ('tasker' | 'poster' | 'partner' | 'seller')[];
   userType: 'individual' | 'business';
   bio?: string;
   portfolio?: PortfolioItem[];
@@ -89,6 +89,14 @@ export interface IProfile extends Document {
   suspendedBy?: string; // Admin user ID who suspended
   onboardingStatus?: OnboardingStatus;
   business?: BusinessProfile;
+  /**
+   * Set when the user registered through the Seller App. Links this user to the
+   * Seller record in the qcommerce / seller service. `roles` also carries
+   * `'seller'`.
+   */
+  sellerProfile?: {
+    sellerId?: string;
+  };
   agreeUpdates?: boolean;
   agreeTerms?: boolean;
   myOperatorContactId?: string | null;
@@ -227,7 +235,7 @@ const ProfileSchema = new Schema<IProfile>({
   },
   roles: {
     type: [String],
-    enum: ['tasker', 'poster', 'partner'],
+    enum: ['tasker', 'poster', 'partner', 'seller'],
     default: []
   },
   userType: {
@@ -589,6 +597,10 @@ const ProfileSchema = new Schema<IProfile>({
     },
     updatedAt: Date
   },
+  // Populated by the seller service after a Seller App registration.
+  sellerProfile: {
+    sellerId: { type: String, index: true },
+  },
   agreeUpdates: {
     type: Boolean,
     default: false
@@ -775,9 +787,9 @@ const ProfileSchema = new Schema<IProfile>({
   timestamps: true
 });
 
-function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster' | 'partner'> {
+function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster' | 'partner' | 'seller'> {
   if (!Array.isArray(roles)) return [];
-  const normalized = new Set<'tasker' | 'poster' | 'partner'>();
+  const normalized = new Set<'tasker' | 'poster' | 'partner' | 'seller'>();
   for (const rawRole of roles) {
     const role = String(rawRole || '').trim().toLowerCase();
     if (role === 'poster' || role === 'requester' || role === 'customer') {
@@ -789,12 +801,15 @@ function normalizePersistedRoles(roles: unknown): Array<'tasker' | 'poster' | 'p
     if (role === 'partner') {
       normalized.add('partner');
     }
+    if (role === 'seller') {
+      normalized.add('seller');
+    }
     if (role === 'both') {
       normalized.add('poster');
       normalized.add('tasker');
     }
   }
-  return Array.from(normalized).sort() as Array<'tasker' | 'poster' | 'partner'>;
+  return Array.from(normalized).sort() as Array<'tasker' | 'poster' | 'partner' | 'seller'>;
 }
 
 function normalizeRolesInUpdate(update: Record<string, any> | null | undefined): void {

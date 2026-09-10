@@ -6,18 +6,21 @@ import logger from '../config/logger';
  * Used to ensure the matching capability without stripping the other role.
  * Callers must only pass authChannel when clientType === 'mobile'.
  */
-export type AuthChannel = 'customer_app' | 'helper_app';
+export type AuthChannel = 'customer_app' | 'helper_app' | 'seller_app';
 
 export function parseAuthChannel(raw: unknown): AuthChannel | undefined {
   if (raw == null) return undefined;
   const value = String(raw).trim().toLowerCase().replace(/-/g, '_');
   if (value === 'customer_app' || value === 'customerapp') return 'customer_app';
   if (value === 'helper_app' || value === 'helperapp') return 'helper_app';
+  if (value === 'seller_app' || value === 'sellerapp') return 'seller_app';
   return undefined;
 }
 
-function roleForAuthChannel(channel: AuthChannel): 'poster' | 'tasker' {
-  return channel === 'helper_app' ? 'tasker' : 'poster';
+function roleForAuthChannel(channel: AuthChannel): 'poster' | 'tasker' | 'seller' {
+  if (channel === 'helper_app') return 'tasker';
+  if (channel === 'seller_app') return 'seller';
+  return 'poster';
 }
 
 /** Dialog / Meta welcome mapping for each mobile app binary. */
@@ -25,7 +28,7 @@ export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
   eventKey: 'CUSTOMER_WELCOME' | 'HELPER_WELCOME';
   metaTemplateName: 'extrahand_customer_welcome' | 'extrahand_helper_welcome';
   legacyTemplateKey: 'wa_customer_welcome' | 'wa_helper_welcome';
-  role: 'poster' | 'helper';
+  role: 'poster' | 'helper' | 'seller';
   idempotencyKey: (uid: string) => string;
 } {
   if (channel === 'helper_app') {
@@ -35,6 +38,15 @@ export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
       legacyTemplateKey: 'wa_helper_welcome',
       role: 'helper',
       idempotencyKey: (uid) => `welcome:helper:${uid}`,
+    };
+  }
+  if (channel === 'seller_app') {
+    return {
+      eventKey: 'CUSTOMER_WELCOME',
+      metaTemplateName: 'extrahand_customer_welcome',
+      legacyTemplateKey: 'wa_customer_welcome',
+      role: 'seller',
+      idempotencyKey: (uid) => `welcome:seller:${uid}`,
     };
   }
   return {
@@ -48,7 +60,7 @@ export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
 
 export function rolesHaveCapability(
   rolesRaw: unknown,
-  capability: 'poster' | 'tasker'
+  capability: 'poster' | 'tasker' | 'seller'
 ): boolean {
   const roles = Array.isArray(rolesRaw)
     ? rolesRaw.map((r) => String(r || '').trim().toLowerCase()).filter(Boolean)
@@ -64,11 +76,19 @@ export function rolesHaveCapability(
     );
   }
 
-  return (
-    roles.includes('tasker') ||
-    roles.includes('helper') ||
-    roles.includes('performer')
-  );
+  if (capability === 'seller') {
+    return roles.includes('seller');
+  }
+
+  if (capability === 'tasker') {
+    return (
+      roles.includes('tasker') ||
+      roles.includes('helper') ||
+      roles.includes('performer')
+    );
+  }
+
+  return false;
 }
 
 /**
