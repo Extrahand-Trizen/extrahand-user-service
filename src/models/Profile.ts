@@ -770,6 +770,9 @@ const ProfileSchema = new Schema<IProfile>({
     workShiftType: { type: String, default: undefined },
     /** IDs of the selected shift slots within the chosen type */
     workShifts: { type: [String], default: undefined },
+    /** Whether partner is active for quick commerce delivery orders */
+    activeForQCommerce: { type: Boolean, default: false },
+    activeForQCommerceOrders: { type: Boolean, default: false },
   },
   supplyPrograms: {
     type: [{ type: String, enum: ['marketplace', 'book_now'] }],
