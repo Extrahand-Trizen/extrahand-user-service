@@ -208,6 +208,9 @@ export interface PartnerProfile {
   workShiftType?: string;
   /** IDs of the selected shift slots within the chosen type */
   workShifts?: string[];
+  /** Whether partner is active for quick commerce delivery orders */
+  activeForQCommerce?: boolean;
+  activeForQCommerceOrders?: boolean;
 }
 
 export type SupplyProgram = 'marketplace' | 'book_now';

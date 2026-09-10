@@ -1834,9 +1834,17 @@ export class ProfileService {
       const existingPartner = existingProfile?.partnerProfile
         ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile
         : {};
+      const incomingPartner = (profileData as any).partnerProfile || {};
+      const activeQ =
+        incomingPartner.activeForQCommerce !== undefined
+          ? incomingPartner.activeForQCommerce
+          : incomingPartner.activeForQCommerceOrders;
       payload.partnerProfile = {
         ...existingPartner,
-        ...(profileData as any).partnerProfile,
+        ...incomingPartner,
+        ...(activeQ !== undefined
+          ? { activeForQCommerce: Boolean(activeQ), activeForQCommerceOrders: Boolean(activeQ) }
+          : {}),
       };
     }
 
@@ -2309,6 +2317,10 @@ export class ProfileService {
     // so they are not lost when both top-level and partnerProfile are sent.
     const topGender = (profileData as any).gender;
     const topDob = (profileData as any).dateOfBirth;
+    const topActiveQ =
+      (profileData as any).activeForQCommerce !== undefined
+        ? (profileData as any).activeForQCommerce
+        : (profileData as any).activeForQCommerceOrders;
     const incomingPartnerMerge: Record<string, unknown> = {};
     if (topGender !== undefined) {
       incomingPartnerMerge.gender = topGender;
@@ -2318,12 +2330,27 @@ export class ProfileService {
       incomingPartnerMerge.dob = topDob;
       updatePayload.dob = topDob;
     }
+    if (topActiveQ !== undefined) {
+      incomingPartnerMerge.activeForQCommerce = Boolean(topActiveQ);
+      incomingPartnerMerge.activeForQCommerceOrders = Boolean(topActiveQ);
+    }
 
     if (profileData.partnerProfile !== undefined) {
+      const incomingPartner = (profileData.partnerProfile as any) || {};
+      const partnerActiveQ =
+        incomingPartner.activeForQCommerce !== undefined
+          ? incomingPartner.activeForQCommerce
+          : incomingPartner.activeForQCommerceOrders;
+      const syncedQCommerce =
+        partnerActiveQ !== undefined
+          ? { activeForQCommerce: Boolean(partnerActiveQ), activeForQCommerceOrders: Boolean(partnerActiveQ) }
+          : {};
+
       const mergedPartnerProfile = {
         ...(existingProfile.partnerProfile ? (existingProfile.partnerProfile as any).toObject?.() ?? existingProfile.partnerProfile : {}),
         ...profileData.partnerProfile,
         ...incomingPartnerMerge,
+        ...syncedQCommerce,
       };
       updatePayload.partnerProfile = mergedPartnerProfile;
     } else if (Object.keys(incomingPartnerMerge).length > 0) {
