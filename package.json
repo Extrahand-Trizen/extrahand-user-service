@@ -16,7 +16,8 @@
     "migrate:roles-requester-to-poster": "npx ts-node --require dotenv/config scripts/migrate-roles-requester-to-poster.ts",
     "migrate:profile-both-token-to-dual-roles": "npx ts-node --require dotenv/config scripts/migrate-profile-both-token-to-dual-roles.ts",
     "migrate:profile-client-type-from-sessions": "npx ts-node --require dotenv/config scripts/migrate-profile-client-type-from-sessions.ts",
-    "migrate:payment-tester-false": "npx ts-node --require dotenv/config src/scripts/backfillPaymentTesterFalse.ts"
+    "migrate:payment-tester-false": "npx ts-node --require dotenv/config src/scripts/backfillPaymentTesterFalse.ts",
+    "delete:accounts-by-phone": "npx ts-node --require dotenv/config src/scripts/deleteAccountsByPhone.ts"
   },
   "engines": {
     "node": ">=20.19.0"

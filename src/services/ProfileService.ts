@@ -4582,6 +4582,7 @@ export class ProfileService {
     pinCode?: string;
     lat?: number;
     lng?: number;
+    requiredCategory?: string;
     limit?: number;
   }): Promise<{
     checkPerformed: boolean;
@@ -4599,6 +4600,43 @@ export class ProfileService {
         address: params.city,
       }).city || String(params.city || '').trim();
 
+    const requestLat = typeof params.lat === 'number' ? params.lat : Number(params.lat);
+    const requestLng = typeof params.lng === 'number' ? params.lng : Number(params.lng);
+    if (Number.isFinite(requestLat) && Number.isFinite(requestLng)) {
+      const geoHelpers = await this.getNearbyHelpers({
+        lat: requestLat,
+        lng: requestLng,
+        requiredCategory: params.requiredCategory,
+        limit,
+        excludeUid: uid || undefined,
+      });
+      return {
+        checkPerformed: true,
+        resolvedCity: queryCity || null,
+        count: geoHelpers.length,
+        hasHelpers: geoHelpers.length > 0,
+        helpers: geoHelpers,
+      };
+    }
+
+    // An explicitly selected location must override the saved profile city.
+    // Otherwise a customer who moved areas is checked against stale profile data.
+    if (queryCity) {
+      const cityHelpers = await this.getNearbyHelpers({
+        city: queryCity,
+        requiredCategory: params.requiredCategory,
+        limit,
+        excludeUid: uid || undefined,
+      });
+      return {
+        checkPerformed: true,
+        resolvedCity: queryCity,
+        count: cityHelpers.length,
+        hasHelpers: cityHelpers.length > 0,
+        helpers: cityHelpers,
+      };
+    }
+
     if (uid) {
       const profileResult = await this.getTaskerAvailabilityForFirebaseUid(uid, limit);
       if (profileResult.checkPerformed && profileResult.hasHelpers) {
@@ -4614,6 +4652,7 @@ export class ProfileService {
           const geoHelpers = await this.getNearbyHelpers({
             lat,
             lng,
+            requiredCategory: params.requiredCategory,
             limit,
             excludeUid: uid,
           });
@@ -4633,42 +4672,14 @@ export class ProfileService {
         return profileResult;
       }
 
-      if (queryCity) {
-        const cityHelpers = await this.getNearbyHelpers({
-          city: queryCity,
-          limit,
-          excludeUid: uid,
-        });
-        return {
-          checkPerformed: true,
-          resolvedCity: queryCity,
-          count: cityHelpers.length,
-          hasHelpers: cityHelpers.length > 0,
-          helpers: cityHelpers,
-        };
-      }
-    }
-
-    const reqLat = typeof params.lat === 'number' ? params.lat : Number(params.lat);
-    const reqLng = typeof params.lng === 'number' ? params.lng : Number(params.lng);
-    if (Number.isFinite(reqLat) && Number.isFinite(reqLng)) {
-      const geoHelpers = await this.getNearbyHelpers({
-        lat: reqLat,
-        lng: reqLng,
-        limit,
-        excludeUid: uid || undefined,
-      });
-      return {
-        checkPerformed: true,
-        resolvedCity: queryCity || null,
-        count: geoHelpers.length,
-        hasHelpers: geoHelpers.length > 0,
-        helpers: geoHelpers,
-      };
     }
 
     if (queryCity) {
-      const cityHelpers = await this.getNearbyHelpers({ city: queryCity, limit });
+      const cityHelpers = await this.getNearbyHelpers({
+        city: queryCity,
+        requiredCategory: params.requiredCategory,
+        limit,
+      });
       return {
         checkPerformed: true,
         resolvedCity: queryCity,
@@ -4693,6 +4704,9 @@ export class ProfileService {
   static async resolvePosterHelperAvailability(params: {
     firebaseUid?: string;
     city?: string;
+    lat?: number;
+    lng?: number;
+    requiredCategory?: string;
     limit?: number;
   }): Promise<{
     checkPerformed: boolean;
@@ -4704,6 +4718,9 @@ export class ProfileService {
     return this.resolveBookNowHelperAvailability({
       firebaseUid: params.firebaseUid,
       city: params.city,
+      lat: params.lat,
+      lng: params.lng,
+      requiredCategory: params.requiredCategory,
       limit: params.limit,
     });
   }
@@ -4725,6 +4742,7 @@ export class ProfileService {
     radiusKm?: number;
     limit?: number;
     excludeUid?: string;
+    requiredCategory?: string;
   }): Promise<Array<{
     _id: string;
     uid: string;
@@ -4743,6 +4761,8 @@ export class ProfileService {
     const radiusKm = Math.min(200, Math.max(1, Number(params.radiusKm) || 50));
     const customerCity = params.city?.trim() || '';
     const excludeUid = params.excludeUid?.trim();
+    const requiredCategory = String(params.requiredCategory || '').trim().toLowerCase();
+    const queryLimit = requiredCategory ? 50 : limit;
 
     logger.info('getNearbyHelpers: called', {
       city: customerCity,
@@ -4751,6 +4771,7 @@ export class ProfileService {
       radiusKm,
       limit,
       excludeUid: excludeUid || null,
+      requiredCategory: requiredCategory || null,
     });
 
     const baseFilter: Record<string, unknown> = {
@@ -4763,6 +4784,7 @@ export class ProfileService {
     const projection = {
       _id: 1, uid: 1, name: 1, photoURL: 1, rating: 1,
       totalReviews: 1, skills: 1, location: 1,
+      'partnerProfile.categories': 1,
       isAadhaarVerified: 1, verificationBadge: 1,
     };
 
@@ -4786,7 +4808,7 @@ export class ProfileService {
             },
           },
           projection,
-        ).limit(limit).lean();
+        ).limit(queryLimit).lean();
 
         logger.info('getNearbyHelpers: geospatial result', {
           lat: params.lat, lng: params.lng, radiusKm, matchedCount: profiles.length,
@@ -4814,7 +4836,7 @@ export class ProfileService {
           ],
         },
         projection,
-      ).limit(limit).lean();
+      ).limit(queryLimit).lean();
 
       logger.info('getNearbyHelpers: city-match result', {
         customerCity, matchedCount: profiles.length,
@@ -4825,7 +4847,34 @@ export class ProfileService {
       customerCity, hasCoords, matchedCount: profiles.length,
     });
 
-    return profiles.map((p: any) => ({
+    const matchingProfiles = requiredCategory
+      ? profiles.filter((profile: any) => {
+          const categories = Array.isArray(profile?.partnerProfile?.categories)
+            ? profile.partnerProfile.categories
+            : [];
+          const normalized = categories.map((category: unknown) =>
+            String(category || '')
+              .trim()
+              .toLowerCase()
+              .replace(/[_\s]+/g, '-'),
+          );
+          if (requiredCategory === 'home-cleaning') {
+            return normalized.some((category: string) =>
+              [
+                'home-cleaning',
+                'house-cleaning',
+                'cleaning',
+                'full-house',
+                'home-services',
+                'handyman',
+              ].includes(category),
+            );
+          }
+          return normalized.includes(requiredCategory);
+        })
+      : profiles;
+
+    return matchingProfiles.slice(0, limit).map((p: any) => ({
       _id: String(p._id),
       uid: p.uid,
       name: p.name || 'Helper',

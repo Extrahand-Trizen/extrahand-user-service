@@ -3184,9 +3184,18 @@ export class ProfileController {
       // Optional ?city= only when profile has no resolvable city (mobile cache fallback).
       const queryCity =
         typeof req.query.city === 'string' ? req.query.city.trim() : '';
+      const lat = req.query.lat !== undefined ? parseFloat(String(req.query.lat)) : undefined;
+      const lng = req.query.lng !== undefined ? parseFloat(String(req.query.lng)) : undefined;
+      const requiredCategory =
+        typeof req.query.requiredCategory === 'string'
+          ? req.query.requiredCategory.trim()
+          : undefined;
       const result = await ProfileService.resolvePosterHelperAvailability({
         firebaseUid: callerUid,
         city: queryCity || undefined,
+        lat: Number.isFinite(lat) ? lat : undefined,
+        lng: Number.isFinite(lng) ? lng : undefined,
+        requiredCategory,
         limit,
       });
 
