@@ -75,6 +75,7 @@ export interface IProfile extends Document {
   };
   isFaceVerified?: boolean;
   isActive: boolean;
+  isPaymentTester?: boolean;
   photoURL?: string | null;
   isAdminVerified?: boolean;
   phoneVerified?: boolean;
@@ -432,6 +433,11 @@ const ProfileSchema = new Schema<IProfile>({
   isActive: {
     type: Boolean,
     default: true
+  },
+  isPaymentTester: {
+    type: Boolean,
+    default: false,
+    index: true,
   },
   photoURL: {
     type: String,
