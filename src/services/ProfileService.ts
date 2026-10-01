@@ -2954,7 +2954,12 @@ export class ProfileService {
     if (workArea && workArea.trim()) {
       const workAreaRegex = buildFlexibleTextRegex(workArea.trim());
       if (role?.trim().toLowerCase() === 'partner') {
-        andConditions.push({ 'partnerProfile.workAreas': workAreaRegex });
+        andConditions.push({
+          $or: [
+            { 'partnerProfile.workAreas': workAreaRegex },
+            { helperWorkAreas: workAreaRegex },
+          ],
+        });
       } else {
         andConditions.push({
           $or: [
@@ -3110,7 +3115,7 @@ export class ProfileService {
     // Execute query
     const [profiles, total] = await Promise.all([
       Profile.find(query)
-        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills location homeLocation partnerProfile location')
+        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills location homeLocation partnerProfile helperWorkAreas')
         .sort(sort)
         .skip(skip)
         .limit(effectiveLimit)
@@ -3170,6 +3175,7 @@ export class ProfileService {
         location: profile.location || null,
         homeLocation: profile.homeLocation || null,
         partnerProfile: profile.partnerProfile || null,
+        helperWorkAreas: profile.helperWorkAreas || [],
       };
     });
 
@@ -3735,6 +3741,7 @@ export class ProfileService {
       .lean();
 
     const areas = new Set<string>();
+    areas.add('BN Reddy Nagar');
     for (const profile of profiles) {
       const locationArea = (profile as any)?.location?.addressDetails?.area;
       const homeArea = (profile as any)?.homeLocation?.addressDetails?.area;

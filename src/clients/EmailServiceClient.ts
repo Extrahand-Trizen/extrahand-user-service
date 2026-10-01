@@ -135,12 +135,13 @@ export class EmailServiceClient {
   /**
    * Send welcome email to new user
    */
-  static async sendWelcomeEmail(email: string, name: string): Promise<boolean> {
+  static async sendWelcomeEmail(email: string, name: string, userId?: string): Promise<boolean> {
     const env = validateEnv();
     return this.sendRequest('/send', {
       to: email,
       subject: 'Welcome to ExtraHand!',
       template: 'welcome',
+      userId,
       data: {
         name,
         loginUrl: `${env.WEB_APP_URL || 'https://extrahand.in'}/login`,
@@ -157,17 +158,20 @@ export class EmailServiceClient {
     otp?: string,
     verificationLink?: string,
     name?: string,
-    expiresAt?: Date
+    expiresAt?: Date,
+    userId?: string
   ): Promise<boolean> {
     return this.sendRequest('/send', {
       to: email,
       subject: 'Verify Your Email Address - ExtraHand',
       template: 'email_verification',
+      userId,
       data: {
         name,
         otp,
         verificationLink,
-        expiresAt: expiresAt?.toLocaleString()
+        expiresAt: expiresAt?.toLocaleString(),
+        userId,
       }
     });
   }
@@ -184,6 +188,7 @@ export class EmailServiceClient {
       location?: string;
       ip?: string;
       loginTime?: string;
+      userId?: string;
     },
     resetPasswordUrl?: string
   ): Promise<boolean> {
@@ -191,9 +196,11 @@ export class EmailServiceClient {
       to: email,
       subject: '🔐 New Login Detected - ExtraHand',
       template: 'login_alert',
+      userId: loginDetails.userId,
       data: {
         name,
         ...loginDetails,
+        userId: loginDetails.userId,
         resetPasswordUrl,
         supportEmail: 'support@extrahand.in'
       }
@@ -227,8 +234,8 @@ export class EmailServiceClient {
   /**
    * Send account created email (for bulk upload)
    */
-  static async sendAccountCreated(email: string, name: string, phone?: string): Promise<boolean> {
-    return this.sendRequest('/account-created', { email, name, phone });
+  static async sendAccountCreated(email: string, name: string, phone?: string, userId?: string): Promise<boolean> {
+    return this.sendRequest('/account-created', { email, name, phone, userId });
   }
 
   /**
@@ -238,13 +245,15 @@ export class EmailServiceClient {
     email: string,
     resetLink: string,
     name?: string,
-    expiresAt?: Date
+    expiresAt?: Date,
+    userId?: string
   ): Promise<boolean> {
     return this.sendRequest('/password-reset', {
       email,
       resetLink,
       name,
-      expiresAt: expiresAt?.toISOString()
+      expiresAt: expiresAt?.toISOString(),
+      userId
     });
   }
 

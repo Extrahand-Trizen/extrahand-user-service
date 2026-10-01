@@ -8,6 +8,7 @@ export type NotificationCategory =
     | 'reminders'
     | 'system'
     | 'marketing'
+    | 'transactional'
     | 'taskReminders'
     | 'keywordTaskAlerts'
     | 'recommendedTaskAlerts';
@@ -92,7 +93,13 @@ export class NotificationPreferencesService {
         category: NotificationCategory
     ): Promise<boolean> {
         try {
+            if (channel === 'push') {
+                return true;
+            }
+
             const preferences = await this.getPreferences(uid);
+            const channelPrefs = preferences[channel] as Record<string, boolean>;
+            const categoryKey = category === 'reminders' ? 'taskReminders' : category;
 
             // Check if channel is enabled
             if (!preferences[channel].enabled) {
@@ -104,14 +111,19 @@ export class NotificationPreferencesService {
                 return false;
             }
 
-            // Check if category is enabled for this channel
-            const categoryEnabled = preferences[channel][category as keyof typeof preferences[typeof channel]];
+            // Email is controlled by one account-wide preference, not category flags.
+            if (channel === 'email') {
+                return true;
+            }
 
-            if (!categoryEnabled) {
-                logger.info('Notification blocked: category disabled', {
+            // Check if category is enabled for this channel
+            const categoryEnabled = channelPrefs[categoryKey];
+            if (categoryEnabled === undefined || categoryEnabled === false) {
+                logger.info('Notification blocked: category disabled or missing', {
                     uid,
                     channel,
                     category,
+                    categoryKey,
                 });
                 return false;
             }

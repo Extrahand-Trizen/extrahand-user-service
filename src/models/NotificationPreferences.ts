@@ -8,6 +8,7 @@ export interface INotificationPreferences extends Document {
         payments: boolean;
         promotions: boolean;
         system: boolean;
+        transactional: boolean;
         taskReminders: boolean;
         keywordTaskAlerts: boolean;
         recommendedTaskAlerts: boolean;
@@ -19,6 +20,7 @@ export interface INotificationPreferences extends Document {
         promotions: boolean;
         system: boolean;
         marketing: boolean;
+        transactional: boolean;
         taskReminders: boolean;
         keywordTaskAlerts: boolean;
         recommendedTaskAlerts: boolean;
@@ -27,6 +29,7 @@ export interface INotificationPreferences extends Document {
         enabled: boolean;
         taskUpdates: boolean;
         payments: boolean;
+        transactional: boolean;
     };
     whatsapp: {
         enabled: boolean;
@@ -35,6 +38,7 @@ export interface INotificationPreferences extends Document {
         promotions: boolean;
         system: boolean;
         marketing: boolean;
+        transactional: boolean;
         taskReminders: boolean;
         keywordTaskAlerts: boolean;
         recommendedTaskAlerts: boolean;
@@ -72,6 +76,7 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             payments: { type: Boolean, default: true },
             promotions: { type: Boolean, default: false },
             system: { type: Boolean, default: true },
+            transactional: { type: Boolean, default: true },
             taskReminders: { type: Boolean, default: true },
             keywordTaskAlerts: { type: Boolean, default: true },
             recommendedTaskAlerts: { type: Boolean, default: true },
@@ -83,6 +88,7 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             promotions: { type: Boolean, default: false },
             system: { type: Boolean, default: true },
             marketing: { type: Boolean, default: false },
+            transactional: { type: Boolean, default: true },
             taskReminders: { type: Boolean, default: true },
             keywordTaskAlerts: { type: Boolean, default: true },
             recommendedTaskAlerts: { type: Boolean, default: true },
@@ -91,6 +97,7 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             enabled: { type: Boolean, default: true },
             taskUpdates: { type: Boolean, default: true },
             payments: { type: Boolean, default: true },
+            transactional: { type: Boolean, default: true },
         },
         whatsapp: {
             enabled: { type: Boolean, default: true },
@@ -99,6 +106,7 @@ const NotificationPreferencesSchema = new Schema<INotificationPreferences>(
             promotions: { type: Boolean, default: true },
             system: { type: Boolean, default: true },
             marketing: { type: Boolean, default: true },
+            transactional: { type: Boolean, default: true },
             taskReminders: { type: Boolean, default: true },
             keywordTaskAlerts: { type: Boolean, default: true },
             recommendedTaskAlerts: { type: Boolean, default: true },

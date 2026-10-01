@@ -135,7 +135,8 @@ export class EmailVerificationService {
                 otp,
                 undefined, // No verification link
                 name,
-                expiresAt
+                expiresAt,
+                uid
             );
 
             if (!emailSent) {

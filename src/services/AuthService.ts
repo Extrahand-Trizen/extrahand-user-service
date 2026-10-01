@@ -888,13 +888,15 @@ export class AuthService {
                   profile.name || "User",
                   {
                      loginTime: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+                     userId: uid,
                   }
                ).catch(err => logger.warn("Failed to send login alert email", { error: err.message }));
             } else if (mode === "signup") {
                // Welcome email for new user
                EmailServiceClient.sendWelcomeEmail(
                   profile.email,
-                  profile.name || "User"
+                  profile.name || "User",
+                  uid
                ).catch(err => logger.warn("Failed to send welcome email", { error: err.message }));
             }
          }
