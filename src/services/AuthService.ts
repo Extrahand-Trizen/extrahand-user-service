@@ -883,13 +883,19 @@ export class AuthService {
          if (profile?.email) {
             if (mode === "login") {
                // Login alert for existing user
-               EmailServiceClient.sendLoginAlert(
-                  profile.email,
-                  profile.name || "User",
-                  {
-                     loginTime: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
-                  }
-               ).catch(err => logger.warn("Failed to send login alert email", { error: err.message }));
+               const loginAlertEmail = profile.email;
+               const loginAlertName = profile.name || "User";
+               NotificationPreferencesService.canSendNotification(uid, "email", "system")
+                  .then((allowed) => {
+                     if (!allowed) {
+                        logger.info("Login alert email skipped due to user email preference", { uid });
+                        return;
+                     }
+                     return EmailServiceClient.sendLoginAlert(loginAlertEmail, loginAlertName, {
+                        loginTime: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+                     });
+                  })
+                  .catch(err => logger.warn("Failed to send login alert email", { error: err.message }));
             } else if (mode === "signup") {
                // Welcome email for new user
                EmailServiceClient.sendWelcomeEmail(
