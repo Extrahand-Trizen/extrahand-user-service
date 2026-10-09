@@ -1,4 +1,5 @@
 import Profile from '../models/Profile';
+import PartnerCategoryRequest from '../models/PartnerCategoryRequest';
 import Consent, { IConsent } from '../models/Consent';
 import { NotFoundError, BadRequestError, ServiceUnavailableError } from '../errors/AppError';
 import logger from '../config/logger';
@@ -19,6 +20,14 @@ import {
 const env = validateEnv();
 
 export class PrivacyService {
+  private static async deletePartnerCategoryRequestHistory(userId: string): Promise<void> {
+    const result = await PartnerCategoryRequest.deleteMany({ 'requester.uid': userId });
+    logger.info('Deleted partner category request history during account deletion', {
+      userId,
+      deletedCount: result.deletedCount,
+    });
+  }
+
   private static getDeletionAlias(plan: AccountDeletionPlan): string {
     if (plan.removeSide === 'helper') return 'Helper Account Deleted';
     if (plan.removeSide === 'poster') return 'Customer Account Deleted';
@@ -230,6 +239,7 @@ export class PrivacyService {
           },
         },
       );
+      await this.deletePartnerCategoryRequestHistory(userId);
 
       return anonymizedName;
     }
@@ -277,6 +287,7 @@ export class PrivacyService {
         },
       ),
       Consent.deleteOne({ userId }),
+      this.deletePartnerCategoryRequestHistory(userId),
     ]);
 
     return anonymizedName;
@@ -358,6 +369,7 @@ export class PrivacyService {
         },
       },
     );
+    await this.deletePartnerCategoryRequestHistory(userId);
   }
 
   private static async deleteFirebaseAuthUser(userId: string): Promise<void> {
@@ -1208,5 +1220,3 @@ export class PrivacyService {
     };
   }
 }
-
-

@@ -2,8 +2,21 @@ import { Router } from 'express';
 import { UserController } from '../controllers/UserController';
 import { serviceAuthMiddleware } from '../middleware/serviceAuth';
 import { asyncHandler } from '../middleware/errorHandler';
+import { PartnerCategoryRequestController } from '../controllers/PartnerCategoryRequestController';
 
 const router = Router();
+
+// Admin-mediated partner category requests (service-authenticated from main-admin-server).
+router.get(
+  '/partner-category-requests',
+  serviceAuthMiddleware,
+  asyncHandler(PartnerCategoryRequestController.listForAdmin),
+);
+router.patch(
+  '/partner-category-requests/:requestId',
+  serviceAuthMiddleware,
+  asyncHandler(PartnerCategoryRequestController.review),
+);
 
 // Admin endpoints for user management
 // All routes require service authentication (from main-admin-service)

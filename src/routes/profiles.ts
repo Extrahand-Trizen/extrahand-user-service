@@ -7,6 +7,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import profileStatsRoutes from './profileStats';
 import Profile from '../models/Profile';
 import { RewardsInternalController } from '../controllers/RewardsInternalController';
+import { PartnerCategoryRequestController } from '../controllers/PartnerCategoryRequestController';
 
 const router = Router();
 
@@ -100,6 +101,18 @@ router.get(
 
 // Profile Stats Routes - must come before /me to avoid conflicts
 router.use('/me/stats', authMiddleware, profileStatsRoutes);
+
+// Partner category requests (partner self-service).
+router.post(
+  '/me/partner-category-requests',
+  authMiddleware,
+  asyncHandler(PartnerCategoryRequestController.create),
+);
+router.get(
+  '/me/partner-category-requests',
+  authMiddleware,
+  asyncHandler(PartnerCategoryRequestController.listMine),
+);
 
 // GET /api/v1/profiles/me - Get current user's profile (requires auth)
 router.get('/me', authMiddleware, asyncHandler(ProfileController.getMyProfile));
@@ -265,5 +278,4 @@ router.delete('/bulk', authMiddleware, asyncHandler(ProfileController.bulkDelete
 router.delete('/:uid', authMiddleware, asyncHandler(ProfileController.deleteProfileByUid));
 
 export default router;
-
 
