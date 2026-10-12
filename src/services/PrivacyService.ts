@@ -137,7 +137,9 @@ export class PrivacyService {
       const payload = response.data?.data || response.data || {};
       if (payload?.hasBlockers) {
         throw new BadRequestError(
-          'Account cannot be deleted while you have ongoing assigned work. Please complete or cancel active tasks first.',
+          dataScope === 'partner-account'
+            ? 'You have ongoing Partner work. Please complete or cancel it before deleting your account.'
+            : 'Account cannot be deleted while you have ongoing assigned work. Please complete or cancel active tasks first.',
         );
       }
     } catch (error: any) {
@@ -204,6 +206,7 @@ export class PrivacyService {
               updatedAt: new Date(),
             },
             helperWorkAreas: [],
+            supplyPrograms: [],
             partnerProfile: {
               status: 'not_applied',
               onboardingCompleted: false,
@@ -320,56 +323,6 @@ export class PrivacyService {
         },
       },
     );
-  }
-
-  private static async anonymizePartnerProfileOnly(profile: any, reason?: string): Promise<void> {
-    const userId = profile.uid;
-    const remainingRoles = Array.isArray(profile.roles)
-      ? profile.roles.filter(
-          (role: unknown) => String(role || '').trim().toLowerCase() !== 'partner',
-        )
-      : [];
-
-    await Profile.updateOne(
-      { uid: userId },
-      {
-        $set: {
-          roles: remainingRoles,
-          partnerProfile: {
-            status: 'not_applied',
-            onboardingCompleted: false,
-            languages: [],
-            gender: null,
-            dob: null,
-            categories: [],
-            skills: {},
-            workAreas: [],
-            experience: {},
-            vehicle: { type: null, number: null },
-            qualification: null,
-            professionalExperience: null,
-            careLanguages: null,
-            careAgeGroups: null,
-            workPlace: {},
-            workPhotos: [],
-            dlNumber: null,
-            dlFront: null,
-            dlBack: null,
-            rc: null,
-            experienceProofs: {},
-          },
-          supplyPrograms: [],
-          'dataPrivacy.deletionRequested': false,
-          'dataPrivacy.deletionRequestedAt': null,
-          'dataPrivacy.deletionScheduledFor': null,
-          'dataPrivacy.accountDeleted': false,
-          'dataPrivacy.accountDeletedAt': null,
-          'dataPrivacy.accountDeletionReason':
-            reason?.trim() || 'User requested partner data deletion',
-        },
-      },
-    );
-    await this.deletePartnerCategoryRequestHistory(userId);
   }
 
   private static async deleteFirebaseAuthUser(userId: string): Promise<void> {
@@ -801,7 +754,10 @@ export class PrivacyService {
   /**
    * Preview task/application counts and active blockers for account deletion UI.
    */
-  static async getAccountDeletionPreview(userId: string): Promise<{
+  static async getAccountDeletionPreview(
+    userId: string,
+    deletionScope: string = 'full',
+  ): Promise<{
     hasActiveBlockers: boolean;
     openTasksCount: number;
     completedTasksCount: number;
@@ -827,7 +783,10 @@ export class PrivacyService {
       const response = await axios.get(
         `${taskServiceUrl}/api/v1/cascade-delete/user/${userId}/account-deletion-preview`,
         {
-          headers: this.buildServiceHeaders(userId, profileId),
+          headers: {
+            ...this.buildServiceHeaders(userId, profileId),
+            'X-Deletion-Scope': deletionScope,
+          },
           timeout: 10000,
         },
       );
@@ -981,18 +940,13 @@ export class PrivacyService {
   }
 
   /**
-   * Request partner-only deletion — removes the partner role and resets the
-   * partner profile (categories, skills, documents, verifications) while the
-   * tasker/helper account remains fully active. No task cascade, no Firebase
-   * auth deletion, no logout on the client.
+   * Delete the partner/helper side of an account. Active Partner bookings block
+   * deletion, while Helper assignments are cleaned up as part of the cascade.
    */
   static async requestPartnerAccountDeletion(
     userId: string,
     reason?: string,
-  ): Promise<
-    | { deletedAt: Date; deletionMode: 'partnerScoped'; removedRole: 'partner' }
-    | Awaited<ReturnType<typeof PrivacyService.requestAccountDeletion>>
-  > {
+  ): Promise<Awaited<ReturnType<typeof PrivacyService.requestAccountDeletion>>> {
     const profile = await Profile.findOne({ uid: userId });
 
     logger.info('🗑️ Partner data deletion requested', {
@@ -1015,25 +969,37 @@ export class PrivacyService {
       throw new BadRequestError('You do not have a partner account to delete');
     }
 
-    // Safety net: if partner was the only capability on this account, deleting
-    // "just the partner" would leave an empty profile — full-delete instead.
-    const remainingRoles = roles.filter((role) => role !== 'partner');
-    const hasRemainingCapability =
-      profileHasHelperCapability(remainingRoles) || profileHasPosterCapability(remainingRoles);
-    if (!hasRemainingCapability) {
-      logger.warn('Partner-only account without other capabilities — falling back to full deletion', {
-        userId,
-      });
-      return this.requestAccountDeletion(userId, reason, 'helper_app');
+    const plan = resolveAccountDeletionPlan(profile.roles, 'helper_app');
+    await this.assertNoActiveDeletionBlockers(profile, 'partner-account');
+    const cascadeDeleteResult = await this.cascadeDeleteAccountEligibleData(
+      profile,
+      'partner-account',
+    );
+    const anonymizedName = await this.anonymizeAccountProfile(profile, plan, reason);
+    if (plan.mode === 'full') {
+      await this.recordDeletionConsent(userId, reason);
+      await this.deleteFirebaseAuthUser(userId);
     }
-
-    await this.anonymizePartnerProfileOnly(profile, reason);
-
     const deletedAt = new Date();
 
-    logger.warn('✅ Partner data deleted', { userId, deletedAt, reason: reason?.trim() || null });
+    logger.warn('✅ Partner and helper data deleted', {
+      userId,
+      anonymizedName,
+      deletedAt,
+      deletionMode: plan.mode,
+      dataScope: 'partner-account',
+      removeSide: plan.removeSide,
+      cascadeDeleteResult,
+      reason: reason?.trim() || null,
+    });
 
-    return { deletedAt, deletionMode: 'partnerScoped', removedRole: 'partner' };
+    return {
+      deletedAt,
+      cascadeDeleteResult,
+      deletionMode: plan.mode,
+      dataScope: 'partner-account',
+      removeSide: plan.removeSide,
+    };
   }
 
   /**
