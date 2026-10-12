@@ -1673,6 +1673,31 @@ export class ProfileService {
   }
 
   /**
+   * Every non-deleted user uid of one app: `customer` (poster side), `helper`
+   * (tasker side) or `seller`. Uses the same role buckets as the admin list filter.
+   */
+  static async findUidsByAppRole(role: 'customer' | 'helper' | 'seller'): Promise<string[]> {
+    this.checkConnection();
+
+    const rolesByApp: Record<typeof role, string[]> = {
+      customer: ['poster', 'requester', 'both', 'customer'],
+      helper: ['tasker', 'both', 'helper'],
+      seller: ['seller'],
+    };
+
+    const users = await Profile.find({
+      'dataPrivacy.accountDeleted': { $ne: true },
+      roles: { $in: rolesByApp[role] },
+    })
+      .select('uid')
+      .lean();
+
+    const userIds = users.map((u: any) => u.uid).filter(Boolean);
+    logger.info('ProfileService: Found users by app role', { role, userCount: userIds.length });
+    return userIds;
+  }
+
+  /**
    * Create or update profile
    */
   static async upsertProfile(uid: string, profileData: Partial<IProfile>): Promise<IProfileDocument> {
@@ -2840,6 +2865,8 @@ export class ProfileService {
         andConditions.push({ roles: { $in: ['poster', 'requester', 'both', 'customer'] } });
       } else if (normalizedRole === 'partner') {
         andConditions.push({ roles: { $in: ['partner'] } });
+      } else if (normalizedRole === 'seller') {
+        andConditions.push({ roles: 'seller' });
       } else if (normalizedRole === 'both') {
         andConditions.push({ roles: 'both' });
       }
