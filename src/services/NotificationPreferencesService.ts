@@ -14,30 +14,6 @@ export type NotificationCategory =
     | 'recommendedTaskAlerts';
 export type NotificationChannel = 'push' | 'email' | 'sms' | 'whatsapp';
 
-const IMMUTABLE_PREFERENCE_FIELDS = new Set(['_id', 'uid', '__v', 'createdAt', 'updatedAt']);
-
-/**
- * Flatten `{ email: { enabled: false } }` into `{ 'email.enabled': false }` so a partial
- * update only touches the keys the client sent. A nested `$set` would replace the whole
- * channel object and silently reset every omitted category to its default.
- */
-function toDottedUpdate(
-    updates: Record<string, unknown>,
-    prefix = ''
-): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(updates)) {
-        if (!prefix && IMMUTABLE_PREFERENCE_FIELDS.has(key)) continue;
-        const path = prefix ? `${prefix}.${key}` : key;
-        if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
-            Object.assign(result, toDottedUpdate(value as Record<string, unknown>, path));
-        } else if (value !== undefined) {
-            result[path] = value;
-        }
-    }
-    return result;
-}
-
 export class NotificationPreferencesService {
     /**
      * Get notification preferences for a user
@@ -77,15 +53,10 @@ export class NotificationPreferencesService {
         updates: Partial<INotificationPreferences>
     ): Promise<INotificationPreferences> {
         try {
-            const dottedUpdates = toDottedUpdate((updates || {}) as Record<string, unknown>);
-            if (Object.keys(dottedUpdates).length === 0) {
-                return this.getPreferences(uid);
-            }
-
             const preferences = await NotificationPreferences.findOneAndUpdate(
                 { uid },
-                { $set: dottedUpdates },
-                { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+                { $set: updates },
+                { new: true, upsert: true, runValidators: true }
             );
 
             if (!preferences) {
@@ -94,8 +65,7 @@ export class NotificationPreferencesService {
 
             logger.info('Updated notification preferences', {
                 uid,
-                updatedFields: Object.keys(dottedUpdates),
-                emailEnabled: preferences.email?.enabled,
+                updatedFields: Object.keys(updates),
             });
 
             return preferences;

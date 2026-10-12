@@ -3,7 +3,7 @@ import type { AuthChannel } from './authChannel';
 export type AccountDeletionMode = 'full' | 'roleScoped';
 
 /** What task-service cascade should wipe for this delete request. */
-export type DeletionDataScope = 'full' | 'poster-scoped' | 'helper-scoped';
+export type DeletionDataScope = 'full' | 'poster-scoped' | 'helper-scoped' | 'partner-account';
 
 export type AccountDeletionPlan = {
   mode: AccountDeletionMode;
