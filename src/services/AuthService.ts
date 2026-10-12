@@ -649,6 +649,38 @@ export class AuthService {
             logger.info("Reactivated deleted profile during OTP auth", { uid, mode });
          }
 
+         const verifiedPhone = firebasePhone
+            ? normalizePhoneToE164(firebasePhone)
+            : null;
+         if (
+            profile &&
+            !String((profile as any).phone || "").trim() &&
+            verifiedPhone === formattedPhone &&
+            !profileHasVerifiedAlternate(profile, formattedPhone)
+         ) {
+            const phoneBackfill = await Profile.updateOne(
+               {
+                  uid,
+                  $or: [
+                     { phone: { $exists: false } },
+                     { phone: null },
+                     { phone: "" },
+                  ],
+               },
+               { $set: { phone: formattedPhone, updatedAt: Date.now() } }
+            );
+            const refreshedProfile = await Profile.findOne({ uid }).lean();
+            if (!refreshedProfile) {
+               throw new InternalServerError(
+                  "Profile missing after verified phone backfill"
+               );
+            }
+            profile = refreshedProfile;
+            if (phoneBackfill.modifiedCount > 0) {
+               logger.info("Backfilled verified phone on existing profile", { uid });
+            }
+         }
+
          if (mode === "login") {
             // Login mode: Try to get existing profile, create if doesn't exist (zombie user)
             if (!profile) {
