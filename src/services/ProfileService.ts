@@ -2884,71 +2884,25 @@ export class ProfileService {
     }
 
     if (city && city.trim()) {
-      const cityRegex = buildFlexibleTextRegex(city.trim());
-      if (role?.trim().toLowerCase() === 'partner') {
-        andConditions.push({ 'location.addressDetails.city': cityRegex });
-      } else {
-        const hyderabadCityRegex = /^hyderabad$/i;
-        const addressAreaHyderabadRegex = new RegExp(
-          `\\b${escapeRegExp(city.trim())}\\b[\\s,]+hyderabad`,
-          'i',
-        );
-        const hyderabadAreaAddressRegex = new RegExp(
-          `hyderabad[\\s,]+\\b${escapeRegExp(city.trim())}\\b`,
-          'i',
-        );
+      const cityNameRegex = new RegExp(
+        `\\b${escapeRegExp(city.trim())}\\b`,
+        'i',
+      );
 
-        andConditions.push({
-          $or: [
-            {
-              'location.addressDetails.area': cityRegex,
-              'location.addressDetails.city': hyderabadCityRegex,
-            },
-            {
-              'homeLocation.addressDetails.area': cityRegex,
-              'homeLocation.addressDetails.city': hyderabadCityRegex,
-            },
-            {
-              savedAddresses: {
-                $elemMatch: {
-                  'addressDetails.area': cityRegex,
-                  'addressDetails.city': hyderabadCityRegex,
-                },
-              },
-            },
-            {
-              'location.addressDetails.area': cityRegex,
-              city: hyderabadCityRegex,
-            },
-            {
-              'location.address': addressAreaHyderabadRegex,
-            },
-            {
-              'homeLocation.address': addressAreaHyderabadRegex,
-            },
-            {
-              savedAddresses: {
-                $elemMatch: {
-                  address: addressAreaHyderabadRegex,
-                },
-              },
-            },
-            {
-              'location.address': hyderabadAreaAddressRegex,
-            },
-            {
-              'homeLocation.address': hyderabadAreaAddressRegex,
-            },
-            {
-              savedAddresses: {
-                $elemMatch: {
-                  address: hyderabadAreaAddressRegex,
-                },
-              },
-            },
-          ],
-        });
-      }
+      andConditions.push({
+        $or: [
+          { 'location.addressDetails.city': cityNameRegex },
+          { 'location.city': cityNameRegex },
+          { 'homeLocation.addressDetails.city': cityNameRegex },
+          { 'homeLocation.city': cityNameRegex },
+          { 'savedAddresses.city': cityNameRegex },
+          { 'savedAddresses.addressDetails.city': cityNameRegex },
+          { city: cityNameRegex },
+          { 'location.address': cityNameRegex },
+          { 'homeLocation.address': cityNameRegex },
+          { 'savedAddresses.address': cityNameRegex },
+        ],
+      });
     }
 
     if (workArea && workArea.trim()) {
@@ -2977,62 +2931,25 @@ export class ProfileService {
     }
 
     if (area && area.trim() && area !== 'all') {
-      const areaRegex = buildFlexibleTextRegex(area.trim());
-      const hyderabadCityRegex = /^hyderabad$/i;
-      const addressAreaHyderabadRegex = new RegExp(
-        `\\b${escapeRegExp(area.trim())}\\b[\\s,]+hyderabad`,
-        'i',
-      );
-      const hyderabadAreaAddressRegex = new RegExp(
-        `hyderabad[\\s,]+\\b${escapeRegExp(area.trim())}\\b`,
-        'i',
-      );
+      const areaRegex = buildFlexibleTextRegex(area.trim(), false);
 
       andConditions.push({
         $or: [
-          {
-            'location.addressDetails.area': areaRegex,
-            'location.addressDetails.city': hyderabadCityRegex,
-          },
-          {
-            'homeLocation.addressDetails.area': areaRegex,
-            'homeLocation.addressDetails.city': hyderabadCityRegex,
-          },
+          { 'location.addressDetails.area': areaRegex },
+          { 'homeLocation.addressDetails.area': areaRegex },
           {
             savedAddresses: {
               $elemMatch: {
                 'addressDetails.area': areaRegex,
-                'addressDetails.city': hyderabadCityRegex,
               },
             },
           },
-          {
-            'location.addressDetails.area': areaRegex,
-            city: hyderabadCityRegex,
-          },
-          {
-            'location.address': addressAreaHyderabadRegex,
-          },
-          {
-            'homeLocation.address': addressAreaHyderabadRegex,
-          },
+          { 'location.address': areaRegex },
+          { 'homeLocation.address': areaRegex },
           {
             savedAddresses: {
               $elemMatch: {
-                address: addressAreaHyderabadRegex,
-              },
-            },
-          },
-          {
-            'location.address': hyderabadAreaAddressRegex,
-          },
-          {
-            'homeLocation.address': hyderabadAreaAddressRegex,
-          },
-          {
-            savedAddresses: {
-              $elemMatch: {
-                address: hyderabadAreaAddressRegex,
+                address: areaRegex,
               },
             },
           },
