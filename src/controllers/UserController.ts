@@ -129,6 +129,7 @@ export class UserController {
         createdTo: createdTo as string,
         sortBy: sortBy as string,
         sortOrder: sortOrder as 'asc' | 'desc',
+        uids: typeof req.query.uids === 'string' ? req.query.uids : undefined,
       });
 
       res.json({

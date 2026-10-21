@@ -592,10 +592,19 @@ export class ProfileController {
           return;
         }
         userIds = await ProfileService.findUsersByAnyCategory(criteria.categorySlugs);
+      } else if (type === 'role') {
+        if (!['customer', 'helper', 'seller'].includes(criteria.role)) {
+          res.status(400).json({
+            success: false,
+            error: "criteria.role must be one of 'customer', 'helper', or 'seller' for role matching"
+          });
+          return;
+        }
+        userIds = await ProfileService.findUidsByAppRole(criteria.role);
       } else {
         res.status(400).json({
           success: false,
-          error: `Invalid matching type: ${type}. Must be 'skill', 'nearby', 'keywords', or 'categories'`
+          error: `Invalid matching type: ${type}. Must be 'skill', 'nearby', 'keywords', 'categories', or 'role'`
         });
         return;
       }
