@@ -15,6 +15,7 @@ import { MainAdminNotificationClient } from '../clients/MainAdminNotificationCli
 import NotificationPreferences from '../models/NotificationPreferences';
 import { DialogWhatsAppClient } from '../clients/DialogWhatsAppClient';
 import { findActiveProfileByUidOrPhone } from '../utils/identityReconciliation';
+import { TELANGANA_SERVICE_AREAS } from '../constants/locations/telanganaServiceAreas';
 type CanonicalRole = 'helper' | 'customer' | 'partner' | 'seller';
 
 const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
@@ -2911,10 +2912,7 @@ export class ProfileService {
     }
 
     if (city && city.trim()) {
-      const cityNameRegex = new RegExp(
-        `\\b${escapeRegExp(city.trim())}\\b`,
-        'i',
-      );
+      const cityNameRegex = buildCityMatchRegex(city);
 
       andConditions.push({
         $or: [
@@ -4969,4 +4967,33 @@ function buildFlexibleTextRegex(value: string, exact = true): RegExp {
     .join('[\\s_-]+');
 
   return new RegExp(exact ? `^${pattern}$` : pattern, 'i');
+}
+
+function buildCityMatchRegex(city: string): RegExp {
+  const normalizeLabel = (label: string) =>
+    label.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const normalizedCity = normalizeLabel(city);
+  const matchingArea = TELANGANA_SERVICE_AREAS.find((area) =>
+    [area.city, area.district, ...(area.aliases ?? [])].some(
+      (label) => normalizeLabel(label) === normalizedCity,
+    ),
+  );
+  const labels = new Set([
+    city.trim(),
+    ...(matchingArea
+      ? [matchingArea.city, matchingArea.district, ...(matchingArea.aliases ?? [])]
+      : []),
+  ]);
+  const alternatives = [...labels]
+    .filter(Boolean)
+    .map((label) =>
+      label
+        .trim()
+        .split(/[\s_-]+/)
+        .map(escapeRegExp)
+        .filter(Boolean)
+        .join('[\\s_-]*'),
+    );
+
+  return new RegExp(`\\b(?:${alternatives.join('|')})\\b`, 'i');
 }
