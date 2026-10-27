@@ -6,15 +6,14 @@ import PartnerCategoryRequest, {
 } from '../models/PartnerCategoryRequest';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../errors/AppError';
 
-const allowedExtras: Record<string, string[]> = {
-  electrician: ['ac_service', 'appliance_repair'],
-  appliance_repair: ['electrician', 'ac_service'],
-  ac_service: ['electrician', 'appliance_repair'],
-  delivery_logistics: ['driving'],
-  driving: ['delivery_logistics'],
-};
-const validRequestedCategories = new Set(Object.values(allowedExtras).flat());
 const requestedCategorySkills: Record<string, Set<string>> = {
+  cleaning: new Set([
+    'regular_home_cleaning',
+    'deep_cleaning',
+    'kitchen_bathroom_cleaning',
+    'sofa_carpet_cleaning',
+    'office_cleaning',
+  ]),
   electrician: new Set([
     'fan_installation',
     'switch_socket_repair',
@@ -36,6 +35,41 @@ const requestedCategorySkills: Record<string, Set<string>> = {
     'cooling_issue_repair',
     'ac_uninstallation',
   ]),
+  plumbing: new Set([
+    'tap_faucet_repair',
+    'pipe_leak_repair',
+    'toilet_flush_repair',
+    'wash_basin_installation',
+    'water_tank_motor_installation',
+  ]),
+  carpentry: new Set([
+    'furniture_repair',
+    'furniture_assembly',
+    'door_window_repair',
+    'modular_kitchen_work',
+    'shelf_installation',
+  ]),
+  pest_control: new Set([
+    'general_pest_control',
+    'termite_treatment',
+    'cockroach_control',
+    'mosquito_control',
+    'rodent_control',
+  ]),
+  beauty_services: new Set([
+    'haircut_styling',
+    'hair_coloring',
+    'makeup',
+    'manicure_pedicure',
+    'facials_skin_care',
+  ]),
+  painting: new Set([
+    'interior_painting',
+    'exterior_painting',
+    'wall_putty',
+    'texture_painting',
+    'waterproof_coating',
+  ]),
   delivery_logistics: new Set([
     'pickup_drop',
     'courier',
@@ -45,6 +79,7 @@ const requestedCategorySkills: Record<string, Set<string>> = {
   ]),
   driving: new Set(['personal_driver', 'driver_on_demand', 'commercial_driver']),
 };
+const validRequestedCategories = new Set(Object.keys(requestedCategorySkills));
 
 function profileCity(profile: any): string | undefined {
   return (
@@ -99,10 +134,6 @@ export class PartnerCategoryRequestService {
     const categories = Array.isArray(profile.partnerProfile.categories)
       ? profile.partnerProfile.categories
       : [];
-    const eligibleCategories = new Set(categories.flatMap((category) => allowedExtras[category] || []));
-    if (!eligibleCategories.has(categoryId)) {
-      throw new BadRequestError('This category is not eligible for your current partner categories');
-    }
     if (categories.includes(categoryId)) {
       throw new ConflictError('This category is already on your partner profile');
     }
