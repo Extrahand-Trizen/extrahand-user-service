@@ -6,44 +6,28 @@ import PartnerCategoryRequest, {
 } from '../models/PartnerCategoryRequest';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../errors/AppError';
 
-const allowedExtras: Record<string, string[]> = {
-  electrician: ['ac_service', 'appliance_repair'],
-  appliance_repair: ['electrician', 'ac_service'],
-  ac_service: ['electrician', 'appliance_repair'],
-  delivery_logistics: ['driving'],
-  driving: ['delivery_logistics'],
-};
-const validRequestedCategories = new Set(Object.values(allowedExtras).flat());
+const ALL_CATEGORIES = [
+  'cleaning', 'electrician', 'appliance_repair', 'ac_service', 'plumbing',
+  'carpentry', 'pest_control', 'beauty_services', 'painting',
+  'delivery_logistics', 'driving', 'daily-labour',
+] as const;
+
+// Any approved partner can request any category they don't already have.
+const validRequestedCategories = new Set(ALL_CATEGORIES);
+
 const requestedCategorySkills: Record<string, Set<string>> = {
-  electrician: new Set([
-    'fan_installation',
-    'switch_socket_repair',
-    'wiring_rewiring',
-    'light_installation',
-    'mcb_fuse_repair',
-  ]),
-  appliance_repair: new Set([
-    'washing_machine_repair',
-    'refrigerator_repair',
-    'microwave_repair',
-    'tv_repair',
-    'water_purifier_repair',
-  ]),
-  ac_service: new Set([
-    'ac_installation',
-    'ac_general_service',
-    'gas_filling',
-    'cooling_issue_repair',
-    'ac_uninstallation',
-  ]),
-  delivery_logistics: new Set([
-    'pickup_drop',
-    'courier',
-    'grocery',
-    'parcel',
-    'quick_commerce_delivery',
-  ]),
+  cleaning: new Set(['regular_home_cleaning', 'deep_cleaning', 'kitchen_bathroom_cleaning', 'sofa_carpet_cleaning', 'office_cleaning']),
+  electrician: new Set(['fan_installation', 'switch_socket_repair', 'wiring_rewiring', 'light_installation', 'mcb_fuse_repair']),
+  appliance_repair: new Set(['washing_machine_repair', 'refrigerator_repair', 'microwave_repair', 'tv_repair', 'water_purifier_repair']),
+  ac_service: new Set(['ac_installation', 'ac_general_service', 'gas_filling', 'cooling_issue_repair', 'ac_uninstallation']),
+  plumbing: new Set(['tap_faucet_repair', 'pipe_leak_repair', 'toilet_flush_repair', 'wash_basin_installation', 'water_tank_motor_installation']),
+  carpentry: new Set(['furniture_repair', 'furniture_assembly', 'door_window_repair', 'modular_kitchen_work', 'shelf_installation']),
+  pest_control: new Set(['general_pest_control', 'termite_treatment', 'cockroach_control', 'mosquito_control', 'rodent_control']),
+  beauty_services: new Set(['haircut_styling', 'hair_coloring', 'makeup', 'manicure_pedicure', 'facials_skin_care']),
+  painting: new Set(['interior_painting', 'exterior_painting', 'wall_putty', 'texture_painting', 'waterproof_coating']),
+  delivery_logistics: new Set(['pickup_drop', 'courier', 'grocery', 'parcel', 'quick_commerce_delivery']),
   driving: new Set(['personal_driver', 'driver_on_demand', 'commercial_driver']),
+  'daily-labour': new Set(['construction_labour', 'loading_unloading', 'material_handling', 'site_cleaning', 'digging_earthwork', 'shifting_moving', 'general_manual_labour']),
 };
 
 function profileCity(profile: any): string | undefined {
@@ -67,7 +51,7 @@ export class PartnerCategoryRequestService {
     categoryId: unknown,
     requestedSkills: unknown,
   ): Promise<IPartnerCategoryRequest> {
-    if (typeof categoryId !== 'string' || !validRequestedCategories.has(categoryId)) {
+    if (typeof categoryId !== 'string' || !validRequestedCategories.has(categoryId as typeof ALL_CATEGORIES[number])) {
       throw new BadRequestError('Invalid categoryId');
     }
     if (
@@ -99,10 +83,6 @@ export class PartnerCategoryRequestService {
     const categories = Array.isArray(profile.partnerProfile.categories)
       ? profile.partnerProfile.categories
       : [];
-    const eligibleCategories = new Set(categories.flatMap((category) => allowedExtras[category] || []));
-    if (!eligibleCategories.has(categoryId)) {
-      throw new BadRequestError('This category is not eligible for your current partner categories');
-    }
     if (categories.includes(categoryId)) {
       throw new ConflictError('This category is already on your partner profile');
     }
