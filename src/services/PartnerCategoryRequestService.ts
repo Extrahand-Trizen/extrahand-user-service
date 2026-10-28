@@ -78,6 +78,15 @@ const requestedCategorySkills: Record<string, Set<string>> = {
     'quick_commerce_delivery',
   ]),
   driving: new Set(['personal_driver', 'driver_on_demand', 'commercial_driver']),
+  'daily-labour': new Set([
+    'construction_labour',
+    'loading_unloading',
+    'material_handling',
+    'site_cleaning',
+    'digging_earthwork',
+    'shifting_moving',
+    'general_manual_labour',
+  ]),
 };
 const validRequestedCategories = new Set(Object.keys(requestedCategorySkills));
 
