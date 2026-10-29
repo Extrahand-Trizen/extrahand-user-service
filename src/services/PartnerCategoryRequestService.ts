@@ -111,17 +111,27 @@ export class PartnerCategoryRequestService {
     categoryId: unknown,
     requestedSkills: unknown,
   ): Promise<IPartnerCategoryRequest> {
-    if (typeof categoryId !== 'string' || !validRequestedCategories.has(categoryId)) {
+    // Normalize: accept both underscore and hyphen formats (e.g. daily_labour → daily-labour)
+    const normalizedCategoryId =
+      typeof categoryId === 'string'
+        ? categoryId.trim().toLowerCase().replace(/_/g, '-')
+        : categoryId;
+
+    if (typeof normalizedCategoryId !== 'string' || !validRequestedCategories.has(normalizedCategoryId)) {
       throw new BadRequestError('Invalid categoryId');
     }
+
+    // Use the normalized id from here on
+    const categoryId_ = normalizedCategoryId;
+
     if (
       !Array.isArray(requestedSkills) ||
       requestedSkills.length === 0 ||
-      requestedSkills.length > requestedCategorySkills[categoryId].size ||
+      requestedSkills.length > requestedCategorySkills[categoryId_].size ||
       requestedSkills.some(
         (skillId) =>
           typeof skillId !== 'string' ||
-          !requestedCategorySkills[categoryId].has(skillId),
+          !requestedCategorySkills[categoryId_].has(skillId),
       )
     ) {
       throw new BadRequestError('Select at least one valid skill for the requested category');
@@ -143,7 +153,7 @@ export class PartnerCategoryRequestService {
     const categories = Array.isArray(profile.partnerProfile.categories)
       ? profile.partnerProfile.categories
       : [];
-    if (categories.includes(categoryId)) {
+    if (categories.includes(categoryId_)) {
       throw new ConflictError('This category is already on your partner profile');
     }
 
@@ -156,7 +166,7 @@ export class PartnerCategoryRequestService {
           email: profile.email || undefined,
           phone: profile.phone || undefined,
         },
-        requestedCategory: categoryId,
+        requestedCategory: categoryId_,
         requestedSkills: selectedSkills,
         currentCategories: [...categories],
         workAreas: [...(profile.partnerProfile.workAreas || [])],
