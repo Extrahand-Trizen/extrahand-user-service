@@ -111,10 +111,21 @@ export class PartnerCategoryRequestService {
     categoryId: unknown,
     requestedSkills: unknown,
   ): Promise<IPartnerCategoryRequest> {
-    // Normalize: accept both underscore and hyphen formats (e.g. daily_labour → daily-labour)
+    // Accept either separator format while preserving the canonical ID used by
+    // the requestedCategorySkills map (e.g. appliance-repair → appliance_repair
+    // and daily_labour → daily-labour).
     const normalizedCategoryId =
       typeof categoryId === 'string'
-        ? categoryId.trim().toLowerCase().replace(/_/g, '-')
+        ? (() => {
+            const rawCategoryId = categoryId.trim().toLowerCase();
+            const underscoreCategoryId = rawCategoryId.replace(/-/g, '_');
+            const hyphenCategoryId = rawCategoryId.replace(/_/g, '-');
+            return validRequestedCategories.has(underscoreCategoryId)
+              ? underscoreCategoryId
+              : validRequestedCategories.has(hyphenCategoryId)
+                ? hyphenCategoryId
+                : rawCategoryId;
+          })()
         : categoryId;
 
     if (typeof normalizedCategoryId !== 'string' || !validRequestedCategories.has(normalizedCategoryId)) {
