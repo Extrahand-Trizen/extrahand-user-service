@@ -4,20 +4,29 @@ import path from 'path';
 import logger from './logger';
 
 export const MOBILE_FIREBASE_APP_NAME = 'extrahand-mobile-firebase';
+const MOBILE_FIREBASE_PROJECT_ID = 'extrahand-ca02c';
+
+let primaryFirebaseProjectId: string | undefined;
 
 function loadCredentialFromEnv(projectId?: string, clientEmail?: string, privateKey?: string) {
   if (!projectId || !clientEmail || !privateKey) return undefined;
-  return admin.credential.cert({
+  return {
+    credential: admin.credential.cert({
+      projectId,
+      clientEmail,
+      privateKey: privateKey.replace(/\\n/g, '\n'),
+    }),
     projectId,
-    clientEmail,
-    privateKey: privateKey.replace(/\\n/g, '\n'),
-  });
+  };
 }
 
 function loadCredentialFromFile(candidatePath?: string) {
   if (!candidatePath || !fs.existsSync(candidatePath)) return undefined;
   const serviceAccount = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
-  return admin.credential.cert(serviceAccount);
+  return {
+    credential: admin.credential.cert(serviceAccount),
+    projectId: serviceAccount.project_id as string | undefined,
+  };
 }
 
 function initPrimaryFirebase() {
@@ -29,13 +38,16 @@ function initPrimaryFirebase() {
     FIREBASE_PRIVATE_KEY,
     FIREBASE_SERVICE_ACCOUNT_PATH,
   } = process.env;
+  primaryFirebaseProjectId = FIREBASE_PROJECT_ID;
 
   try {
-    credential =
+    const loadedCredential =
       loadCredentialFromEnv(FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY) ??
       loadCredentialFromFile(
         FIREBASE_SERVICE_ACCOUNT_PATH || path.join(__dirname, '..', '..', 'serviceAccountKey.json'),
       );
+    credential = loadedCredential?.credential;
+    primaryFirebaseProjectId = loadedCredential?.projectId ?? primaryFirebaseProjectId;
     if (credential) {
       logger.info('✅ Firebase primary project initialized from env/file');
     }
@@ -66,7 +78,7 @@ function initMobileFirebase() {
   } = process.env;
 
   try {
-    const credential =
+    const loadedCredential =
       loadCredentialFromEnv(
         FIREBASE_MOBILE_PROJECT_ID,
         FIREBASE_MOBILE_CLIENT_EMAIL,
@@ -77,15 +89,24 @@ function initMobileFirebase() {
           path.join(__dirname, '..', '..', 'serviceAccountKey-mobile.json'),
       );
 
-    if (!credential) {
-      logger.info(
-        'ℹ️ Mobile Firebase project not configured (optional). ' +
-          'Set FIREBASE_MOBILE_* or serviceAccountKey-mobile.json for extrahand-ca02c mobile apps.',
-      );
+    if (!loadedCredential) {
+      if (primaryFirebaseProjectId === MOBILE_FIREBASE_PROJECT_ID) {
+        logger.info('ℹ️ Mobile Firebase uses the primary Firebase project', {
+          projectId: MOBILE_FIREBASE_PROJECT_ID,
+        });
+      } else {
+        logger.info(
+          'ℹ️ Mobile Firebase project not configured (optional). ' +
+            'Set FIREBASE_MOBILE_* or serviceAccountKey-mobile.json for extrahand-ca02c mobile apps.',
+        );
+      }
       return;
     }
 
-    admin.initializeApp({ credential }, MOBILE_FIREBASE_APP_NAME);
+    admin.initializeApp(
+      { credential: loadedCredential.credential },
+      MOBILE_FIREBASE_APP_NAME,
+    );
     logger.info('✅ Firebase mobile project initialized', {
       projectId: FIREBASE_MOBILE_PROJECT_ID || 'from service account file',
     });
@@ -104,6 +125,7 @@ const mobileApp = admin.apps.find(
   (app): app is admin.app.App => app != null && app.name === MOBILE_FIREBASE_APP_NAME,
 );
 export const mobileAuth = mobileApp ? admin.auth(mobileApp) : null;
-export const hasMobileFirebase = Boolean(mobileAuth);
+export const hasMobileFirebase =
+  Boolean(mobileAuth) || primaryFirebaseProjectId === MOBILE_FIREBASE_PROJECT_ID;
 export const db = admin.firestore();
 export { admin };

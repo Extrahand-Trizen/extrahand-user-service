@@ -33,6 +33,7 @@ import {
 import {
    ensureAuthChannelCapability,
    rolesHaveCapability,
+   roleForAuthChannel,
    welcomeWhatsAppForAuthChannel,
    type AuthChannel,
 } from "../utils/authChannel";
@@ -148,7 +149,12 @@ export class AuthService {
          phone: phoneLast10,
          eventKey: welcome.eventKey,
          payload: {
-            title: welcome.role === "helper" ? "Welcome to ExtraHand Helper" : "Welcome to ExtraHand",
+            title:
+               welcome.role === "partner"
+                  ? "Welcome to ExtraHand Partner"
+                  : welcome.role === "helper"
+                    ? "Welcome to ExtraHand Helper"
+                    : "Welcome to ExtraHand",
             body: `Hi ${profileName}, welcome to ExtraHand!`,
             userName: profileName,
             name: profileName,
@@ -263,7 +269,7 @@ export class AuthService {
     */
    static async checkPhoneExists(
       phone: string
-   ): Promise<{ exists: boolean; phone: string; matchType?: "primary" | "alternate"; hasTaskerRole?: boolean }> {
+   ): Promise<{ exists: boolean; phone: string; matchType?: "primary" | "alternate"; hasTaskerRole?: boolean; hasPartnerRole?: boolean }> {
       if (!phone || typeof phone !== "string") {
          throw new BadRequestError("Phone number is required");
       }
@@ -289,6 +295,9 @@ export class AuthService {
               profile.roles.includes("performer") ||
               profile.roles.includes("both") ||
               profile.roles.includes("partner")
+            ),
+            hasPartnerRole: Array.isArray(profile.roles) && profile.roles.some(
+              (role: unknown) => String(role).trim().toLowerCase() === "partner"
             ),
          };
       }
@@ -697,7 +706,7 @@ export class AuthService {
                      name: name || "User",
                      phone: formattedPhone,
                      client_type: clientType,
-                     roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
+                     roles: authChannel ? [roleForAuthChannel(authChannel)] : [],
                      userType: "individual",
                      rating: 0,
                      totalReviews: 0,
@@ -801,7 +810,7 @@ export class AuthService {
                      name: name || "User",
                      phone: formattedPhone,
                      client_type: clientType,
-                     roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
+                     roles: authChannel ? [roleForAuthChannel(authChannel)] : [],
                      userType: "individual",
                      rating: 0,
                      totalReviews: 0,
@@ -852,19 +861,16 @@ export class AuthService {
             profile = await ensureDemoVerificationProfile(profile);
          }
 
-         // Channel welcome WhatsApp after role merge so customer vs helper template is correct.
+         // Channel welcome WhatsApp after the role merge.
          let channelCapabilityAdded = false;
          if (profile) {
-            const neededCapability =
-               authChannel === "helper_app"
-                  ? "tasker"
-                  : authChannel === "customer_app"
-                    ? "poster"
-                    : authChannel === "seller_app"
-                      ? "seller"
-                      : null;
+            const neededCapability = authChannel
+               ? roleForAuthChannel(authChannel)
+               : null;
             const alreadyHadCapability =
                !neededCapability ||
+               (authChannel === "helper_app" &&
+                  rolesHaveCapability(profile.roles, "partner")) ||
                rolesHaveCapability(profile.roles, neededCapability);
 
             profile = await ensureAuthChannelCapability(
@@ -1048,7 +1054,7 @@ export class AuthService {
                   name: displayName,
                   phone: formattedPhone,
                   client_type: clientType,
-                  roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
+                  roles: authChannel ? [roleForAuthChannel(authChannel)] : [],
                   userType: "individual",
                   rating: 0,
                   totalReviews: 0,
@@ -1090,7 +1096,7 @@ export class AuthService {
                   name: displayName,
                   phone: formattedPhone,
                   client_type: clientType,
-                  roles: authChannel === "seller_app" ? ["seller"] : authChannel === "helper_app" ? ["tasker"] : authChannel === "customer_app" ? ["poster"] : [],
+                  roles: authChannel ? [roleForAuthChannel(authChannel)] : [],
                   userType: "individual",
                   rating: 0,
                   totalReviews: 0,

@@ -96,28 +96,24 @@ Set `FIREBASE_SERVICE_ACCOUNT_PATH` to the full path of your service account fil
 
 Set `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
 
-### Mobile apps (extrahand-ca02c) — required for React Native OTP login
+### Mobile apps (extrahand-ca02c) — Firebase token verification
 
 The customer/helper mobile apps authenticate with Firebase project **`extrahand-ca02c`**.  
-The web app uses **`extrahand-app`**. The user-service verifies tokens against **both** when mobile credentials are configured.
+The user-service can verify tokens against the primary Firebase project and, when needed, a separate mobile Firebase project.
+
+If `FIREBASE_PROJECT_ID` is already `extrahand-ca02c`, the primary Firebase credentials are reused for mobile token verification; no extra mobile credentials are needed. If the primary project is different, configure a service account for `extrahand-ca02c` using one of these options:
 
 1. Open [Firebase Console](https://console.firebase.google.com/) → project **extrahand-ca02c**
 2. Project settings → Service accounts → **Generate new private key**
-3. Save the JSON as:
+3. Save the JSON as `extrahand-user-service/serviceAccountKey-mobile.json`, or set `FIREBASE_MOBILE_PROJECT_ID`, `FIREBASE_MOBILE_CLIENT_EMAIL`, and `FIREBASE_MOBILE_PRIVATE_KEY` in `.env`.
 
-```
-extrahand-user-service/serviceAccountKey-mobile.json
-```
-
-4. Restart user-service. On startup you should see:
+Restart user-service after changing credentials. When a separate mobile app is initialized, startup logs:
 
 ```
 ✅ Firebase mobile project initialized
 ```
 
-Alternatively set `FIREBASE_MOBILE_PROJECT_ID`, `FIREBASE_MOBILE_CLIENT_EMAIL`, and `FIREBASE_MOBILE_PRIVATE_KEY` in `.env`.
-
-Without this, mobile OTP login fails with `Invalid or expired authentication token` (audience mismatch).
+If neither the primary project nor a separate mobile service account is configured for `extrahand-ca02c`, mobile OTP token verification can fail with `Invalid or expired authentication token` (audience mismatch).
 
 ### Local MongoDB
 
@@ -225,6 +221,5 @@ Expected response:
 - All services share the same `SERVICE_AUTH_TOKEN` for inter-service communication
 - `serviceAccountKey.json` should be in the service root, not in `src/`
 - For production, prefer environment variables over files
-
 
 

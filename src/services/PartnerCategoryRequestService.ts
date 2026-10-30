@@ -6,29 +6,114 @@ import PartnerCategoryRequest, {
 } from '../models/PartnerCategoryRequest';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../errors/AppError';
 
-const ALL_CATEGORIES = [
-  'cleaning', 'electrician', 'appliance_repair', 'ac_service', 'plumbing',
-  'carpentry', 'pest_control', 'beauty_services', 'painting',
-  'delivery_logistics', 'driving', 'daily-labour',
-] as const;
-
-// Any approved partner can request any category they don't already have.
-const validRequestedCategories = new Set(ALL_CATEGORIES);
-
 const requestedCategorySkills: Record<string, Set<string>> = {
-  cleaning: new Set(['regular_home_cleaning', 'deep_cleaning', 'kitchen_bathroom_cleaning', 'sofa_carpet_cleaning', 'office_cleaning']),
-  electrician: new Set(['fan_installation', 'switch_socket_repair', 'wiring_rewiring', 'light_installation', 'mcb_fuse_repair']),
-  appliance_repair: new Set(['washing_machine_repair', 'refrigerator_repair', 'microwave_repair', 'tv_repair', 'water_purifier_repair']),
-  ac_service: new Set(['ac_installation', 'ac_general_service', 'gas_filling', 'cooling_issue_repair', 'ac_uninstallation']),
-  plumbing: new Set(['tap_faucet_repair', 'pipe_leak_repair', 'toilet_flush_repair', 'wash_basin_installation', 'water_tank_motor_installation']),
-  carpentry: new Set(['furniture_repair', 'furniture_assembly', 'door_window_repair', 'modular_kitchen_work', 'shelf_installation']),
-  pest_control: new Set(['general_pest_control', 'termite_treatment', 'cockroach_control', 'mosquito_control', 'rodent_control']),
-  beauty_services: new Set(['haircut_styling', 'hair_coloring', 'makeup', 'manicure_pedicure', 'facials_skin_care']),
-  painting: new Set(['interior_painting', 'exterior_painting', 'wall_putty', 'texture_painting', 'waterproof_coating']),
-  delivery_logistics: new Set(['pickup_drop', 'courier', 'grocery', 'parcel', 'quick_commerce_delivery']),
+  cleaning: new Set([
+    'regular_home_cleaning',
+    'deep_cleaning',
+    'kitchen_bathroom_cleaning',
+    'sofa_carpet_cleaning',
+    'office_cleaning',
+  ]),
+  electrician: new Set([
+    'fan_installation',
+    'switch_socket_repair',
+    'wiring_rewiring',
+    'light_installation',
+    'mcb_fuse_repair',
+  ]),
+  appliance_repair: new Set([
+    'washing_machine_repair',
+    'refrigerator_repair',
+    'microwave_repair',
+    'tv_repair',
+    'water_purifier_repair',
+  ]),
+  ac_service: new Set([
+    'ac_installation',
+    'ac_general_service',
+    'gas_filling',
+    'cooling_issue_repair',
+    'ac_uninstallation',
+  ]),
+  plumbing: new Set([
+    'tap_faucet_repair',
+    'pipe_leak_repair',
+    'toilet_flush_repair',
+    'wash_basin_installation',
+    'water_tank_motor_installation',
+  ]),
+  carpentry: new Set([
+    'furniture_repair',
+    'furniture_assembly',
+    'door_window_repair',
+    'modular_kitchen_work',
+    'shelf_installation',
+  ]),
+  pest_control: new Set([
+    'general_pest_control',
+    'termite_treatment',
+    'cockroach_control',
+    'mosquito_control',
+    'rodent_control',
+  ]),
+  beauty_services: new Set([
+    'haircut_styling',
+    'hair_coloring',
+    'makeup',
+    'manicure_pedicure',
+    'facials_skin_care',
+  ]),
+  painting: new Set([
+    'interior_painting',
+    'exterior_painting',
+    'wall_putty',
+    'texture_painting',
+    'waterproof_coating',
+  ]),
+  delivery_logistics: new Set([
+    'pickup_drop',
+    'courier',
+    'grocery',
+    'parcel',
+    'quick_commerce_delivery',
+  ]),
   driving: new Set(['personal_driver', 'driver_on_demand', 'commercial_driver']),
-  'daily-labour': new Set(['construction_labour', 'loading_unloading', 'material_handling', 'site_cleaning', 'digging_earthwork', 'shifting_moving', 'general_manual_labour']),
+  'daily-labour': new Set([
+    'construction_labour',
+    'loading_unloading',
+    'material_handling',
+    'site_cleaning',
+    'digging_earthwork',
+    'shifting_moving',
+    'general_manual_labour',
+  ]),
 };
+
+const validRequestedCategories = new Set(Object.keys(requestedCategorySkills));
+const CATEGORY_ID_ALIASES: Record<string, string> = {
+  beauty: 'beauty_services',
+  'beauty-service': 'beauty_services',
+  'beauty-services': 'beauty_services',
+  'ac-service': 'ac_service',
+  'ac-services': 'ac_service',
+};
+
+function normalizeRequestedCategoryId(categoryId: unknown): string | null {
+  if (typeof categoryId !== 'string') return null;
+  const value = categoryId.trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (!value) return null;
+
+  const directMatch = CATEGORY_ID_ALIASES[value] || value;
+  if (validRequestedCategories.has(directMatch)) return directMatch;
+
+  const underscoreMatch = value.replace(/-/g, '_');
+  if (validRequestedCategories.has(underscoreMatch)) return underscoreMatch;
+
+  const hyphenMatch = value.replace(/_/g, '-');
+  if (validRequestedCategories.has(hyphenMatch)) return hyphenMatch;
+
+  return null;
+}
 
 function profileCity(profile: any): string | undefined {
   return (
@@ -51,17 +136,19 @@ export class PartnerCategoryRequestService {
     categoryId: unknown,
     requestedSkills: unknown,
   ): Promise<IPartnerCategoryRequest> {
-    if (typeof categoryId !== 'string' || !validRequestedCategories.has(categoryId as typeof ALL_CATEGORIES[number])) {
+    const categoryId_ = normalizeRequestedCategoryId(categoryId);
+    if (!categoryId_) {
       throw new BadRequestError('Invalid categoryId');
     }
+
     if (
       !Array.isArray(requestedSkills) ||
       requestedSkills.length === 0 ||
-      requestedSkills.length > requestedCategorySkills[categoryId].size ||
+      requestedSkills.length > requestedCategorySkills[categoryId_].size ||
       requestedSkills.some(
         (skillId) =>
           typeof skillId !== 'string' ||
-          !requestedCategorySkills[categoryId].has(skillId),
+          !requestedCategorySkills[categoryId_].has(skillId),
       )
     ) {
       throw new BadRequestError('Select at least one valid skill for the requested category');
@@ -83,7 +170,7 @@ export class PartnerCategoryRequestService {
     const categories = Array.isArray(profile.partnerProfile.categories)
       ? profile.partnerProfile.categories
       : [];
-    if (categories.includes(categoryId)) {
+    if (categories.includes(categoryId_)) {
       throw new ConflictError('This category is already on your partner profile');
     }
 
@@ -96,7 +183,7 @@ export class PartnerCategoryRequestService {
           email: profile.email || undefined,
           phone: profile.phone || undefined,
         },
-        requestedCategory: categoryId,
+        requestedCategory: categoryId_,
         requestedSkills: selectedSkills,
         currentCategories: [...categories],
         workAreas: [...(profile.partnerProfile.workAreas || [])],

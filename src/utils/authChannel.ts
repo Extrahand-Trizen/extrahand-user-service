@@ -6,21 +6,41 @@ import logger from '../config/logger';
  * Used to ensure the matching capability without stripping the other role.
  * Callers must only pass authChannel when clientType === 'mobile'.
  */
-export type AuthChannel = 'customer_app' | 'helper_app' | 'seller_app';
+export type AuthChannel = 'customer_app' | 'helper_app' | 'partner_app' | 'seller_app';
 
 export function parseAuthChannel(raw: unknown): AuthChannel | undefined {
   if (raw == null) return undefined;
   const value = String(raw).trim().toLowerCase().replace(/-/g, '_');
   if (value === 'customer_app' || value === 'customerapp') return 'customer_app';
   if (value === 'helper_app' || value === 'helperapp') return 'helper_app';
+  if (value === 'partner_app' || value === 'partnerapp') return 'partner_app';
   if (value === 'seller_app' || value === 'sellerapp') return 'seller_app';
   return undefined;
 }
 
-function roleForAuthChannel(channel: AuthChannel): 'poster' | 'tasker' | 'seller' {
+export function roleForAuthChannel(channel: AuthChannel): 'poster' | 'tasker' | 'partner' | 'seller' {
   if (channel === 'helper_app') return 'tasker';
+  if (channel === 'partner_app') return 'partner';
   if (channel === 'seller_app') return 'seller';
   return 'poster';
+}
+
+function rolesForPartnerApp(rolesRaw: unknown): Array<'poster' | 'partner' | 'seller'> {
+  const roles = Array.isArray(rolesRaw)
+    ? rolesRaw.map((role) => String(role || '').trim().toLowerCase())
+    : [];
+  const hasPoster =
+    roles.includes('poster') ||
+    roles.includes('requester') ||
+    roles.includes('customer') ||
+    roles.includes('both');
+  const hasSeller = roles.includes('seller');
+
+  return [
+    ...(hasPoster ? ['poster' as const] : []),
+    'partner',
+    ...(hasSeller ? ['seller' as const] : []),
+  ];
 }
 
 /** Dialog / Meta welcome mapping for each mobile app binary. */
@@ -28,16 +48,16 @@ export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
   eventKey: 'CUSTOMER_WELCOME' | 'HELPER_WELCOME';
   metaTemplateName: 'extrahand_customer_welcome' | 'extrahand_helper_welcome';
   legacyTemplateKey: 'wa_customer_welcome' | 'wa_helper_welcome';
-  role: 'poster' | 'helper' | 'seller';
+  role: 'poster' | 'helper' | 'partner' | 'seller';
   idempotencyKey: (uid: string) => string;
 } {
-  if (channel === 'helper_app') {
+  if (channel === 'helper_app' || channel === 'partner_app') {
     return {
       eventKey: 'HELPER_WELCOME',
       metaTemplateName: 'extrahand_helper_welcome',
       legacyTemplateKey: 'wa_helper_welcome',
-      role: 'helper',
-      idempotencyKey: (uid) => `welcome:helper:${uid}`,
+      role: channel === 'partner_app' ? 'partner' : 'helper',
+      idempotencyKey: (uid) => `welcome:${channel === 'partner_app' ? 'partner' : 'helper'}:${uid}`,
     };
   }
   if (channel === 'seller_app') {
@@ -60,7 +80,7 @@ export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
 
 export function rolesHaveCapability(
   rolesRaw: unknown,
-  capability: 'poster' | 'tasker' | 'seller'
+  capability: 'poster' | 'tasker' | 'partner' | 'seller'
 ): boolean {
   const roles = Array.isArray(rolesRaw)
     ? rolesRaw.map((r) => String(r || '').trim().toLowerCase()).filter(Boolean)
@@ -80,6 +100,10 @@ export function rolesHaveCapability(
     return roles.includes('seller');
   }
 
+  if (capability === 'partner') {
+    return roles.includes('partner');
+  }
+
   if (capability === 'tasker') {
     return (
       roles.includes('tasker') ||
@@ -92,8 +116,8 @@ export function rolesHaveCapability(
 }
 
 /**
- * Ensure the profile has the capability for this auth channel via $addToSet.
- * Never removes the other role.
+ * Ensure the profile has the capability for this auth channel.
+ * Partner registration replaces helper capability but preserves customer/seller roles.
  * No-op when:
  * - authChannel is missing/unknown
  * - clientType is not mobile (web must not get mobile app role merges)
@@ -108,7 +132,39 @@ export async function ensureAuthChannelCapability<T extends { roles?: unknown }>
     return profile;
   }
 
+  if (authChannel === 'partner_app') {
+    const roles = rolesForPartnerApp(profile.roles);
+    const existingRoles = Array.isArray(profile.roles)
+      ? profile.roles.map((role) => String(role || '').trim().toLowerCase())
+      : [];
+    if (
+      existingRoles.length === roles.length &&
+      roles.every((role, index) => role === existingRoles[index])
+    ) {
+      return profile;
+    }
+
+    await Profile.updateOne(
+      { uid },
+      {
+        $set: { roles, updatedAt: Date.now() },
+      }
+    );
+
+    const updated = (await Profile.findOne({ uid }).lean()) as T | null;
+    logger.info('Ensured partner capability on profile', {
+      uid,
+      authChannel,
+      clientType,
+      roles,
+    });
+    return updated ?? profile;
+  }
+
   const role = roleForAuthChannel(authChannel);
+  if (authChannel === 'helper_app' && rolesHaveCapability(profile.roles, 'partner')) {
+    return profile;
+  }
   if (rolesHaveCapability(profile.roles, role)) {
     return profile;
   }
