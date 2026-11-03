@@ -88,7 +88,32 @@ const requestedCategorySkills: Record<string, Set<string>> = {
     'general_manual_labour',
   ]),
 };
+
 const validRequestedCategories = new Set(Object.keys(requestedCategorySkills));
+const CATEGORY_ID_ALIASES: Record<string, string> = {
+  beauty: 'beauty_services',
+  'beauty-service': 'beauty_services',
+  'beauty-services': 'beauty_services',
+  'ac-service': 'ac_service',
+  'ac-services': 'ac_service',
+};
+
+function normalizeRequestedCategoryId(categoryId: unknown): string | null {
+  if (typeof categoryId !== 'string') return null;
+  const value = categoryId.trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (!value) return null;
+
+  const directMatch = CATEGORY_ID_ALIASES[value] || value;
+  if (validRequestedCategories.has(directMatch)) return directMatch;
+
+  const underscoreMatch = value.replace(/-/g, '_');
+  if (validRequestedCategories.has(underscoreMatch)) return underscoreMatch;
+
+  const hyphenMatch = value.replace(/_/g, '-');
+  if (validRequestedCategories.has(hyphenMatch)) return hyphenMatch;
+
+  return null;
+}
 
 function profileCity(profile: any): string | undefined {
   return (
@@ -111,29 +136,10 @@ export class PartnerCategoryRequestService {
     categoryId: unknown,
     requestedSkills: unknown,
   ): Promise<IPartnerCategoryRequest> {
-    // Accept either separator format while preserving the canonical ID used by
-    // the requestedCategorySkills map (e.g. appliance-repair → appliance_repair
-    // and daily_labour → daily-labour).
-    const normalizedCategoryId =
-      typeof categoryId === 'string'
-        ? (() => {
-            const rawCategoryId = categoryId.trim().toLowerCase();
-            const underscoreCategoryId = rawCategoryId.replace(/-/g, '_');
-            const hyphenCategoryId = rawCategoryId.replace(/_/g, '-');
-            return validRequestedCategories.has(underscoreCategoryId)
-              ? underscoreCategoryId
-              : validRequestedCategories.has(hyphenCategoryId)
-                ? hyphenCategoryId
-                : rawCategoryId;
-          })()
-        : categoryId;
-
-    if (typeof normalizedCategoryId !== 'string' || !validRequestedCategories.has(normalizedCategoryId)) {
+    const categoryId_ = normalizeRequestedCategoryId(categoryId);
+    if (!categoryId_) {
       throw new BadRequestError('Invalid categoryId');
     }
-
-    // Use the normalized id from here on
-    const categoryId_ = normalizedCategoryId;
 
     if (
       !Array.isArray(requestedSkills) ||
