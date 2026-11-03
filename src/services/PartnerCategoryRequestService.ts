@@ -275,21 +275,25 @@ export class PartnerCategoryRequestService {
           if (!profile || !profile.partnerProfile) {
             throw new NotFoundError('Partner profile not found');
           }
-          profile.partnerProfile.categories = Array.from(
-            new Set([...(profile.partnerProfile.categories || []), request.requestedCategory]),
-          );
-          const skills = (profile.partnerProfile.skills || {}) as Record<string, string[]>;
           const requestedSkills: unknown = request.requestedSkills;
           const approvedSkills = Array.isArray(requestedSkills)
             ? requestedSkills.filter(
                 (skillId: unknown): skillId is string => typeof skillId === 'string',
               )
             : [];
-          skills[request.requestedCategory] = [...new Set(approvedSkills)];
-          profile.partnerProfile.skills = skills;
-          profile.markModified('partnerProfile.categories');
-          profile.markModified('partnerProfile.skills');
-          await profile.save({ session });
+          const profileUpdate = await Profile.updateOne(
+            { _id: profile._id },
+            {
+              $addToSet: { 'partnerProfile.categories': request.requestedCategory },
+              $set: {
+                [`partnerProfile.skills.${request.requestedCategory}`]: [...new Set(approvedSkills)],
+              },
+            },
+            { session, runValidators: false },
+          );
+          if (profileUpdate.matchedCount === 0) {
+            throw new NotFoundError('Partner profile not found');
+          }
         }
 
         request.status = status;

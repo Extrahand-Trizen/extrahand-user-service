@@ -18,6 +18,7 @@
     "migrate:approve-existing-helper-partners": "npx ts-node --require dotenv/config scripts/migrate-existing-helper-partners.ts",
     "migrate:profile-client-type-from-sessions": "npx ts-node --require dotenv/config scripts/migrate-profile-client-type-from-sessions.ts",
     "migrate:payment-tester-false": "npx ts-node --require dotenv/config src/scripts/backfillPaymentTesterFalse.ts",
+    "migrate:partner-dl-verified": "npx ts-node --require dotenv/config scripts/backfill-partner-dl-verified.ts",
     "delete:accounts-by-phone": "npx ts-node --require dotenv/config src/scripts/deleteAccountsByPhone.ts"
   },
   "engines": {

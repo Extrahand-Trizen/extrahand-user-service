@@ -21,6 +21,14 @@ router.patch(
 // Admin endpoints for user management
 // All routes require service authentication (from main-admin-service)
 
+// POST /api/v1/users/whatsapp-audience - page through a filtered WhatsApp audience
+router.get('/whatsapp-categories', serviceAuthMiddleware, asyncHandler(UserController.listWhatsAppCategories));
+router.post(
+  '/whatsapp-audience',
+  serviceAuthMiddleware,
+  asyncHandler(UserController.listWhatsAppAudience),
+);
+
 // GET /api/v1/users - List users with filters (admin)
 router.get('/', serviceAuthMiddleware, asyncHandler(UserController.listUsersForAdmin));
 

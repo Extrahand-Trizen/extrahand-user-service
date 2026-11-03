@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ProfileService } from '../services/ProfileService';
 import logger from '../config/logger';
 import { BadRequestError } from '../errors/AppError';
+import { WHATSAPP_PARTNER_CATEGORY_GROUPS } from '../constants/whatsappPartnerCategories';
 
 interface AuthenticatedRequest extends Request {
   admin?: {
@@ -10,6 +11,75 @@ interface AuthenticatedRequest extends Request {
 }
 
 export class UserController {
+  /**
+   * GET /api/v1/users/whatsapp-categories
+   * Return the registration groups shown in the Partner Registrations filters.
+   */
+  static async listWhatsAppCategories(_req: Request, res: Response): Promise<void> {
+    res.json({
+      success: true,
+      data: WHATSAPP_PARTNER_CATEGORY_GROUPS.map(({ id, name }) => ({ id, name })),
+    });
+  }
+
+  /**
+   * POST /api/v1/users/whatsapp-audience
+   * Return a page of distinct profile UIDs for an app and optional partner filters.
+   */
+  static async listWhatsAppAudience(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { app, categories = [], cities = [], workAreas = [], page = 1, limit = 500 } = req.body || {};
+      const apps = ['customer_app', 'helper_app', 'seller_app'];
+      const isPartnerApp = app === 'helper_app';
+      const isValidStringList = (values: unknown, maxItems: number) =>
+        Array.isArray(values) &&
+        values.length <= maxItems &&
+        values.every((value) => typeof value === 'string' && value.trim().length > 0 && value.length <= 120);
+
+      if (
+        !apps.includes(app) ||
+        !isValidStringList(categories, 50) ||
+        !isValidStringList(cities, 100) ||
+        !isValidStringList(workAreas, 5000) ||
+        !Number.isInteger(page) ||
+        page < 1 ||
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 500 ||
+        (isPartnerApp && (categories.length === 0 || cities.length === 0 || workAreas.length === 0)) ||
+        (!isPartnerApp && (categories.length > 0 || cities.length > 0 || workAreas.length > 0))
+      ) {
+        throw new BadRequestError('Invalid WhatsApp audience filters');
+      }
+
+      const result = await ProfileService.listWhatsAppAudience({
+        app,
+        categories,
+        cities,
+        workAreas,
+        page,
+        limit,
+      });
+
+      res.json({
+        success: true,
+        data: result.uids,
+        pagination: {
+          page,
+          limit,
+          total: result.total,
+          pages: Math.ceil(result.total / limit),
+        },
+      });
+    } catch (error: any) {
+      logger.error('Error in listWhatsAppAudience:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to list WhatsApp audience',
+      });
+    }
+  }
+
   /**
    * GET /api/v1/users/stats/roles
    * Aggregate role counts from profiles collection (admin/service).

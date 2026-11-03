@@ -771,6 +771,10 @@ const ProfileSchema = new Schema<IProfile>({
     dlFront: String,
     dlBack: String,
     rc: String,
+    /** Whether the partner's driving license was verified via the verification API. */
+    isDrivingLicenseVerified: { type: Boolean, default: false },
+    /** Verification status: 'verified' | 'pending' | 'failed'. */
+    drivingLicenseVerificationStatus: { type: String, default: undefined },
     experienceProofs: { type: Schema.Types.Mixed, default: {} },
     /** Partner's selected shift type for Book Now works (full_time | part_time) */
     workShiftType: { type: String, default: undefined },

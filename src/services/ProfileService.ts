@@ -16,6 +16,7 @@ import NotificationPreferences from '../models/NotificationPreferences';
 import { DialogWhatsAppClient } from '../clients/DialogWhatsAppClient';
 import { findActiveProfileByUidOrPhone } from '../utils/identityReconciliation';
 import { TELANGANA_SERVICE_AREAS } from '../constants/locations/telanganaServiceAreas';
+import { WHATSAPP_PARTNER_CATEGORY_GROUPS } from '../constants/whatsappPartnerCategories';
 type CanonicalRole = 'helper' | 'customer' | 'partner' | 'seller';
 
 const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
@@ -2758,6 +2759,60 @@ export class ProfileService {
   /**
    * List users for admin with filters
    */
+  static async listWhatsAppAudience(params: {
+    app: 'customer_app' | 'helper_app' | 'seller_app';
+    categories: string[];
+    cities: string[];
+    workAreas: string[];
+    page: number;
+    limit: number;
+  }): Promise<{ uids: string[]; total: number }> {
+    this.checkConnection();
+
+    const roleValues = {
+      customer_app: ['poster', 'requester', 'both', 'customer'],
+      helper_app: ['partner'],
+      seller_app: ['seller'],
+    } as const;
+    const query: Record<string, unknown> = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      roles: { $in: roleValues[params.app] },
+    };
+
+    if (params.app === 'helper_app') {
+      query['partnerProfile.status'] = 'approved';
+      const selectedCategoryNames = new Set(
+        params.categories.map((category) => category.trim().toLowerCase()),
+      );
+      const partnerCategories = WHATSAPP_PARTNER_CATEGORY_GROUPS
+        .filter((group) => selectedCategoryNames.has(group.id.toLowerCase()))
+        .flatMap((group) => group.partnerCategories);
+      query['partnerProfile.categories'] = {
+        $in: partnerCategories.map((category) => buildFlexibleTextRegex(category)),
+      };
+      query.$or = [
+        { 'partnerProfile.workAreas': { $in: params.workAreas.map((area) => buildFlexibleTextRegex(area)) } },
+        { helperWorkAreas: { $in: params.workAreas.map((area) => buildFlexibleTextRegex(area)) } },
+      ];
+    }
+
+    const skip = (params.page - 1) * params.limit;
+    const [profiles, total] = await Promise.all([
+      Profile.find(query)
+        .sort({ _id: 1 })
+        .skip(skip)
+        .limit(params.limit)
+        .select({ uid: 1 })
+        .lean(),
+      Profile.countDocuments(query),
+    ]);
+
+    return {
+      uids: profiles.map((profile) => String(profile.uid || '')).filter(Boolean),
+      total,
+    };
+  }
+
   static async listUsersForAdmin(params: {
     page: number;
     limit: number;
