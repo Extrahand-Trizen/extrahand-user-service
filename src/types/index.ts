@@ -203,6 +203,10 @@ export interface PartnerProfile {
   dlFront?: string;
   dlBack?: string;
   rc?: string;
+  /** Whether the driving license was verified via the verification API. */
+  isDrivingLicenseVerified?: boolean;
+  /** Verification status: 'verified' | 'pending' | 'failed'. */
+  drivingLicenseVerificationStatus?: string;
   experienceProofs?: Record<string, string[]>;
   /** Partner's selected shift type for Book Now works (full_time | part_time) */
   workShiftType?: string;

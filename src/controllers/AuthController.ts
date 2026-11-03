@@ -27,6 +27,7 @@ export class AuthController {
          phone: result.phone,
          matchType: result.matchType,
          hasTaskerRole: result.hasTaskerRole,
+         hasPartnerRole: result.hasPartnerRole,
       });
    }
 

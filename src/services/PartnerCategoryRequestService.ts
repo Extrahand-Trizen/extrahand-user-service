@@ -88,7 +88,32 @@ const requestedCategorySkills: Record<string, Set<string>> = {
     'general_manual_labour',
   ]),
 };
+
 const validRequestedCategories = new Set(Object.keys(requestedCategorySkills));
+const CATEGORY_ID_ALIASES: Record<string, string> = {
+  beauty: 'beauty_services',
+  'beauty-service': 'beauty_services',
+  'beauty-services': 'beauty_services',
+  'ac-service': 'ac_service',
+  'ac-services': 'ac_service',
+};
+
+function normalizeRequestedCategoryId(categoryId: unknown): string | null {
+  if (typeof categoryId !== 'string') return null;
+  const value = categoryId.trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (!value) return null;
+
+  const directMatch = CATEGORY_ID_ALIASES[value] || value;
+  if (validRequestedCategories.has(directMatch)) return directMatch;
+
+  const underscoreMatch = value.replace(/-/g, '_');
+  if (validRequestedCategories.has(underscoreMatch)) return underscoreMatch;
+
+  const hyphenMatch = value.replace(/_/g, '-');
+  if (validRequestedCategories.has(hyphenMatch)) return hyphenMatch;
+
+  return null;
+}
 
 function profileCity(profile: any): string | undefined {
   return (
@@ -111,18 +136,10 @@ export class PartnerCategoryRequestService {
     categoryId: unknown,
     requestedSkills: unknown,
   ): Promise<IPartnerCategoryRequest> {
-    // Normalize: accept both underscore and hyphen formats (e.g. daily_labour → daily-labour)
-    const normalizedCategoryId =
-      typeof categoryId === 'string'
-        ? categoryId.trim().toLowerCase().replace(/_/g, '-')
-        : categoryId;
-
-    if (typeof normalizedCategoryId !== 'string' || !validRequestedCategories.has(normalizedCategoryId)) {
+    const categoryId_ = normalizeRequestedCategoryId(categoryId);
+    if (!categoryId_) {
       throw new BadRequestError('Invalid categoryId');
     }
-
-    // Use the normalized id from here on
-    const categoryId_ = normalizedCategoryId;
 
     if (
       !Array.isArray(requestedSkills) ||
@@ -264,21 +281,25 @@ export class PartnerCategoryRequestService {
           if (!profile || !profile.partnerProfile) {
             throw new NotFoundError('Partner profile not found');
           }
-          profile.partnerProfile.categories = Array.from(
-            new Set([...(profile.partnerProfile.categories || []), request.requestedCategory]),
-          );
-          const skills = (profile.partnerProfile.skills || {}) as Record<string, string[]>;
           const requestedSkills: unknown = request.requestedSkills;
           const approvedSkills = Array.isArray(requestedSkills)
             ? requestedSkills.filter(
                 (skillId: unknown): skillId is string => typeof skillId === 'string',
               )
             : [];
-          skills[request.requestedCategory] = [...new Set(approvedSkills)];
-          profile.partnerProfile.skills = skills;
-          profile.markModified('partnerProfile.categories');
-          profile.markModified('partnerProfile.skills');
-          await profile.save({ session });
+          const profileUpdate = await Profile.updateOne(
+            { _id: profile._id },
+            {
+              $addToSet: { 'partnerProfile.categories': request.requestedCategory },
+              $set: {
+                [`partnerProfile.skills.${request.requestedCategory}`]: [...new Set(approvedSkills)],
+              },
+            },
+            { session, runValidators: false },
+          );
+          if (profileUpdate.matchedCount === 0) {
+            throw new NotFoundError('Partner profile not found');
+          }
         }
 
         request.status = status;
