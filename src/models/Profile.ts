@@ -124,6 +124,7 @@ export interface IProfile extends Document {
       postTitleTemplate: string;
       taskDescription: string;
       quantity: number;
+      memberCount?: number;
     }>;
     updatedAt?: Date;
   };
@@ -724,6 +725,7 @@ const ProfileSchema = new Schema<IProfile>({
       postTitleTemplate: { type: String, required: true, trim: true },
       taskDescription: { type: String, required: true, trim: true },
       quantity: { type: Number, required: true, min: 1, default: 1 },
+      memberCount: { type: Number, min: 1, max: 10 },
     }],
     updatedAt: Date
   },

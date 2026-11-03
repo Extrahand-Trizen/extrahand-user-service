@@ -2739,12 +2739,13 @@ export class ProfileController {
   ): Promise<void> {
     try {
       const uid = req.user!.uid;
-      const { catalogId, packageId, quantity } = req.body || {};
+      const { catalogId, packageId, quantity, memberCount } = req.body || {};
       const data = await ProfileService.updateBookNowCartItemQuantity(
         uid,
         catalogId,
         packageId,
         quantity,
+        memberCount,
       );
 
       res.json({
@@ -2758,7 +2759,9 @@ export class ProfileController {
       });
       const status = error.message?.includes('not found')
         ? 404
-        : error.message?.includes('required') || error.message?.includes('quantity')
+        : error.message?.includes('required') ||
+            error.message?.includes('quantity') ||
+            error.message?.includes('memberCount')
           ? 400
           : 500;
       res.status(status).json({

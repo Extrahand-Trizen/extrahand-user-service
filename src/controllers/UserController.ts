@@ -84,11 +84,13 @@ export class UserController {
         category,
         isAadhaarVerified,
         isCertified,
+        isPaymentTester,
         createdFrom,
         createdTo,
         sortBy = 'createdAt',
         sortOrder = 'desc',
         area,
+        excludePhones,
       } = req.query;
 
       const parsedAadhaarVerified =
@@ -105,6 +107,14 @@ export class UserController {
           ? isCertified === 'true'
             ? true
             : isCertified === 'false'
+              ? false
+              : undefined
+          : undefined;
+      const parsedPaymentTester =
+        typeof isPaymentTester === 'string'
+          ? isPaymentTester === 'true'
+            ? true
+            : isPaymentTester === 'false'
               ? false
               : undefined
           : undefined;
@@ -125,11 +135,16 @@ export class UserController {
             : undefined,
         isAadhaarVerified: parsedAadhaarVerified,
         isCertified: parsedCertified,
+        isPaymentTester: parsedPaymentTester,
         createdFrom: createdFrom as string,
         createdTo: createdTo as string,
         sortBy: sortBy as string,
         sortOrder: sortOrder as 'asc' | 'desc',
         uids: typeof req.query.uids === 'string' ? req.query.uids : undefined,
+        excludePhones:
+          typeof excludePhones === 'string'
+            ? excludePhones.split(',').map((phone) => phone.trim()).filter(Boolean)
+            : [],
       });
 
       res.json({

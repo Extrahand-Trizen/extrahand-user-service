@@ -2770,11 +2770,13 @@ export class ProfileService {
     area?: string;
     isAadhaarVerified?: boolean;
     isCertified?: boolean;
+    isPaymentTester?: boolean;
     createdFrom?: string;
     createdTo?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     uids?: string;
+    excludePhones?: string[];
     includeSummary?: boolean;
   }): Promise<{
     data: any[];
@@ -2802,11 +2804,13 @@ export class ProfileService {
       area,
       isAadhaarVerified,
       isCertified,
+      isPaymentTester,
       createdFrom,
       createdTo,
       sortBy = 'createdAt',
       sortOrder = 'desc',
       uids,
+      excludePhones = [],
       includeSummary,
     } = params;
     const effectiveLimit = Math.min(Math.max(1, Number(limit) || 20), MAX_LIMIT);
@@ -2819,6 +2823,28 @@ export class ProfileService {
       'dataPrivacy.accountDeleted': { $ne: true }
     };
     const andConditions: any[] = [];
+    const normalizedExcludedPhones = Array.from(new Set(
+      excludePhones
+        .map((phone) => String(phone).replace(/\D/g, ''))
+        .filter(Boolean),
+    ));
+
+    if (normalizedExcludedPhones.length > 0) {
+      const phoneExclusionConditions = normalizedExcludedPhones.map((phone) => {
+        const digitsToMatch = phone.length >= 10 ? phone.slice(-10) : phone;
+        const phonePattern = phone.length >= 10
+          ? `${digitsToMatch.split('').join('\\D*')}$`
+          : `^\\D*${digitsToMatch.split('').join('\\D*')}\\D*$`;
+        const phoneRegex = new RegExp(phonePattern);
+        return {
+          $or: [
+            { phone: { $regex: phoneRegex } },
+            { 'partnerProfile.phone': { $regex: phoneRegex } },
+          ],
+        };
+      });
+      andConditions.push({ $nor: phoneExclusionConditions });
+    }
 
     // Filter by specific uids if provided
     if (uids && typeof uids === 'string') {
@@ -2835,6 +2861,7 @@ export class ProfileService {
           { name: { $regex: search, $options: 'i' } },
           { email: { $regex: search, $options: 'i' } },
           { phone: { $regex: search, $options: 'i' } },
+          { uid: { $regex: search, $options: 'i' } },
         ],
       });
     }
@@ -2998,6 +3025,10 @@ export class ProfileService {
       }
     }
 
+    if (typeof isPaymentTester === 'boolean') {
+      andConditions.push({ isPaymentTester });
+    }
+
     if (createdFrom || createdTo) {
       const createdAt: any = {};
       if (createdFrom) {
@@ -3051,13 +3082,15 @@ export class ProfileService {
     });
 
     // First check total profiles in database (for debugging)
-    const totalProfilesInDb = await Profile.countDocuments({});
+    const totalProfilesInDb = normalizedExcludedPhones.length > 0
+      ? undefined
+      : await Profile.countDocuments({});
     logger.info(`Total profiles in database: ${totalProfilesInDb}`);
 
     // Execute query
     const [profiles, total] = await Promise.all([
       Profile.find(query)
-        .select('uid name email phone roles userType status isActive isVerified isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills location homeLocation partnerProfile helperWorkAreas')
+        .select('uid name email phone roles userType status isActive isVerified isPaymentTester isAadhaarVerified isPANVerified isBankVerified rating totalReviews totalTasks completedTasks postedTasks earnedAmount photoURL createdAt updatedAt bannedAt suspendedAt skills location homeLocation partnerProfile helperWorkAreas')
         .sort(sort)
         .skip(skip)
         .limit(effectiveLimit)
@@ -3066,7 +3099,9 @@ export class ProfileService {
     ]);
 
     // Log results for debugging
-    logger.info(`ListUsersForAdmin - Results: ${profiles.length} profiles found, total matching query: ${total}, total in DB: ${totalProfilesInDb}`);
+    if (totalProfilesInDb !== undefined) {
+      logger.info(`ListUsersForAdmin - Results: ${profiles.length} profiles found, total matching query: ${total}, total in DB: ${totalProfilesInDb}`);
+    }
     
     if (profiles.length > 0) {
       logger.info('Sample profile:', {
@@ -3075,7 +3110,7 @@ export class ProfileService {
         status: profiles[0].status,
         isActive: profiles[0].isActive,
       });
-    } else if (totalProfilesInDb > 0) {
+    } else if (totalProfilesInDb !== undefined && totalProfilesInDb > 0) {
       logger.warn(`⚠️ Query returned 0 profiles but database has ${totalProfilesInDb} profiles. Query might be too restrictive.`);
     }
 
@@ -3099,6 +3134,7 @@ export class ProfileService {
         status: userStatus,
         isVerified: profile.isVerified || false,
         isActive: profile.isActive !== false,
+        isPaymentTester: profile.isPaymentTester === true,
         rating: profile.rating || 0,
         totalReviews: profile.totalReviews || 0,
         completedTasks: profile.completedTasks || 0,
@@ -4015,6 +4051,10 @@ export class ProfileService {
       throw new NotFoundError('User not found');
     }
 
+    if (updates.isPaymentTester !== undefined && typeof updates.isPaymentTester !== 'boolean') {
+      throw new BadRequestError('isPaymentTester must be a boolean');
+    }
+
     // Update allowed fields
     const allowedFields = [
       'name',
@@ -4024,6 +4064,7 @@ export class ProfileService {
       'userType',
       'isActive',
       'isVerified',
+      'isPaymentTester',
       'status',
       'partnerProfile',
     ];
@@ -4257,12 +4298,23 @@ export class ProfileService {
     const taskDescription = String(raw?.taskDescription || '').trim();
     const price = Number(raw?.price);
     const quantity = Math.max(1, Math.floor(Number(raw?.quantity) || 1));
+    const memberCountRaw = Number(raw?.memberCount);
+    const memberCount =
+      catalogId === 'daily-labour' && raw?.memberCount != null
+        ? memberCountRaw
+        : undefined;
 
     if (!catalogId || !packageId || !name || !postTitleTemplate || !taskDescription) {
       throw new Error('Invalid cart item payload');
     }
     if (!Number.isFinite(price) || price < 0) {
       throw new Error('Invalid cart item price');
+    }
+    if (
+      memberCount != null &&
+      (!Number.isInteger(memberCount) || memberCount < 1 || memberCount > 10)
+    ) {
+      throw new Error('Invalid Daily Labour member count');
     }
 
     return {
@@ -4273,6 +4325,7 @@ export class ProfileService {
       postTitleTemplate,
       taskDescription,
       quantity,
+      ...(memberCount != null ? { memberCount } : {}),
     };
   }
 
@@ -4370,6 +4423,7 @@ export class ProfileService {
     catalogId: string,
     packageId: string,
     quantity: number,
+    memberCount?: number,
   ): Promise<any> {
     this.checkConnection();
     const normalizedCatalogId = String(catalogId || '').trim();
@@ -4381,6 +4435,18 @@ export class ProfileService {
     }
     if (!Number.isFinite(normalizedQuantity)) {
       throw new Error('quantity must be a number');
+    }
+    const normalizedMemberCount =
+      normalizedCatalogId === 'daily-labour' && memberCount != null
+        ? Number(memberCount)
+        : undefined;
+    if (
+      normalizedMemberCount != null &&
+      (!Number.isInteger(normalizedMemberCount) ||
+        normalizedMemberCount < 1 ||
+        normalizedMemberCount > 10)
+    ) {
+      throw new Error('memberCount must be between 1 and 10');
     }
 
     if (normalizedQuantity <= 0) {
@@ -4406,6 +4472,9 @@ export class ProfileService {
     items[existingIndex] = {
       ...items[existingIndex],
       quantity: normalizedQuantity,
+      ...(normalizedMemberCount != null
+        ? { memberCount: normalizedMemberCount }
+        : {}),
     };
 
     profile.bookNowCart = {
@@ -4419,6 +4488,9 @@ export class ProfileService {
       catalogId: normalizedCatalogId,
       packageId: normalizedPackageId,
       quantity: normalizedQuantity,
+      ...(normalizedMemberCount != null
+        ? { memberCount: normalizedMemberCount }
+        : {}),
     });
 
     return this.formatBookNowCartResponse(profile);
