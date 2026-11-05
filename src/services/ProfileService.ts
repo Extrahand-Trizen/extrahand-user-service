@@ -2779,6 +2779,19 @@ export class ProfileService {
       roles: { $in: roleValues[params.app] },
     };
 
+    if (params.app === 'customer_app' && params.cities.length > 0) {
+      const cityMatchers = params.cities.map(buildCityMatchRegex);
+      query.$or = [
+        { 'location.addressDetails.city': { $in: cityMatchers } },
+        { 'location.city': { $in: cityMatchers } },
+        { 'homeLocation.addressDetails.city': { $in: cityMatchers } },
+        { 'homeLocation.city': { $in: cityMatchers } },
+        { 'savedAddresses.city': { $in: cityMatchers } },
+        { 'savedAddresses.addressDetails.city': { $in: cityMatchers } },
+        { city: { $in: cityMatchers } },
+      ];
+    }
+
     if (params.app === 'helper_app') {
       query['partnerProfile.status'] = 'approved';
       const selectedCategoryNames = new Set(
