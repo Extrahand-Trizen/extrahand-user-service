@@ -6,6 +6,8 @@ import { PartnerCategoryRequestController } from '../controllers/PartnerCategory
 
 const router = Router();
 
+router.get('/areas/eligible-partners', serviceAuthMiddleware, asyncHandler(UserController.listApprovedPartnerAreaData));
+
 // Admin-mediated partner category requests (service-authenticated from main-admin-server).
 router.get(
   '/partner-category-requests',

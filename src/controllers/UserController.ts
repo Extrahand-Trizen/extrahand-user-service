@@ -11,6 +11,25 @@ interface AuthenticatedRequest extends Request {
 }
 
 export class UserController {
+  static async listApprovedPartnerAreaData(req: Request, res: Response): Promise<void> {
+    try {
+      const excludePhones = typeof req.query.excludePhones === 'string'
+        ? req.query.excludePhones.split(',').map((phone) => phone.trim()).filter(Boolean)
+        : [];
+      const data = await ProfileService.listApprovedPartnerAreaData(excludePhones);
+      res.json({ success: true, data });
+    } catch (error: any) {
+      logger.error('Error in listApprovedPartnerAreaData:', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || 'Failed to fetch approved partner area data',
+      });
+    }
+  }
+
   /**
    * GET /api/v1/users/whatsapp-categories
    * Return the registration groups shown in the Partner Registrations filters.

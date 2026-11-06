@@ -2853,6 +2853,62 @@ export class ProfileService {
     };
   }
 
+  static async listApprovedPartnerAreaData(excludePhones: string[] = []): Promise<any[]> {
+    this.checkConnection();
+
+    const query: Record<string, any> = {
+      'dataPrivacy.accountDeleted': { $ne: true },
+      roles: { $in: ['partner'] },
+      'partnerProfile.status': 'approved',
+    };
+    const phoneExclusionConditions = Array.from(new Set(
+      excludePhones.map((phone) => String(phone).replace(/\D/g, '')).filter(Boolean),
+    )).map((phone) => {
+      const digitsToMatch = phone.length >= 10 ? phone.slice(-10) : phone;
+      const phonePattern = phone.length >= 10
+        ? `${digitsToMatch.split('').join('\\D*')}$`
+        : `^\\D*${digitsToMatch.split('').join('\\D*')}\\D*$`;
+      const phoneRegex = new RegExp(phonePattern);
+      return {
+        $or: [
+          { phone: { $regex: phoneRegex } },
+          { 'partnerProfile.phone': { $regex: phoneRegex } },
+        ],
+      };
+    });
+    if (phoneExclusionConditions.length > 0) {
+      query.$nor = phoneExclusionConditions;
+    }
+
+    const profiles = await Profile.find(query)
+      .select('_id uid name phone partnerProfile.phone partnerProfile.categories partnerProfile.workAreas helperWorkAreas')
+      .lean();
+
+    return profiles.map((profile: any) => {
+      const partnerProfileWorkAreas = Array.isArray(profile.partnerProfile?.workAreas)
+        ? profile.partnerProfile.workAreas
+        : [];
+      const workAreas = Array.from(new Set([
+        ...partnerProfileWorkAreas,
+        ...(Array.isArray(profile.helperWorkAreas) ? profile.helperWorkAreas : []),
+      ]));
+      return {
+        _id: String(profile._id),
+        profileId: String(profile._id),
+        userId: profile.uid,
+        uid: profile.uid,
+        name: profile.name || '',
+        phone: profile.phone || profile.partnerProfile?.phone || '',
+        workAreas,
+        partnerProfile: {
+          phone: profile.partnerProfile?.phone,
+          categories: profile.partnerProfile?.categories || [],
+          workAreas,
+        },
+      };
+    });
+  }
+
   static async listUsersForAdmin(params: {
     page: number;
     limit: number;
@@ -3043,6 +3099,8 @@ export class ProfileService {
 
     if (city && city.trim()) {
       const cityNameRegex = buildCityMatchRegex(city);
+      const isRajagopalpet =
+        city.trim().toLowerCase().replace(/[\s_-]+/g, '') === 'rajagopalpet';
 
       andConditions.push({
         $or: [
@@ -3056,6 +3114,15 @@ export class ProfileService {
           { 'location.address': cityNameRegex },
           { 'homeLocation.address': cityNameRegex },
           { 'savedAddresses.address': cityNameRegex },
+          ...(isRajagopalpet
+            ? [
+                { 'location.addressDetails.area': cityNameRegex },
+                { 'homeLocation.addressDetails.area': cityNameRegex },
+                { 'savedAddresses.addressDetails.area': cityNameRegex },
+                { 'partnerProfile.workAreas': cityNameRegex },
+                { helperWorkAreas: cityNameRegex },
+              ]
+            : []),
         ],
       });
     }
