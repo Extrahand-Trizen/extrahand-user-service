@@ -1662,6 +1662,30 @@ export class ProfileController {
     }
   }
 
+  static async getPaymentTesterStatusInternal(
+    req: AuthenticatedRequest,
+    res: Response,
+  ): Promise<void> {
+    const uid = String(req.params.uid || '').trim();
+    if (!uid) {
+      res.status(400).json({ success: false, error: 'uid is required' });
+      return;
+    }
+
+    const profile = await Profile.findOne({ uid })
+      .select('isPaymentTester')
+      .lean();
+    if (!profile) {
+      res.status(404).json({ success: false, error: 'Profile not found' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      profile: { isPaymentTester: profile.isPaymentTester === true },
+    });
+  }
+
   /**
    * PUT /api/v1/profiles/internal/:uid
    * Internal service-to-service profile update endpoint.

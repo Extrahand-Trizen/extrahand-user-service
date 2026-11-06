@@ -894,6 +894,14 @@ ProfileSchema.index({ roles: 1 });
 ProfileSchema.index({ roles: 1, isActive: 1 });
 ProfileSchema.index({ createdAt: -1 });
 ProfileSchema.index({ status: 1, createdAt: -1 });
+ProfileSchema.index(
+  { isActive: 1, 'partnerProfile.status': 1, 'partnerProfile.workAreas': 1 },
+  { name: 'hourly_helper_partner_work_areas' },
+);
+ProfileSchema.index(
+  { isActive: 1, 'partnerProfile.status': 1, helperWorkAreas: 1 },
+  { name: 'hourly_helper_legacy_work_areas' },
+);
 
 // Static method to calculate completion percentage
 ProfileSchema.statics.calculateCompletionPercentage = function(profile: IProfile) {
