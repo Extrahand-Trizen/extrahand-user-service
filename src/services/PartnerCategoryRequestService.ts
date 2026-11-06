@@ -78,6 +78,19 @@ const requestedCategorySkills: Record<string, Set<string>> = {
     'quick_commerce_delivery',
   ]),
   driving: new Set(['personal_driver', 'driver_on_demand', 'commercial_driver']),
+  laundry: new Set([
+    'wash_by_weight',
+    'ironing_services',
+    'traditional_wear',
+    'bedding_and_blankets',
+    'shoe_cleaning',
+  ]),
+  car_wash: new Set([
+    'basic_car_wash',
+    'premium_car_wash',
+    'car_interior_deep_cleaning',
+    'car_sanitization',
+  ]),
   'daily-labour': new Set([
     'construction_labour',
     'loading_unloading',

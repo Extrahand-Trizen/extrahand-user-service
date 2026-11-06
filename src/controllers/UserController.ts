@@ -31,6 +31,7 @@ export class UserController {
       const { app, categories = [], cities = [], workAreas = [], page = 1, limit = 500 } = req.body || {};
       const apps = ['customer_app', 'helper_app', 'seller_app'];
       const isPartnerApp = app === 'helper_app';
+      const isCustomerApp = app === 'customer_app';
       const isValidStringList = (values: unknown, maxItems: number) =>
         Array.isArray(values) &&
         values.length <= maxItems &&
@@ -47,7 +48,8 @@ export class UserController {
         limit < 1 ||
         limit > 500 ||
         (isPartnerApp && (categories.length === 0 || cities.length === 0 || workAreas.length === 0)) ||
-        (!isPartnerApp && (categories.length > 0 || cities.length > 0 || workAreas.length > 0))
+        (isCustomerApp && (categories.length > 0 || workAreas.length > 0)) ||
+        (!isPartnerApp && !isCustomerApp && (categories.length > 0 || cities.length > 0 || workAreas.length > 0))
       ) {
         throw new BadRequestError('Invalid WhatsApp audience filters');
       }

@@ -33,6 +33,33 @@ const PROMOTIONAL_WHATSAPP_DATE_PRESETS: Record<
   },
 };
 
+const CLEANING_PARTNER_CATEGORY_VALUES = [
+  'cleaning',
+  'home_cleaning',
+  'house_cleaning',
+  'regular_home_cleaning',
+  'deep_cleaning',
+  'kitchen_bathroom_cleaning',
+  'bathroom_cleaning',
+  'kitchen_cleaning',
+  'sofa_carpet_cleaning',
+  'carpet_cleaning',
+  'sofa_cleaning',
+  'office_cleaning',
+  'commercial_cleaning',
+  'laundry',
+  'laundry_ironing',
+  'wash_by_weight',
+  'ironing_services',
+  'shoe_cleaning',
+  'car_wash',
+  'car_washing',
+  'basic_car_wash',
+  'premium_car_wash',
+  'car_interior_deep_cleaning',
+  'car_sanitization',
+];
+
 function normalizePhoneForCampaign(raw: unknown): string | null {
   const digits = String(raw ?? '').replace(/\D/g, '');
   if (digits.length < 10 || digits.length > 15) return null;
@@ -2779,6 +2806,19 @@ export class ProfileService {
       roles: { $in: roleValues[params.app] },
     };
 
+    if (params.app === 'customer_app' && params.cities.length > 0) {
+      const cityMatchers = params.cities.map(buildCityMatchRegex);
+      query.$or = [
+        { 'location.addressDetails.city': { $in: cityMatchers } },
+        { 'location.city': { $in: cityMatchers } },
+        { 'homeLocation.addressDetails.city': { $in: cityMatchers } },
+        { 'homeLocation.city': { $in: cityMatchers } },
+        { 'savedAddresses.city': { $in: cityMatchers } },
+        { 'savedAddresses.addressDetails.city': { $in: cityMatchers } },
+        { city: { $in: cityMatchers } },
+      ];
+    }
+
     if (params.app === 'helper_app') {
       query['partnerProfile.status'] = 'approved';
       const selectedCategoryNames = new Set(
@@ -2976,7 +3016,15 @@ export class ProfileService {
       const categoryRegex = buildFlexibleTextRegex(category);
       const categoryNameRegex = buildFlexibleTextRegex(category, false);
       if (role?.trim().toLowerCase() === 'partner') {
-        andConditions.push({ 'partnerProfile.categories': categoryRegex });
+        andConditions.push({
+          'partnerProfile.categories': category === 'cleaning_related'
+            ? {
+                $in: CLEANING_PARTNER_CATEGORY_VALUES.map((value) =>
+                  buildFlexibleTextRegex(value),
+                ),
+              }
+            : categoryRegex,
+        });
       } else {
         andConditions.push({
           $and: [
