@@ -74,6 +74,11 @@ router.delete(
   asyncHandler(ProfileController.resetAadhaarVerificationInternal)
 );
 router.get(
+  '/internal/:uid/payment-tester-status',
+  serviceAuthMiddleware,
+  asyncHandler(ProfileController.getPaymentTesterStatusInternal)
+);
+router.get(
   '/internal/:uid',
   serviceAuthMiddleware,
   asyncHandler(ProfileController.getProfileInternal)
@@ -278,4 +283,3 @@ router.delete('/bulk', authMiddleware, asyncHandler(ProfileController.bulkDelete
 router.delete('/:uid', authMiddleware, asyncHandler(ProfileController.deleteProfileByUid));
 
 export default router;
-
