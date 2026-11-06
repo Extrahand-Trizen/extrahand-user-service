@@ -3326,18 +3326,31 @@ export class ProfileService {
     this.checkConnection();
 
     const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escaped, 'i');
+    const nameRegex = new RegExp(escaped, 'i');
+    const phoneDigits = q.replace(/\D/g, '');
+    const phoneSearchDigits =
+      phoneDigits.startsWith('91') && phoneDigits.length > 10
+        ? phoneDigits.slice(-10)
+        : phoneDigits;
+    const phoneRegex = phoneSearchDigits
+      ? new RegExp(phoneSearchDigits.split('').join('\\D*'))
+      : null;
 
     const profiles = await Profile.find({
-      roles: 'tasker',
+      roles: { $in: ['tasker', 'partner'] },
       'dataPrivacy.accountDeleted': { $ne: true },
       $or: [
-        { name: regex },
-        { phone: regex },
-        { alternatePhone: regex },
+        { name: nameRegex },
+        ...(phoneRegex
+          ? [
+              { phone: phoneRegex },
+              { alternatePhone: phoneRegex },
+              { 'partnerProfile.phone': phoneRegex },
+            ]
+          : []),
       ],
     })
-      .select('uid name phone email status _id')
+      .select('uid name phone alternatePhone email status partnerProfile.phone _id')
       .limit(20)
       .lean();
 
@@ -3347,7 +3360,7 @@ export class ProfileService {
       _id: p._id?.toString(),
       profileId: p._id?.toString(),
       name: p.name || 'Unknown',
-      phone: p.phone || null,
+      phone: p.phone || p.alternatePhone || p.partnerProfile?.phone || null,
       email: p.email || null,
       status: p.status || 'active',
     }));
