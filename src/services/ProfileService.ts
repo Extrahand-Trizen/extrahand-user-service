@@ -3184,7 +3184,11 @@ export class ProfileService {
     }
 
     if (typeof isAadhaarVerified === 'boolean') {
-      andConditions.push({ isAadhaarVerified });
+      andConditions.push(
+        isAadhaarVerified
+          ? { isAadhaarVerified: true }
+          : { isAadhaarVerified: { $ne: true } },
+      );
     }
 
     if (typeof isCertified === 'boolean') {
