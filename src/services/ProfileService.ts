@@ -2920,6 +2920,7 @@ export class ProfileService {
     workArea?: string;
     area?: string;
     isAadhaarVerified?: boolean;
+    registrationCompletion?: 'complete' | 'incomplete';
     isCertified?: boolean;
     isPaymentTester?: boolean;
     createdFrom?: string;
@@ -2954,6 +2955,7 @@ export class ProfileService {
       workArea,
       area,
       isAadhaarVerified,
+      registrationCompletion,
       isCertified,
       isPaymentTester,
       createdFrom,
@@ -3188,6 +3190,80 @@ export class ProfileService {
         isAadhaarVerified
           ? { isAadhaarVerified: true }
           : { isAadhaarVerified: { $ne: true } },
+      );
+    }
+
+    if (registrationCompletion) {
+      const customerRoles = ['poster', 'requester', 'customer', 'both'];
+      const profileLocationCondition = {
+        $or: [
+          {
+            'location.coordinates.0': { $type: 'number' },
+            'location.coordinates.1': { $type: 'number' },
+          },
+          { 'location.address': { $type: 'string', $ne: '' } },
+          { 'location.addressDetails.city': { $type: 'string', $ne: '' } },
+          { 'location.addressDetails.area': { $type: 'string', $ne: '' } },
+          {
+            'homeLocation.coordinates.0': { $type: 'number' },
+            'homeLocation.coordinates.1': { $type: 'number' },
+          },
+          { 'homeLocation.address': { $type: 'string', $ne: '' } },
+          { 'homeLocation.addressDetails.city': { $type: 'string', $ne: '' } },
+          { 'homeLocation.addressDetails.area': { $type: 'string', $ne: '' } },
+          { 'savedAddresses.0': { $exists: true } },
+        ],
+      };
+      const providerLocationCondition = {
+        $or: [
+          profileLocationCondition,
+          { 'partnerProfile.workAreas.0': { $exists: true } },
+          { 'helperWorkAreas.0': { $exists: true } },
+        ],
+      };
+      const hasProviderSkillsOrCategories = {
+        $or: [
+          { 'partnerProfile.categories.0': { $exists: true } },
+          { 'partnerProfile.skills': { $exists: true, $ne: {} } },
+          { 'skills.primaryCategory': { $type: 'string', $ne: '' } },
+          { 'skills.list.0': { $exists: true } },
+        ],
+      };
+      const normalizedRoleFilter = role?.trim().toLowerCase();
+      const completeRegistrationCondition =
+        normalizedRoleFilter === 'customer' ||
+        normalizedRoleFilter === 'poster' ||
+        normalizedRoleFilter === 'requester'
+          ? profileLocationCondition
+          : normalizedRoleFilter === 'partner'
+            ? {
+                $and: [
+                  providerLocationCondition,
+                  hasProviderSkillsOrCategories,
+                ],
+              }
+            : {
+                $or: [
+                  {
+                    $and: [
+                      { roles: { $in: customerRoles } },
+                      profileLocationCondition,
+                    ],
+                  },
+                  {
+                    $and: [
+                      { roles: { $nin: customerRoles } },
+                      providerLocationCondition,
+                      hasProviderSkillsOrCategories,
+                    ],
+                  },
+                ],
+              };
+
+      andConditions.push(
+        registrationCompletion === 'complete'
+          ? completeRegistrationCondition
+          : { $nor: [completeRegistrationCondition] },
       );
     }
 

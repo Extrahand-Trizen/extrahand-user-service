@@ -175,6 +175,7 @@ export class UserController {
         category,
         isAadhaarVerified,
         isCertified,
+        registrationCompletion,
         isPaymentTester,
         createdFrom,
         createdTo,
@@ -225,6 +226,11 @@ export class UserController {
             ? req.query.includeSummary === 'true'
             : undefined,
         isAadhaarVerified: parsedAadhaarVerified,
+        registrationCompletion:
+          registrationCompletion === 'complete' ||
+          registrationCompletion === 'incomplete'
+            ? registrationCompletion
+            : undefined,
         isCertified: parsedCertified,
         isPaymentTester: parsedPaymentTester,
         createdFrom: createdFrom as string,
