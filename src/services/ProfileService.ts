@@ -2807,7 +2807,7 @@ export class ProfileService {
     };
 
     if (params.app === 'customer_app' && params.cities.length > 0) {
-      const cityMatchers = params.cities.map(buildCityMatchRegex);
+      const cityMatchers = params.cities.map((city) => buildCityMatchRegex(city));
       query.$or = [
         { 'location.addressDetails.city': { $in: cityMatchers } },
         { 'location.city': { $in: cityMatchers } },
@@ -3100,7 +3100,7 @@ export class ProfileService {
     }
 
     if (city && city.trim()) {
-      const cityNameRegex = buildCityMatchRegex(city);
+      const cityNameRegex = buildCityMatchRegex(city, true);
       const isRajagopalpet =
         city.trim().toLowerCase().replace(/[\s_-]+/g, '') === 'rajagopalpet';
 
@@ -3110,12 +3110,18 @@ export class ProfileService {
           { 'location.city': cityNameRegex },
           { 'homeLocation.addressDetails.city': cityNameRegex },
           { 'homeLocation.city': cityNameRegex },
-          { 'savedAddresses.city': cityNameRegex },
-          { 'savedAddresses.addressDetails.city': cityNameRegex },
+          {
+            savedAddresses: {
+              $elemMatch: {
+                isDefault: true,
+                $or: [
+                  { city: cityNameRegex },
+                  { 'addressDetails.city': cityNameRegex },
+                ],
+              },
+            },
+          },
           { city: cityNameRegex },
-          { 'location.address': cityNameRegex },
-          { 'homeLocation.address': cityNameRegex },
-          { 'savedAddresses.address': cityNameRegex },
           ...(isRajagopalpet
             ? [
                 { 'location.addressDetails.area': cityNameRegex },
@@ -5304,7 +5310,7 @@ function buildFlexibleTextRegex(value: string, exact = true): RegExp {
   return new RegExp(exact ? `^${pattern}$` : pattern, 'i');
 }
 
-function buildCityMatchRegex(city: string): RegExp {
+function buildCityMatchRegex(city: string, exact = false): RegExp {
   const normalizeLabel = (label: string) =>
     label.trim().toLowerCase().replace(/[\s_-]+/g, '');
   const normalizedCity = normalizeLabel(city);
@@ -5330,5 +5336,8 @@ function buildCityMatchRegex(city: string): RegExp {
         .join('[\\s_-]*'),
     );
 
-  return new RegExp(`\\b(?:${alternatives.join('|')})\\b`, 'i');
+  return new RegExp(
+    exact ? `^(?:${alternatives.join('|')})$` : `\\b(?:${alternatives.join('|')})\\b`,
+    'i',
+  );
 }
