@@ -5340,4 +5340,4 @@ function buildCityMatchRegex(city: string, exact = false): RegExp {
     exact ? `^(?:${alternatives.join('|')})$` : `\\b(?:${alternatives.join('|')})\\b`,
     'i',
   );
-}
+      }
