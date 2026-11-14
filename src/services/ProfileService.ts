@@ -60,6 +60,13 @@ const CLEANING_PARTNER_CATEGORY_VALUES = [
   'car_sanitization',
 ];
 
+const PARTNER_CATEGORY_FILTER_ALIASES: Record<string, string[]> = {
+  electrical: ['electrician'],
+  electrician: ['electrical'],
+  carpenter: ['carpentry'],
+  carpentry: ['carpenter'],
+};
+
 function normalizePhoneForCampaign(raw: unknown): string | null {
   const digits = String(raw ?? '').replace(/\D/g, '');
   if (digits.length < 10 || digits.length > 15) return null;
@@ -3074,6 +3081,11 @@ export class ProfileService {
       const categoryRegex = buildFlexibleTextRegex(category);
       const categoryNameRegex = buildFlexibleTextRegex(category, false);
       if (role?.trim().toLowerCase() === 'partner') {
+        const normalizedCategory = category.trim().toLowerCase();
+        const partnerCategoryValues = [
+          category,
+          ...(PARTNER_CATEGORY_FILTER_ALIASES[normalizedCategory] || []),
+        ];
         andConditions.push({
           'partnerProfile.categories': category === 'cleaning_related'
             ? {
@@ -3081,7 +3093,11 @@ export class ProfileService {
                   buildFlexibleTextRegex(value),
                 ),
               }
-            : categoryRegex,
+            : {
+                $in: partnerCategoryValues.map((value) =>
+                  buildFlexibleTextRegex(value),
+                ),
+              },
         });
       } else {
         andConditions.push({
