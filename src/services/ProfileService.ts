@@ -61,10 +61,22 @@ const CLEANING_PARTNER_CATEGORY_VALUES = [
 ];
 
 const PARTNER_CATEGORY_FILTER_ALIASES: Record<string, string[]> = {
+  'ac-repair': ['ac_service', 'heating_cooling'],
+  'ac-repair-service': ['ac_service', 'heating_cooling'],
+  'appliance-repair': ['appliance_repair', 'appliances'],
+  beauty: ['beauty_services'],
+  'beauty-services': ['beauty_services'],
+  'car-washing': ['car_wash'],
   electrical: ['electrician'],
   electrician: ['electrical'],
   carpenter: ['carpentry'],
   carpentry: ['carpenter'],
+  'delivery-pickup-services': ['delivery_logistics'],
+  'driver-chauffeur': ['driving'],
+  'home-cleaning': ['cleaning', 'home_cleaning'],
+  'laundry-ironing': ['laundry'],
+  moving: ['delivery_logistics'],
+  'packers-movers': ['delivery_logistics'],
 };
 
 function normalizePhoneForCampaign(raw: unknown): string | null {
@@ -3082,23 +3094,33 @@ export class ProfileService {
       const categoryNameRegex = buildFlexibleTextRegex(category, false);
       if (role?.trim().toLowerCase() === 'partner') {
         const normalizedCategory = category.trim().toLowerCase();
-        const partnerCategoryValues = [
-          category,
-          ...(PARTNER_CATEGORY_FILTER_ALIASES[normalizedCategory] || []),
+        const partnerCategoryValues =
+          normalizedCategory === 'cleaning_related'
+            ? CLEANING_PARTNER_CATEGORY_VALUES
+            : [
+                category,
+                ...(PARTNER_CATEGORY_FILTER_ALIASES[normalizedCategory] || []),
+              ];
+        const partnerCategoryConditions: Record<string, unknown>[] = [
+          {
+            'partnerProfile.categories': {
+              $in: partnerCategoryValues.map((value) =>
+                buildFlexibleTextRegex(value),
+              ),
+            },
+          },
         ];
-        andConditions.push({
-          'partnerProfile.categories': category === 'cleaning_related'
-            ? {
-                $in: CLEANING_PARTNER_CATEGORY_VALUES.map((value) =>
-                  buildFlexibleTextRegex(value),
-                ),
-              }
-            : {
-                $in: partnerCategoryValues.map((value) =>
-                  buildFlexibleTextRegex(value),
-                ),
-              },
-        });
+
+        for (const value of partnerCategoryValues) {
+          const skillGroupId = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+          if (skillGroupId) {
+            partnerCategoryConditions.push({
+              [`partnerProfile.skills.${skillGroupId}`]: { $exists: true },
+            });
+          }
+        }
+
+        andConditions.push({ $or: partnerCategoryConditions });
       } else {
         andConditions.push({
           $and: [
