@@ -2900,7 +2900,7 @@ export class ProfileService {
     }
 
     const profiles = await Profile.find(query)
-      .select('_id uid name phone partnerProfile.phone partnerProfile.categories partnerProfile.workAreas helperWorkAreas')
+      .select('_id uid name phone isAadhaarVerified partnerProfile.phone partnerProfile.categories partnerProfile.workAreas helperWorkAreas')
       .lean();
 
     return profiles.map((profile: any) => {
@@ -2918,6 +2918,7 @@ export class ProfileService {
         uid: profile.uid,
         name: profile.name || '',
         phone: profile.phone || profile.partnerProfile?.phone || '',
+        isAadhaarVerified: profile.isAadhaarVerified === true,
         workAreas,
         partnerProfile: {
           phone: profile.partnerProfile?.phone,
