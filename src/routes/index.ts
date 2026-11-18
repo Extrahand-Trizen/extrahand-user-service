@@ -11,6 +11,7 @@ import notificationPreferencesRoutes from "./notificationPreferences";
 import referralRoutes from "./referral";
 import badgeRoutes from "./badge";
 import inquiriesRoutes from "./inquiries";
+import supportTicketsRoutes from "./supportTickets";
 import { gatewayAuthMiddleware } from "../middleware/gatewayAuth";
 
 const router = Router();
@@ -41,4 +42,5 @@ router.use("/notification-preferences", notificationPreferencesRoutes);
 router.use("/user", referralRoutes);
 router.use("/user", badgeRoutes);
 router.use("/inquiries", inquiriesRoutes);
+router.use("/support-tickets", supportTicketsRoutes);
 export default router;
