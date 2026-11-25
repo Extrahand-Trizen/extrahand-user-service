@@ -220,6 +220,10 @@ export class UserController {
         category: category as string,
         city: req.query.city as string,
         workArea: req.query.workArea as string,
+        workAreaIds:
+          typeof req.query.workAreaIds === 'string'
+            ? req.query.workAreaIds.split(',').map((id) => id.trim()).filter(Boolean)
+            : undefined,
         area: area as string,
         includeSummary:
           typeof req.query.includeSummary === 'string'

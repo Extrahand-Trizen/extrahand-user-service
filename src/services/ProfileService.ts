@@ -2938,6 +2938,7 @@ export class ProfileService {
     category?: string;
     city?: string;
     workArea?: string;
+    workAreaIds?: string[];
     area?: string;
     isAadhaarVerified?: boolean;
     registrationCompletion?: 'complete' | 'incomplete';
@@ -2973,6 +2974,7 @@ export class ProfileService {
       category,
       city,
       workArea,
+      workAreaIds,
       area,
       isAadhaarVerified,
       registrationCompletion,
@@ -3197,6 +3199,15 @@ export class ProfileService {
           ],
         });
       }
+    }
+
+    if (role?.trim().toLowerCase() === 'partner' && workAreaIds?.length) {
+      andConditions.push({
+        $or: [
+          { 'partnerProfile.workAreas': { $in: workAreaIds } },
+          { helperWorkAreas: { $in: workAreaIds } },
+        ],
+      });
     }
 
     if (area && area.trim() && area !== 'all') {
