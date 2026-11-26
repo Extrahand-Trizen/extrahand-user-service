@@ -3062,7 +3062,15 @@ export class ProfileService {
     // Filter by role
     if (role && role !== 'all') {
       const normalizedRole = role.trim().toLowerCase();
-      if (normalizedRole === 'helper' || normalizedRole === 'tasker') {
+      if (normalizedRole === 'empty') {
+        andConditions.push({
+          $or: [
+            { roles: { $exists: false } },
+            { roles: null },
+            { roles: { $size: 0 } },
+          ],
+        });
+      } else if (normalizedRole === 'helper' || normalizedRole === 'tasker') {
         andConditions.push({ roles: { $in: ['tasker', 'both', 'helper'] } });
       } else if (normalizedRole === 'customer' || normalizedRole === 'poster' || normalizedRole === 'requester') {
         andConditions.push({ roles: { $in: ['poster', 'requester', 'both', 'customer'] } });

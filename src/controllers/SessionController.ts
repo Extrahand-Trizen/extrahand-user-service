@@ -11,6 +11,31 @@ import type { ClientType } from "../models/SessionToken";
 import { UnauthorizedError } from "../errors/AppError";
 
 export class SessionController {
+   static async validate(
+      req: AuthenticatedRequest,
+      res: Response
+   ): Promise<void> {
+      const { uid, sessionId, tokenId } = req.body ?? {};
+      if (
+         typeof uid !== "string" ||
+         typeof sessionId !== "string" ||
+         (tokenId !== undefined && typeof tokenId !== "string")
+      ) {
+         res.status(400).json({
+            success: false,
+            error: "uid, sessionId, and an optional tokenId are required",
+         });
+         return;
+      }
+
+      const active = await SessionService.isAccessSessionActive(
+         uid,
+         sessionId,
+         tokenId
+      );
+      res.json({ success: true, active });
+   }
+
    static async refresh(
       req: AuthenticatedRequest,
       res: Response
