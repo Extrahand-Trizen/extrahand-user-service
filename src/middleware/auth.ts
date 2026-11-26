@@ -81,21 +81,6 @@ export async function authMiddleware(
     
     // Verify JWT token using SessionService (NOT Firebase!)
     const verified = SessionService.verifyAccessToken(jwtToken);
-
-    if (
-      !(await SessionService.isAccessSessionActive(
-        verified.uid,
-        verified.sessionId,
-        verified.tokenId
-      ))
-    ) {
-      res.status(401).json({
-        success: false,
-        error: 'Invalid or expired token',
-        details: 'Session is no longer active',
-      });
-      return;
-    }
     
     // Set user from JWT claims
     req.user = { uid: verified.uid, token: jwtToken };

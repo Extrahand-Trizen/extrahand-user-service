@@ -206,22 +206,6 @@ export class SessionService {
       }
    }
 
-   static async isAccessSessionActive(
-      uid: string,
-      sessionId: string,
-      tokenId?: string
-   ): Promise<boolean> {
-      const activeSession = await SessionToken.exists({
-         userId: uid,
-         sessionId,
-         ...(tokenId ? { tokenId } : {}),
-         revokedAt: null,
-         expiresAt: { $gt: new Date() },
-      });
-
-      return activeSession !== null;
-   }
-
    private static async issueTokens(
       metadata: TokenIssueMetadata & { sessionId: string }
    ): Promise<TokenPair> {
