@@ -45,9 +45,12 @@ function rolesForPartnerApp(rolesRaw: unknown): Array<'poster' | 'partner' | 'se
 
 /** Dialog / Meta welcome mapping for each mobile app binary. */
 export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
-  eventKey: 'CUSTOMER_WELCOME' | 'HELPER_WELCOME';
-  metaTemplateName: 'extrahand_customer_welcome' | 'extrahand_helper_welcome';
-  legacyTemplateKey: 'wa_customer_welcome' | 'wa_helper_welcome';
+  eventKey: 'CUSTOMER_WELCOME' | 'HELPER_WELCOME' | 'SELLER_WELCOME';
+  metaTemplateName:
+    | 'extrahand_customer_welcome'
+    | 'extrahand_helper_welcome'
+    | 'extrahand_seller_welcome';
+  legacyTemplateKey: 'wa_customer_welcome' | 'wa_helper_welcome' | 'wa_seller_welcome';
   role: 'poster' | 'helper' | 'partner' | 'seller';
   idempotencyKey: (uid: string) => string;
 } {
@@ -62,9 +65,9 @@ export function welcomeWhatsAppForAuthChannel(channel: AuthChannel): {
   }
   if (channel === 'seller_app') {
     return {
-      eventKey: 'CUSTOMER_WELCOME',
-      metaTemplateName: 'extrahand_customer_welcome',
-      legacyTemplateKey: 'wa_customer_welcome',
+      eventKey: 'SELLER_WELCOME',
+      metaTemplateName: 'extrahand_seller_welcome',
+      legacyTemplateKey: 'wa_seller_welcome',
       role: 'seller',
       idempotencyKey: (uid) => `welcome:seller:${uid}`,
     };

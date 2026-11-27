@@ -101,7 +101,7 @@ export class AuthService {
 
    /**
     * Non-blocking welcome WhatsApp on mobile app register / first channel capability.
-    * Customer app → extrahand_customer_welcome; Helper app → extrahand_helper_welcome.
+    * Customer, helper, and seller apps use their respective welcome templates.
     */
    private static triggerChannelWelcomeWhatsApp(args: {
       uid: string;

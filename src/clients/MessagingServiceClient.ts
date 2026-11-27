@@ -36,7 +36,9 @@ export class MessagingServiceClient {
         ? 'wa_customer_welcome'
         : args.role === 'helper' || args.role === 'tasker'
           ? 'wa_helper_welcome'
-          : 'wa_signup_welcome');
+          : args.role === 'seller'
+            ? 'wa_seller_welcome'
+            : 'wa_signup_welcome');
 
     if (!messagingServiceCircuit.isCallAllowed()) {
       logger.warn('MessagingServiceClient.sendSignupWelcome skipped (circuit open)', {
